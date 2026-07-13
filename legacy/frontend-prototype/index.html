@@ -1,0 +1,1401 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex">
+<title>梧桐墙 · 校园社区原型</title>
+<style>
+:root{
+  color-scheme: light;
+  --board:#24483A;        /* 黑板绿 */
+  --board-deep:#183226;
+  --paper:#F6F4EC;        /* 纸面 */
+  --card:#FFFFFF;
+  --ink:#23271F;
+  --ink-soft:#6B6F63;
+  --sticky:#FFD34D;       /* 便利贴黄 */
+  --sticky-soft:#FFF3C9;
+  --stamp:#C0432B;        /* 印章红 */
+  --stamp-soft:#F9E4DE;
+  --leaf:#3E7D5C;         /* 交互绿 */
+  --leaf-soft:#E3EFE7;
+  --line:#E4E1D5;
+  --radius:10px;
+  --mono:"JetBrains Mono","SFMono-Regular",Consolas,monospace;
+  --serif:"Noto Serif SC","Songti SC","STSong","SimSun",serif;
+  --sans:"Noto Sans SC","PingFang SC","Microsoft YaHei",sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{font-family:var(--sans);background:var(--paper);color:var(--ink);font-size:14px;line-height:1.6}
+button{font-family:inherit;cursor:pointer}
+input,select,textarea{font-family:inherit;font-size:14px}
+a{color:var(--leaf)}
+
+/* ===== 顶栏 ===== */
+.topbar{background:var(--board);color:#F2EFE4;display:flex;align-items:center;gap:20px;padding:0 24px;height:58px;position:sticky;top:0;z-index:50;box-shadow:0 2px 8px rgba(20,40,30,.25)}
+.logo{display:flex;align-items:baseline;gap:8px;white-space:nowrap}
+.logo b{font-family:var(--serif);font-size:22px;letter-spacing:2px;color:#fff}
+.logo span{font-size:11px;color:#BFCFC2;letter-spacing:1px}
+.searchbox{flex:1;max-width:420px;display:flex}
+.searchbox input{flex:1;border:none;border-radius:6px 0 0 6px;padding:7px 12px;background:#FDFCF7;outline:none}
+.searchbox button{border:none;background:var(--sticky);border-radius:0 6px 6px 0;padding:0 14px;font-weight:700;color:#5B4600}
+.top-actions{margin-left:auto;display:flex;align-items:center;gap:12px}
+.btn-post{background:var(--sticky);color:#5B4600;border:none;border-radius:6px;padding:8px 16px;font-weight:700}
+.btn-post:hover{filter:brightness(1.05)}
+.userchip{display:flex;align-items:center;gap:10px;background:rgba(255,255,255,.09);border:1px solid rgba(255,255,255,.18);border-radius:8px;padding:5px 12px;cursor:pointer}
+.userchip:hover{background:rgba(255,255,255,.16)}
+.avatar{width:30px;height:30px;border-radius:50%;background:var(--sticky);color:#5B4600;display:flex;align-items:center;justify-content:center;font-weight:800}
+.userchip .uname{font-size:13px;font-weight:600;color:#fff}
+.userchip .umeta{font-size:11px;color:#BFCFC2}
+.login-link{background:none;border:1px solid rgba(255,255,255,.4);color:#F2EFE4;border-radius:6px;padding:7px 14px}
+
+/* ===== 公告条 ===== */
+.notice-bar{background:var(--sticky);color:#4A3900;display:flex;align-items:center;gap:10px;padding:6px 24px;font-size:13px;position:sticky;top:58px;z-index:49;border-bottom:1px solid #E8BE33}
+.notice-bar .tag-notice{background:var(--stamp);color:#fff;font-size:11px;padding:1px 8px;border-radius:4px;font-weight:700;flex-shrink:0}
+.notice-bar .ticker{flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.notice-bar a{color:#4A3900;font-weight:600}
+.notice-bar .close-nb{background:none;border:none;font-size:15px;color:#7A6410}
+
+/* ===== 布局 ===== */
+.layout{display:flex;max-width:1360px;margin:0 auto;align-items:flex-start;gap:20px;padding:18px 20px 60px}
+.sidenav{width:196px;flex-shrink:0;position:sticky;top:104px;max-height:calc(100vh - 120px);overflow-y:auto}
+.sidenav .group-label{font-size:11px;color:var(--ink-soft);letter-spacing:2px;margin:16px 6px 6px;font-weight:700}
+.sidenav .group-label:first-child{margin-top:2px}
+.navitem{display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:none;border:none;border-radius:8px;padding:8px 10px;font-size:14px;color:var(--ink);margin-bottom:2px}
+.navitem .ico{width:20px;text-align:center;flex-shrink:0}
+.navitem:hover{background:#ECEADD}
+.navitem.active{background:var(--board);color:#fff;font-weight:600}
+.navitem .mini-badge{margin-left:auto;font-size:10px;background:var(--stamp);color:#fff;border-radius:8px;padding:0 6px}
+.main{flex:1;min-width:0}
+.rail{width:280px;flex-shrink:0;position:sticky;top:104px}
+
+/* ===== 通用卡片 ===== */
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:16px 18px;margin-bottom:14px}
+.card h3{font-family:var(--serif);font-size:16px;margin-bottom:10px;display:flex;align-items:center;gap:8px}
+.page{display:none}
+.page.active{display:block}
+.page-head{margin-bottom:14px}
+.page-head h2{font-family:var(--serif);font-size:24px;letter-spacing:1px}
+.page-head p{color:var(--ink-soft);font-size:13px;margin-top:2px}
+.chip{display:inline-block;font-size:12px;border:1px solid var(--line);background:#FBFAF4;border-radius:20px;padding:2px 10px;margin:0 6px 6px 0;color:var(--ink);cursor:pointer}
+.chip.on{background:var(--board);color:#fff;border-color:var(--board)}
+.tag{display:inline-block;font-size:11px;border-radius:4px;padding:1px 7px;margin-right:6px;vertical-align:1px}
+.tag.green{background:var(--leaf-soft);color:#2C5E44}
+.tag.yellow{background:var(--sticky-soft);color:#7A5B00}
+.tag.red{background:var(--stamp-soft);color:var(--stamp)}
+.tag.gray{background:#EEEDE4;color:#6B6F63}
+.tag.blue{background:#E2ECF7;color:#2D5D93}
+.stamp-badge{display:inline-block;font-family:var(--serif);border:1.5px solid var(--stamp);color:var(--stamp);border-radius:4px;padding:0 6px;font-size:11px;transform:rotate(-2deg);font-weight:700}
+.btn{border:none;border-radius:7px;padding:8px 16px;font-weight:600;font-size:13px}
+.btn.primary{background:var(--board);color:#fff}
+.btn.primary:hover{background:var(--board-deep)}
+.btn.ghost{background:#fff;border:1px solid var(--line);color:var(--ink)}
+.btn.ghost:hover{border-color:var(--board);color:var(--board)}
+.btn.warn{background:var(--stamp);color:#fff}
+.btn.sm{padding:4px 10px;font-size:12px}
+.hr{border:none;border-top:1px dashed var(--line);margin:12px 0}
+.muted{color:var(--ink-soft);font-size:12px}
+.mono{font-family:var(--mono)}
+
+/* ===== 首页：便利贴热榜（signature） ===== */
+.board-frame{background:var(--board);border-radius:14px;padding:18px 18px 8px;margin-bottom:18px;box-shadow:inset 0 0 0 6px var(--board-deep), inset 0 0 0 8px #C9A96A}
+.board-frame .board-title{display:flex;align-items:baseline;gap:12px;margin-bottom:12px}
+.board-frame .board-title h2{font-family:var(--serif);color:#fff;font-size:20px;letter-spacing:3px}
+.board-frame .board-title .formula{font-size:11px;color:#BFCFC2;cursor:help;border-bottom:1px dotted #BFCFC2}
+.rank-tabs{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px}
+.rank-tab{background:rgba(255,255,255,.12);border:none;color:#DFE8DD;font-size:12px;border-radius:16px;padding:4px 12px}
+.rank-tab.on{background:var(--sticky);color:#5B4600;font-weight:700}
+.sticky-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:14px;padding-bottom:12px}
+.sticky-note{background:var(--sticky-soft);border-radius:3px;padding:24px 12px 10px;position:relative;box-shadow:2px 3px 6px rgba(0,0,0,.28);font-size:13px;min-height:110px;cursor:pointer;transition:transform .15s}
+.sticky-note:nth-child(odd){transform:rotate(-1.3deg)}
+.sticky-note:nth-child(even){transform:rotate(1.1deg);background:#FDF6DB}
+.sticky-note:nth-child(3n){background:#EAF3E4}
+.sticky-note:hover{transform:rotate(0) scale(1.04);z-index:2}
+.sticky-note::before{content:"";position:absolute;top:8px;left:50%;margin-left:-5px;width:10px;height:10px;border-radius:50%;background:var(--stamp);box-shadow:inset -2px -2px 3px rgba(0,0,0,.35)}
+.sticky-note .rk{position:absolute;top:6px;left:8px;font-family:var(--mono);font-size:11px;color:#9B8B4A;font-weight:700}
+.sticky-note .t{font-weight:700;display:block;margin-bottom:6px;line-height:1.45}
+.sticky-note .m{font-size:11px;color:#8B8468}
+
+/* ===== 帖子流 ===== */
+.post{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px;margin-bottom:12px}
+.post .p-head{display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap}
+.post .p-avatar{width:26px;height:26px;border-radius:50%;background:var(--leaf-soft);color:#2C5E44;font-size:12px;display:flex;align-items:center;justify-content:center;font-weight:700;flex-shrink:0}
+.post .p-name{font-weight:600;font-size:13px}
+.post .p-time{color:var(--ink-soft);font-size:11px;margin-left:auto;font-family:var(--mono)}
+.post .p-title{font-weight:700;font-size:15px;margin:4px 0}
+.post .p-body{font-size:13.5px;color:#3B4034}
+.post .p-foot{display:flex;gap:16px;margin-top:10px;color:var(--ink-soft);font-size:12px}
+.post .p-foot span{cursor:pointer}
+.post .p-foot span:hover{color:var(--board)}
+
+/* ===== 右栏 ===== */
+.idcard{background:linear-gradient(135deg,var(--board),#2F5D4A);color:#EAF1E8;border-radius:var(--radius);padding:16px;margin-bottom:14px}
+.idcard .row1{display:flex;align-items:center;gap:12px}
+.idcard .avatar{width:42px;height:42px;font-size:17px}
+.idcard .credit{font-family:var(--mono);font-size:26px;font-weight:700;color:var(--sticky)}
+.idcard .tags{margin-top:10px}
+.idcard .tag{background:rgba(255,255,255,.14);color:#EAF1E8}
+.idcard .bar{height:5px;background:rgba(255,255,255,.18);border-radius:3px;margin-top:10px;overflow:hidden}
+.idcard .bar i{display:block;height:100%;width:82%;background:var(--sticky)}
+.rail .card{padding:13px 15px}
+.rail li{font-size:12.5px;margin-bottom:7px;list-style:none;display:flex;gap:6px}
+.rail li .dot{color:var(--stamp)}
+
+/* ===== 车队（车票样式 signature 2） ===== */
+.game-filter{display:flex;flex-wrap:wrap;gap:0;margin-bottom:14px}
+.ticket{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);margin-bottom:14px;display:flex;overflow:hidden}
+.ticket .t-left{flex:1;padding:14px 16px}
+.ticket .t-right{width:150px;flex-shrink:0;border-left:1.5px dashed #C9C5B4;background:#FBFAF3;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;padding:12px;position:relative}
+.ticket .t-right::before,.ticket .t-right::after{content:"";position:absolute;left:-9px;width:16px;height:16px;border-radius:50%;background:var(--paper);border:1px solid var(--line)}
+.ticket .t-right::before{top:-9px}
+.ticket .t-right::after{bottom:-9px}
+.ticket .t-game{font-family:var(--serif);font-weight:700;font-size:16px}
+.ticket .t-row{font-size:12.5px;color:#3B4034;margin-top:3px}
+.ticket .t-row b{color:var(--ink)}
+.ticket .seats{font-family:var(--mono);font-size:18px;font-weight:700;color:var(--board)}
+.ticket .cd{font-family:var(--mono);font-size:12px;color:var(--stamp);font-weight:700}
+.seatdots{display:flex;gap:4px;margin:2px 0}
+.seatdots i{width:10px;height:10px;border-radius:50%;background:var(--leaf)}
+.seatdots i.empty{background:#DDD9C8}
+
+/* ===== 表单 / 弹窗 ===== */
+.overlay{display:none;position:fixed;inset:0;background:rgba(25,35,28,.55);z-index:100;align-items:flex-start;justify-content:center;overflow-y:auto;padding:40px 16px}
+.overlay.show{display:flex}
+.modal{background:var(--card);border-radius:14px;max-width:640px;width:100%;padding:24px 26px;position:relative;box-shadow:0 12px 40px rgba(0,0,0,.3)}
+.modal h3{font-family:var(--serif);font-size:19px;margin-bottom:4px}
+.modal .sub{color:var(--ink-soft);font-size:12.5px;margin-bottom:14px}
+.modal .x{position:absolute;top:14px;right:16px;background:none;border:none;font-size:18px;color:var(--ink-soft)}
+.fgrid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.fgrid .full{grid-column:1/-1}
+.field label{display:block;font-size:12px;font-weight:700;margin-bottom:4px;color:#41463B}
+.field input,.field select,.field textarea{width:100%;border:1px solid var(--line);border-radius:7px;padding:8px 10px;background:#FDFCF7;outline:none}
+.field input:focus,.field select:focus,.field textarea:focus{border-color:var(--board)}
+.opt-row{display:flex;flex-wrap:wrap;gap:6px}
+.opt-row .chip{margin:0}
+.modal .actions{display:flex;justify-content:flex-end;gap:10px;margin-top:18px}
+.checkline{display:flex;gap:8px;align-items:flex-start;font-size:12.5px;margin:10px 0}
+.checkline input{margin-top:3px}
+
+/* ===== 表格 ===== */
+table.gov{width:100%;border-collapse:collapse;font-size:12.5px}
+table.gov th{background:#F0EEE2;text-align:left;padding:8px 10px;font-size:12px;border-bottom:2px solid var(--line)}
+table.gov td{padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+table.gov tr:hover td{background:#FBFAF3}
+
+/* ===== 步骤条 ===== */
+.steps{display:flex;gap:0;margin:10px 0}
+.step{flex:1;text-align:center;position:relative;font-size:12px;color:var(--ink-soft)}
+.step .n{width:26px;height:26px;border-radius:50%;background:#E8E6D9;color:#7B7F6F;display:flex;align-items:center;justify-content:center;margin:0 auto 4px;font-weight:700;font-family:var(--mono)}
+.step.done .n{background:var(--board);color:#fff}
+.step::after{content:"";position:absolute;top:13px;left:calc(50% + 16px);width:calc(100% - 32px);height:2px;background:#E8E6D9}
+.step:last-child::after{display:none}
+
+/* ===== 提示气泡/警示 ===== */
+.rulebox{background:var(--sticky-soft);border:1px solid #EAD27E;border-radius:var(--radius);padding:12px 16px;font-size:12.5px;margin-bottom:14px}
+.rulebox b{color:#7A5B00}
+.rulebox ul{padding-left:18px;margin-top:4px}
+.rulebox li{margin-bottom:2px}
+.dangerbox{background:var(--stamp-soft);border:1px solid #E4B3A5;border-radius:var(--radius);padding:12px 16px;font-size:12.5px;margin-bottom:14px}
+.carebox{background:#FFF8F0;border:2px solid var(--stamp);border-radius:12px;padding:14px 16px;margin-top:10px;display:none}
+.carebox.show{display:block}
+.toast{position:fixed;bottom:28px;left:50%;transform:translateX(-50%);background:var(--board);color:#fff;padding:10px 22px;border-radius:24px;font-size:13px;z-index:200;display:none;box-shadow:0 6px 20px rgba(0,0,0,.3)}
+.toast.show{display:block;animation:pop .2s}
+@keyframes pop{from{transform:translateX(-50%) translateY(8px);opacity:0}}
+
+/* ===== 手册分类 ===== */
+.hb-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
+.hb-item{background:var(--card);border:1px solid var(--line);border-radius:9px;padding:12px;font-size:13px;cursor:pointer;display:flex;gap:8px;align-items:center}
+.hb-item:hover{border-color:var(--board);box-shadow:0 2px 8px rgba(30,60,45,.1)}
+.hb-item .ico{font-size:18px}
+
+/* ===== 课评分数 ===== */
+.score-big{font-family:var(--mono);font-size:30px;font-weight:800;color:var(--board)}
+.score-hidden{font-family:var(--serif);font-size:15px;color:var(--ink-soft);border:1.5px dashed var(--line);border-radius:8px;padding:6px 12px;display:inline-block}
+
+/* ===== 焦点可达性 & 动效克制 ===== */
+button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid var(--stamp);outline-offset:2px}
+@media (prefers-reduced-motion: reduce){*{animation:none!important;transition:none!important}}
+
+/* ===== 移动端底部导航 & 抽屉 ===== */
+.tabbar{display:none;position:fixed;bottom:0;left:0;right:0;background:#fff;border-top:1px solid var(--line);z-index:90;padding:4px 0 max(4px, env(safe-area-inset-bottom));box-shadow:0 -2px 10px rgba(20,40,30,.08)}
+.tabbar button{flex:1;background:none;border:none;display:flex;flex-direction:column;align-items:center;gap:1px;font-size:10.5px;color:var(--ink-soft);padding:4px 0}
+.tabbar button .ti{font-size:19px;line-height:1.2}
+.tabbar button.active{color:var(--board);font-weight:700}
+.drawer-mask{display:none;position:fixed;inset:0;background:rgba(25,35,28,.5);z-index:95}
+.drawer-mask.show{display:block}
+.drawer{position:fixed;top:0;bottom:0;left:-260px;width:250px;background:var(--paper);z-index:96;transition:left .22s;overflow-y:auto;padding:16px 12px calc(70px + env(safe-area-inset-bottom));box-shadow:4px 0 20px rgba(0,0,0,.2)}
+.drawer.show{left:0}
+.drawer .navitem{font-size:15px;padding:10px 12px}
+.drawer .group-label{font-size:11px;color:var(--ink-soft);letter-spacing:2px;margin:14px 6px 6px;font-weight:700}
+
+/* ===== 响应式 ===== */
+@media (max-width:1100px){.rail{display:none}}
+@media (max-width:860px){
+  body{font-size:13.5px;padding-bottom:64px}
+  .sidenav{display:none}
+  .tabbar{display:flex}
+  .layout{padding:12px 10px 40px;gap:0}
+  /* 顶栏折叠：两行布局 */
+  .topbar{flex-wrap:wrap;height:auto;padding:8px 12px;row-gap:8px;position:static}
+  .logo span{display:none}
+  .logo b{font-size:19px}
+  .top-actions{margin-left:auto;gap:8px}
+  .btn-post{padding:7px 12px}
+  .login-link{padding:6px 10px;font-size:12px}
+  .userchip{padding:4px 8px}
+  .userchip .umeta{display:none}
+  .searchbox{order:3;max-width:none;width:100%}
+  .notice-bar{position:static;padding:6px 12px}
+  /* 公告栏与便利贴 */
+  .board-frame{padding:12px 12px 4px;box-shadow:inset 0 0 0 4px var(--board-deep), inset 0 0 0 6px #C9A96A;border-radius:10px}
+  .board-frame .board-title h2{font-size:17px}
+  .rank-tabs{overflow-x:auto;flex-wrap:nowrap;padding-bottom:4px;-webkit-overflow-scrolling:touch}
+  .rank-tab{flex-shrink:0}
+  .sticky-grid{grid-template-columns:1fr 1fr;gap:10px}
+  /* 车票纵向堆叠 */
+  .ticket{flex-direction:column}
+  .ticket .t-right{width:100%;border-left:none;border-top:1.5px dashed #C9C5B4;flex-direction:row;justify-content:space-between;padding:10px 14px}
+  .ticket .t-right::before,.ticket .t-right::after{top:-9px;bottom:auto}
+  .ticket .t-right::before{left:-9px}
+  .ticket .t-right::after{left:auto;right:-9px}
+  .seatdots{margin:0 6px}
+  /* 表单/弹窗全宽 */
+  .overlay{padding:12px 8px;align-items:flex-end}
+  .modal{padding:18px 16px;border-radius:14px 14px 0 0;max-height:88vh;overflow-y:auto}
+  .fgrid{grid-template-columns:1fr}
+  /* 表格横向滚动 */
+  .card{overflow-x:auto}
+  table.gov{min-width:520px}
+  /* 步骤条压缩 */
+  .steps{font-size:10.5px}
+  .step .n{width:22px;height:22px}
+  /* 页头按钮换行 */
+  .page-head{flex-wrap:wrap;row-gap:8px}
+  .page-head h2{font-size:20px}
+  .hb-grid{grid-template-columns:repeat(2,1fr)}
+}
+@media (max-width:380px){.sticky-grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+
+<!-- ======= 顶栏 ======= -->
+<header class="topbar">
+  <div class="logo"><b>梧桐墙</b><span>WUTONG WALL · 校园社区</span></div>
+  <div class="searchbox">
+    <input type="search" placeholder="搜帖子 / 车队 / 二手 / 课程…（匿名帖不进搜索）">
+    <button>搜索</button>
+  </div>
+  <div class="top-actions">
+    <button class="btn-post" onclick="if(window.LIVE&&!window.TOKEN){toast('发帖需要先登录');openModal('m-login')}else openModal('m-compose')">✏️ 发帖</button>
+    <button class="login-link" style="border-style:dashed" onclick="XF&&XF.open()">💡 反馈</button>
+    <button class="login-link" id="btnLogin" onclick="openModal('m-login')">登录</button>
+    <button class="login-link" id="btnReg" style="background:var(--sticky);color:#5B4600;border-color:transparent;font-weight:700" onclick="openModal('m-register')">注册</button>
+    <div class="userchip" onclick="showPage('credit')" title="查看我的信用与身份">
+      <div class="avatar">桐</div>
+      <div>
+        <div class="uname">梧桐子_0421</div>
+        <div class="umeta">已认证本科生 · 信用 82</div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<!-- ======= 轻量公告条 ======= -->
+<div class="notice-bar" id="noticeBar">
+  <span class="tag-notice">公告</span>
+  <div class="ticker">📌 6/28 起《社区规范 v2.3》生效：交易区新增“中介担保费率说明”；7/12 凌晨 2:00–4:00 停服维护。 <a href="#" onclick="showPage('announce');return false">查看全部 →</a></div>
+  <button class="close-nb" onclick="document.getElementById('noticeBar').style.display='none'" title="收起公告条">✕</button>
+</div>
+
+<div class="layout">
+  <!-- ======= 侧边导航 ======= -->
+  <nav class="sidenav">
+    <div class="group-label">广场</div>
+    <button class="navitem active" data-page="home" onclick="showPage('home')"><span class="ico">🏠</span>首页 · 热榜</button>
+    <button class="navitem" data-page="treehole" onclick="showPage('treehole')"><span class="ico">🌳</span>树洞 · 微墙</button>
+    <div class="group-label">核心</div>
+    <button class="navitem" data-page="game" onclick="showPage('game')"><span class="ico">🎮</span>游戏车队<span class="mini-badge">3 队今晚发车</span></button>
+    <button class="navitem" data-page="market" onclick="showPage('market')"><span class="ico">🛒</span>二手集市</button>
+    <button class="navitem" data-page="qa" onclick="showPage('qa')"><span class="ico">🙋</span>打听 · 求助</button>
+    <button class="navitem" data-page="handbook" onclick="showPage('handbook')"><span class="ico">📖</span>生存手册</button>
+    <button class="navitem" data-page="course" onclick="showPage('course')"><span class="ico">🎓</span>课程评价</button>
+    <div class="group-label">秩序</div>
+    <button class="navitem" data-page="observe" onclick="showPage('observe')"><span class="ico">🔍</span>文明观察台</button>
+    <button class="navitem" data-page="gov" onclick="showPage('gov')"><span class="ico">⚖️</span>治理公示</button>
+    <button class="navitem" data-page="announce" onclick="showPage('announce')"><span class="ico">📢</span>公告中心</button>
+    <div class="group-label">更多</div>
+    <button class="navitem" data-page="activity" onclick="showPage('activity')"><span class="ico">🎪</span>校园活动</button>
+    <button class="navitem" data-page="lost" onclick="showPage('lost')"><span class="ico">🧣</span>失物招领</button>
+    <button class="navitem" data-page="credit" onclick="showPage('credit')"><span class="ico">🪪</span>我的信用</button>
+  </nav>
+
+  <!-- ======= 主内容 ======= -->
+  <main class="main">
+    <!-- ============ 首页 ============ -->
+    <section class="page active" id="page-home">
+      <div class="board-frame">
+        <div class="board-title">
+          <h2>今日公告栏</h2>
+          <span class="formula" title="热度 = 浏览×0.2 + 收藏×3 + 回复×2 + 点赞×1 − 举报惩罚 × 时间衰减 + 管理员权重">热度公式说明 ⓘ</span>
+        </div>
+        <div class="rank-tabs">
+          <button class="rank-tab on" onclick="switchRank(this,'hot')">全站热榜</button>
+          <button class="rank-tab" onclick="switchRank(this,'week')">本周精华</button>
+          <button class="rank-tab" onclick="switchRank(this,'fresh')">新生必看</button>
+          <button class="rank-tab" onclick="switchRank(this,'car')">游戏发车榜</button>
+          <button class="rank-tab" onclick="switchRank(this,'trade')">交易热度榜</button>
+          <button class="rank-tab" onclick="switchRank(this,'qa')">问答高价值榜</button>
+          <button class="rank-tab" onclick="switchRank(this,'coursenew')">课评新增榜</button>
+          <button class="rank-tab" onclick="switchRank(this,'admin')">管理员推荐</button>
+        </div>
+        <div class="sticky-grid" id="rank-hot">
+          <div class="sticky-note" onclick="showPage('treehole')"><span class="rk">01</span><span class="t">期末周图书馆五楼疑似出现“占座刺客”…</span><span class="m">树洞 · 🔥 3.2k · 💬 214</span></div>
+          <div class="sticky-note" onclick="showPage('game')"><span class="rk">02</span><span class="t">【长期固定队】瓦 黄金~铂金 找双排，欢迎新手</span><span class="m">车队 · 🔥 2.8k · 已满 4/5</span></div>
+          <div class="sticky-note" onclick="showPage('qa')"><span class="rk">03</span><span class="t">悬赏 50 分：北区哪里可以打彩色胶装？</span><span class="m">问答 · 🔥 2.1k · ✅ 已采纳</span></div>
+          <div class="sticky-note" onclick="showPage('market')"><span class="rk">04</span><span class="t">出 95 新 iPad 9，考研上岸退坑，可小刀</span><span class="m">集市 · 🔥 1.9k · 🛡️ 担保</span></div>
+          <div class="sticky-note" onclick="showPage('handbook')"><span class="rk">05</span><span class="t">保研 rank 计算全流程（2026 修订版）</span><span class="m">手册 · 🔥 1.7k · ⭐ 收藏 892</span></div>
+          <div class="sticky-note" onclick="showPage('course')"><span class="rk">06</span><span class="t">《线性代数（李老师班）》新学期评价开放</span><span class="m">课评 · 🔥 1.4k · 评价 37 条</span></div>
+        </div>
+        <div class="sticky-grid" id="rank-week" style="display:none">
+          <div class="sticky-note"><span class="rk">01</span><span class="t">宿舍空调申报维修全流程（附后勤电话）</span><span class="m">手册 · 管理员加精 ✦</span></div>
+          <div class="sticky-note"><span class="rk">02</span><span class="t">从挂科到绩点 3.9：我的大二自救记录</span><span class="m">手册 · ⭐ 收藏 1.2k</span></div>
+          <div class="sticky-note"><span class="rk">03</span><span class="t">校医院夜间急诊使用指南</span><span class="m">手册 · 长期有效内容</span></div>
+        </div>
+        <div class="sticky-grid" id="rank-fresh" style="display:none">
+          <div class="sticky-note"><span class="rk">01</span><span class="t">新生入学材料清单 + 报到动线图</span><span class="m">新生导师出品</span></div>
+          <div class="sticky-note"><span class="rk">02</span><span class="t">选课系统抢课时间轴与容量玄学</span><span class="m">⭐ 收藏 2.4k</span></div>
+          <div class="sticky-note"><span class="rk">03</span><span class="t">校园卡 / 网费 / 洗澡水计费一篇讲清</span><span class="m">学院向导出品</span></div>
+        </div>
+        <div class="sticky-grid" id="rank-car" style="display:none">
+          <div class="sticky-note" onclick="showPage('game')"><span class="rk">01</span><span class="t">瓦 · 今晚 8 点黄金车 4/5</span><span class="m">发车率 98% 车头</span></div>
+          <div class="sticky-note" onclick="showPage('game')"><span class="rk">02</span><span class="t">雀魂友人房 · 每晚 21:30 长期队</span><span class="m">氛围：欢乐局</span></div>
+          <div class="sticky-note" onclick="showPage('game')"><span class="rk">03</span><span class="t">周五晚 DND 跑团《迷雾庄园》缺 2 人</span><span class="m">欢迎新手 · 语音 KOOK</span></div>
+        </div>
+        <div class="sticky-grid" id="rank-trade" style="display:none">
+          <div class="sticky-note" onclick="showPage('market')"><span class="rk">01</span><span class="t">iPad 9 · ¥1450 · 🛡️ 担保交易</span><span class="m">浏览 1.9k</span></div>
+          <div class="sticky-note" onclick="showPage('market')"><span class="rk">02</span><span class="t">小米台灯 Pro · ¥79 · 自提</span><span class="m">浏览 860</span></div>
+          <div class="sticky-note" onclick="showPage('market')"><span class="rk">03</span><span class="t">考研数学全套资料 · ¥60 打包</span><span class="m">浏览 742</span></div>
+        </div>
+        <div class="sticky-grid" id="rank-qa" style="display:none">
+          <div class="sticky-note"><span class="rk">01</span><span class="t">悬赏 100：转专业面试都问什么？</span><span class="m">回答 23 · 已采纳 → 已转入手册</span></div>
+          <div class="sticky-note"><span class="rk">02</span><span class="t">医保异地就医备案怎么弄？</span><span class="m">回答 11 · 高赞置顶</span></div>
+        </div>
+        <div class="sticky-grid" id="rank-coursenew" style="display:none">
+          <div class="sticky-note"><span class="rk">01</span><span class="t">《数据结构（王老师班）》+9 条新评价</span><span class="m">本周新增</span></div>
+          <div class="sticky-note"><span class="rk">02</span><span class="t">《大学物理 II》+6 条新评价</span><span class="m">本周新增</span></div>
+        </div>
+        <div class="sticky-grid" id="rank-admin" style="display:none">
+          <div class="sticky-note"><span class="rk">✦</span><span class="t">社区规范 v2.3 逐条解读</span><span class="m">管理员推荐</span></div>
+          <div class="sticky-note"><span class="rk">✦</span><span class="t">如何安全地进行二手交易</span><span class="m">管理员推荐</span></div>
+        </div>
+      </div>
+
+      <div class="page-head"><h2>最新动态</h2><p>全站各板块实时流 · 匿名帖不进入搜索引擎收录</p></div>
+      <article class="post">
+        <div class="p-head"><div class="p-avatar">匿</div><span class="p-name">匿名同学</span><span class="tag gray">树洞</span><span class="tag yellow">7 天可见</span><span class="p-time">12 分钟前</span></div>
+        <div class="p-body">在图书馆连坐了六小时，起来的时候腿是麻的，心是空的，但作业写完了。就想说一句：坚持住，各位。</div>
+        <div class="p-foot"><span>👍 128</span><span>💬 23</span><span>⭐ 收藏</span><span>🚩 举报</span></div>
+      </article>
+      <article class="post">
+        <div class="p-head"><div class="p-avatar">车</div><span class="p-name">车头_老K</span><span class="tag green">已认证本科生</span><span class="tag blue">游戏车队</span><span class="p-time">28 分钟前</span></div>
+        <div class="p-title">【今晚 8 点】瓦 黄金车 差 1 人，欢迎新手</div>
+        <div class="p-body">氛围：娱乐为主上分为辅，不骂人。语音 KOOK，点链接直接进频道。</div>
+        <div class="p-foot"><span>🚗 4/5</span><span>💬 9</span><span>⭐ 收藏</span></div>
+      </article>
+      <article class="post">
+        <div class="p-head"><div class="p-avatar">学</div><span class="p-name">学长的旧书摊</span><span class="tag green">高信用用户</span><span class="tag yellow">集市 · 🛡️担保</span><span class="p-time">1 小时前</span></div>
+        <div class="p-title">出 iPad 9（95 新）¥1450 可小刀</div>
+        <div class="p-body">2024-03 购入 · 屏幕完美 · 右下角轻微磕碰（见图3）· 东门快递站面交。</div>
+        <div class="p-foot"><span>👁 1.9k</span><span>💬 31</span><span>⭐ 收藏</span></div>
+      </article>
+    </section>
+
+    <!-- ============ 游戏车队 ============ -->
+    <section class="page" id="page-game">
+      <div class="page-head" style="display:flex;align-items:flex-end;gap:14px">
+        <div style="flex:1"><h2>🎮 游戏车队大厅</h2><p>发车前 30 分钟自动提醒 · 邮件 / 站内 / 日历订阅 / QQ 机器人 / KOOK Bot</p></div>
+        <button class="btn primary" onclick="openModal('m-createteam')">+ 发布开车</button>
+        <button class="btn ghost" onclick="openModal('m-submitgame')">提交新游戏</button>
+      </div>
+
+      <div class="game-filter" id="gameFilter" style="gap:6px">
+        <button class="chip on" onclick="filterGame(this,'all')">全部</button>
+        <button class="chip" onclick="filterGame(this,'lol')">LOL</button>
+        <button class="chip" onclick="filterGame(this,'valo')">瓦（无畏契约）</button>
+        <button class="chip" onclick="filterGame(this,'cs2')">CS2</button>
+        <button class="chip" onclick="filterGame(this,'genshin')">原神</button>
+        <button class="chip" onclick="filterGame(this,'hsr')">星铁</button>
+        <button class="chip" onclick="filterGame(this,'wzry')">王者</button>
+        <button class="chip" onclick="filterGame(this,'mahjong')">雀魂</button>
+        <button class="chip" onclick="filterGame(this,'mc')">MC</button>
+        <button class="chip" onclick="filterGame(this,'dst')">饥荒</button>
+        <button class="chip" onclick="filterGame(this,'dnd')">DND</button>
+      </div>
+      <p class="muted" style="margin-bottom:12px">ⓘ 玩家自提交的游戏名会由管理员合并重复项，例如「Valorant / 瓦 / 无畏契约」已合并为同一标签。</p>
+
+      <div id="ticketList">
+      <!-- 车票 1：今晚8点 -->
+      <div class="ticket" data-game="valo">
+        <div class="t-left">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <span class="t-game">无畏契约（瓦）</span>
+            <span class="tag red">今晚 8 点</span>
+            <span class="tag green">欢迎新手</span>
+            <span class="tag yellow">氛围：娱乐上分两不误</span>
+          </div>
+          <div class="t-row">模式 <b>竞技排位</b> ｜ 段位 <b>黄金~铂金</b> ｜ 语音 <b>KOOK</b>（<a href="#" onclick="toast('原型演示：跳转 KOOK 频道');return false">点此直接进频道 ↗</a>）</div>
+          <div class="t-row">车头：<b>车头_老K</b> <span class="stamp-badge">发车率 98%</span> 队友评价：<span class="tag green">友善 ×41</span><span class="tag green">准时 ×38</span><span class="tag blue">沟通 ×27</span><span class="tag blue">技术 ×19</span></div>
+          <div class="t-row muted">提醒方式：📧 邮件 · 🔔 站内 · 📅 日历订阅 · 🤖 QQ 群机器人</div>
+        </div>
+        <div class="t-right">
+          <div class="seats">4 / 5</div>
+          <div class="seatdots"><i></i><i></i><i></i><i></i><i class="empty"></i></div>
+          <div class="cd" id="cd-valo">--:--:--</div>
+          <button class="btn primary sm" onclick="openModal('m-teamdetail')">上车</button>
+        </div>
+      </div>
+
+      <!-- 车票 2：长期固定队 -->
+      <div class="ticket" data-game="mahjong">
+        <div class="t-left">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <span class="t-game">雀魂</span>
+            <span class="tag blue">长期固定队 · 每晚 21:30</span>
+            <span class="tag green">欢迎新手</span>
+            <span class="tag yellow">氛围：欢乐局，输了不许摔牌</span>
+          </div>
+          <div class="t-row">模式 <b>友人房四麻</b> ｜ 段位 <b>不限</b> ｜ 语音 <b>QQ 群语音</b>（<a href="#" onclick="toast('原型演示：跳转 QQ 群');return false">进群 ↗</a>）</div>
+          <div class="t-row">车头：<b>东南西北中</b> 队友评价：<span class="tag green">友善 ×66</span><span class="tag green">准时 ×52</span></div>
+          <div class="t-row muted">提醒方式：📧 邮件 · 🤖 QQ 群机器人（发车前 30 分钟 @全体成员）</div>
+        </div>
+        <div class="t-right">
+          <div class="seats">3 / 4</div>
+          <div class="seatdots"><i></i><i></i><i></i><i class="empty"></i></div>
+          <div class="cd">每日 21:30</div>
+          <button class="btn primary sm" onclick="toast('已加入！发车前 30 分钟提醒你')">上车</button>
+        </div>
+      </div>
+
+      <!-- 车票 3：周五晚 -->
+      <div class="ticket" data-game="dnd">
+        <div class="t-left">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <span class="t-game">DND 5E 跑团《迷雾庄园》</span>
+            <span class="tag blue">周五晚 19:00</span>
+            <span class="tag green">欢迎新手（DM 带教学）</span>
+            <span class="tag yellow">氛围：沉浸剧情向</span>
+          </div>
+          <div class="t-row">模式 <b>长团 · 每周一次</b> ｜ 要求 <b>无需经验</b> ｜ 语音 <b>KOOK + 线上骰</b>（<a href="#" onclick="toast('原型演示：跳转 KOOK 频道');return false">进频道 ↗</a>）</div>
+          <div class="t-row">DM：<b>戴斯忒尼</b> <span class="stamp-badge">精华车头</span> 队友评价：<span class="tag blue">沟通 ×33</span><span class="tag green">友善 ×30</span></div>
+          <div class="t-row muted">提醒方式：📧 邮件 · 📅 日历订阅（每周五重复）· Discord Bot</div>
+        </div>
+        <div class="t-right">
+          <div class="seats">4 / 6</div>
+          <div class="seatdots"><i></i><i></i><i></i><i></i><i class="empty"></i><i class="empty"></i></div>
+          <div class="cd">周五 19:00</div>
+          <button class="btn primary sm" onclick="toast('已报名！等待 DM 确认')">上车</button>
+        </div>
+      </div>
+
+      <!-- 车票 4：MC -->
+      <div class="ticket" data-game="mc">
+        <div class="t-left">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <span class="t-game">Minecraft 建筑服</span>
+            <span class="tag red">今晚 22:00</span>
+            <span class="tag gray">需要基础红石知识</span>
+            <span class="tag yellow">氛围：肝帝聚集地</span>
+          </div>
+          <div class="t-row">模式 <b>生存 · 服务器共建</b> ｜ 人数 <b>不限</b> ｜ 语音 <b>Teamspeak</b>（<a href="#" onclick="toast('原型演示：跳转 TS 服务器');return false">进 TS ↗</a>）</div>
+          <div class="t-row">车头：<b>苦力怕爱好者</b> 队友评价：<span class="tag blue">技术 ×48</span><span class="tag green">友善 ×21</span></div>
+        </div>
+        <div class="t-right">
+          <div class="seats">8 / ∞</div>
+          <div class="cd">22:00 开服</div>
+          <button class="btn primary sm" onclick="toast('已加入白名单申请队列')">上车</button>
+        </div>
+      </div>
+
+      </div><!-- /ticketList -->
+
+      <div class="rulebox">
+        <b>🪪 车队信用规则</b>
+        <ul>
+          <li>爽约（发车前 1 小时内退出且不请假）：信用 −3；准时到场：信用 +1。</li>
+          <li>发车后队友可互评：<b>友善 / 沟通 / 技术 / 准时</b> 四维标签，累计展示在个人主页。</li>
+          <li>信用 &lt; 60 无法创建车队；信用 &lt; 40 上车需车头审核。</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- ============ 树洞 ============ -->
+    <section class="page" id="page-treehole">
+      <div class="page-head"><h2>🌳 树洞 · 微墙</h2><p>可以任意发牢骚 · 匿名帖默认不被搜索引擎收录 · 全部内容经敏感词与辱骂检测</p></div>
+
+      <div class="card">
+        <h3>写点什么…</h3>
+        <div class="field"><textarea id="th-body" rows="3" placeholder="今天有什么想说的？" oninput="checkCare(this)"></textarea></div>
+        <div class="carebox" id="careBox">
+          <b style="color:var(--stamp)">🫂 我们注意到你可能正在经历艰难的时刻</b>
+          <p style="font-size:12.5px;margin-top:4px">你并不孤单，随时可以联系：<br>
+          · 校心理健康中心：明德楼 B203，工作日 8:30–21:00，预约电话 <span class="mono">0XX-8888-XXXX</span><br>
+          · 你的辅导员（App 内一键呼叫）<br>
+          · 全国心理援助热线 <b class="mono">12356</b>（24 小时）</p>
+          <button class="btn warn sm" style="margin-top:6px" onclick="toast('原型演示：跳转心理中心预约页')">获取帮助</button>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:14px;margin-top:10px;font-size:12.5px;align-items:center">
+          <span>身份：
+            <select id="th-identity" style="border:1px solid var(--line);border-radius:6px;padding:3px 6px">
+              <option value="anon">完全匿名</option><option value="alias">匿名昵称（固定马甲）</option><option value="real">实名昵称</option>
+            </select>
+          </span>
+          <span>可见期：
+            <select id="th-vis" style="border:1px solid var(--line);border-radius:6px;padding:3px 6px">
+              <option value="forever">永久</option><option value="7d">7 天后自动隐藏</option><option value="24h">24 小时后自动隐藏</option>
+            </select>
+          </span>
+          <label><input type="checkbox" id="th-nocomment"> 不接收评论（只想发出来）</label>
+          <label><input type="checkbox"> 附加联系方式（需信用 ≥ 70）</label>
+          <button class="btn primary sm" style="margin-left:auto" onclick="publishTreehole()">发布</button>
+        </div>
+        <p class="muted" style="margin-top:8px">ⓘ 后台保留账号与发帖记录用于治理，前台不公开任何真实身份。禁止曝光他人隐私。</p>
+      </div>
+
+      <div id="treeholeFeed">
+      <article class="post">
+        <div class="p-head"><div class="p-avatar">匿</div><span class="p-name">匿名同学</span><span class="tag yellow">24 小时可见</span><span class="tag gray">已关评</span><span class="p-time">5 分钟前</span></div>
+        <div class="p-body">今天演讲比赛忘词了，站在台上大脑一片空白十秒钟。发出来就好了，不用安慰我，我明年再来。</div>
+        <div class="p-foot"><span>👍 89</span><span style="color:#BBB">评论已关闭</span></div>
+      </article>
+      <article class="post">
+        <div class="p-head"><div class="p-avatar">桂</div><span class="p-name">桂花糕不加糖</span><span class="tag gray">匿名昵称</span><span class="p-time">40 分钟前</span></div>
+        <div class="p-body">三食堂二楼新开的麻辣香锅，阿姨手不抖，是这个学期最大的惊喜。有想拼饭的可以评论区集合（联系方式在评论）。</div>
+        <div class="p-foot"><span>👍 156</span><span>💬 42</span><span>⭐ 收藏</span><span>🚩 举报</span></div>
+      </article>
+      </div>
+    </section>
+
+    <!-- ============ 二手集市 ============ -->
+    <section class="page" id="page-market">
+      <div class="page-head" style="display:flex;align-items:flex-end;gap:14px">
+        <div style="flex:1"><h2>🛒 二手集市</h2><p>自由交易 或 中介担保交易（费率 2%）· 发交易帖需信用 ≥ 70</p></div>
+        <button class="btn primary" onclick="openModal('m-trade')">+ 发布出售</button>
+      </div>
+      <div class="dangerbox">🚫 <b>禁售清单：</b>烟酒、处方药、管制刀具、活体动物、代写代考服务、账号买卖及其他法律法规禁止物品。违规发布：删帖 + 信用 −10 + 公示。</div>
+
+      <div id="marketList">
+      <div class="card">
+        <div style="display:flex;gap:16px;flex-wrap:wrap">
+          <div style="width:110px;height:110px;background:#EFEDE0;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:34px;flex-shrink:0">📱</div>
+          <div style="flex:1;min-width:240px">
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+              <b style="font-size:16px">iPad 9（64G WiFi 版）</b>
+              <span class="tag yellow">🛡️ 中介担保</span>
+              <span class="tag green">可小刀</span>
+            </div>
+            <div style="font-family:var(--mono);font-size:22px;color:var(--stamp);font-weight:800;margin:4px 0">¥1450</div>
+            <table style="font-size:12.5px;border-spacing:0 2px">
+              <tr><td class="muted" style="padding-right:14px">成色</td><td>95 新，屏幕完美</td></tr>
+              <tr><td class="muted">购买时间</td><td>2024-03（附发票）</td></tr>
+              <tr><td class="muted">瑕疵</td><td>右下角轻微磕碰（见图 3）</td></tr>
+              <tr><td class="muted">交付地点</td><td>东门快递站面交 / 校内跑腿</td></tr>
+            </table>
+          </div>
+          <div style="width:210px;flex-shrink:0;border-left:1px dashed var(--line);padding-left:16px">
+            <div style="font-size:12px;font-weight:700;margin-bottom:6px">卖家信用</div>
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><div class="p-avatar" style="width:26px;height:26px;border-radius:50%;background:var(--leaf-soft);color:#2C5E44;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700">学</div><b style="font-size:13px">学长的旧书摊</b></div>
+            <li style="list-style:none;font-size:12px">✅ 已认证本科生（edu.cn）</li>
+            <li style="list-style:none;font-size:12px">📦 历史成交 <b class="mono">23</b> 单</li>
+            <li style="list-style:none;font-size:12px">😡 投诉率 <b class="mono" style="color:var(--leaf)">0%</b> · 爽约率 <b class="mono" style="color:var(--leaf)">4%</b></li>
+            <button class="btn primary sm" style="width:100%;margin-top:8px" onclick="toast('原型演示：打开交易私信（带快捷模板）')">私信购买</button>
+            <button class="btn ghost sm" style="width:100%;margin-top:6px" onclick="toast('原型演示：发起担保交易，平台收取 2% 费用')">🛡️ 走担保</button>
+          </div>
+        </div>
+      </div>
+
+      </div><!-- /marketList -->
+
+      <div class="card">
+        <h3>⚖️ 纠纷处理流程</h3>
+        <div class="steps">
+          <div class="step done"><div class="n">1</div>买家举报</div>
+          <div class="step done"><div class="n">2</div>帖子冻结</div>
+          <div class="step done"><div class="n">3</div>双方举证<br><span class="muted">（48h 内提交聊天记录/凭证）</span></div>
+          <div class="step"><div class="n">4</div>管理员仲裁</div>
+          <div class="step"><div class="n">5</div>信用加扣分<br><span class="muted">+ 结果进入治理公示</span></div>
+        </div>
+        <p class="muted">示例：单号 #T-20260702-08 正在举证阶段，预计 7/8 出仲裁结果。</p>
+      </div>
+    </section>
+
+    <!-- ============ 问答 ============ -->
+    <section class="page" id="page-qa">
+      <div class="page-head"><h2>🙋 打听 · 求助</h2><p>悬赏提问 · 采纳加经验 · 高赞回答可转入生存手册</p></div>
+      <div class="card">
+        <div class="p-head" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <span class="tag red">悬赏 50 分</span><span class="tag gray">行政事务</span><span class="tag gray">北校区</span><span class="tag green">✅ 已采纳</span>
+        </div>
+        <div class="p-title" style="font-weight:700;font-size:15px;margin:6px 0">北区哪里可以打彩色胶装？急，明早交开题报告</div>
+        <div style="background:#F4F8F2;border-left:3px solid var(--leaf);border-radius:6px;padding:10px 12px;font-size:13px;margin-top:8px">
+          <b style="color:#2C5E44">✅ 最佳答案</b>（答疑达人 · 打印室之神）：北区二食堂一楼西侧「文汇打印」，彩打 1 元/页，胶装 6 元，开到晚上 11 点。人多的话可以微信小程序传文件插队打。
+          <div class="muted" style="margin-top:4px">👍 214 · 采纳 +20 经验 · 已由管理员转入《生存手册 · 校内打印攻略》</div>
+        </div>
+        <div style="font-size:12.5px;margin-top:8px;color:var(--ink-soft)">💬 追问：请问支持 A3 吗？ → 答：支持，1.5 元/页。</div>
+      </div>
+      <div class="card">
+        <div class="p-head" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span class="tag red">悬赏 100 分</span><span class="tag gray">学院 · 计算机</span><span class="tag yellow">等待回答 · 11 个回答</span></div>
+        <div class="p-title" style="font-weight:700;font-size:15px;margin:6px 0">转专业面试都会问什么？有没有近两年成功的学长学姐？</div>
+      </div>
+      <div class="rulebox"><b>问答区机制：</b>问题 = 标题 + 标签 + 分类（学院/校区/课程/宿舍/行政事务）+ 悬赏积分。回答被采纳 +20 经验；累计 10 次采纳解锁「答疑达人」头衔。</div>
+    </section>
+
+    <!-- ============ 生存手册 ============ -->
+    <section class="page" id="page-handbook">
+      <div class="page-head"><h2>📖 生存手册</h2><p>老登经验合集 · 积分与「被收藏 / 被采纳 / 加精 / 长期有效」绑定，拒绝灌水</p></div>
+      <div class="hb-grid">
+        <div class="hb-item"><span class="ico">🎒</span>新生入学指南</div>
+        <div class="hb-item"><span class="ico">🗓️</span>选课指南</div>
+        <div class="hb-item"><span class="ico">🛏️</span>宿舍避坑</div>
+        <div class="hb-item"><span class="ico">🍜</span>食堂/外卖评价</div>
+        <div class="hb-item"><span class="ico">🗺️</span>校园地图与隐藏地点</div>
+        <div class="hb-item"><span class="ico">🧪</span>实验室/办事流程</div>
+        <div class="hb-item"><span class="ico">🏆</span>奖学金/竞赛/保研/考研</div>
+        <div class="hb-item"><span class="ico">🎭</span>社团体验</div>
+        <div class="hb-item"><span class="ico">🖨️</span>打印/维修/快递</div>
+        <div class="hb-item"><span class="ico">🏥</span>校医院攻略</div>
+        <div class="hb-item"><span class="ico">🎓</span>毕业手续指南</div>
+        <div class="hb-item"><span class="ico">⭐</span>校园服务评分</div>
+      </div>
+      <div class="card" style="margin-top:14px">
+        <h3>🏅 贡献奖励体系</h3>
+        <p style="font-size:13px">
+          <span class="tag yellow">经验值</span><span class="tag yellow">贡献者头衔</span><span class="tag yellow">精华作者</span><span class="tag yellow">学院向导</span><span class="tag yellow">新生导师</span><span class="tag yellow">答疑达人</span><span class="tag yellow">年度校园百科贡献者</span>
+        </p>
+        <p class="muted" style="margin-top:6px">防灌水机制：单纯发帖不加经验。经验只来自 <b>被收藏 +2 / 回答被采纳 +20 / 管理员加精 +50 / 内容存续满一年且仍被访问 +30</b>。</p>
+      </div>
+      <div class="card">
+        <h3>⭐ 校园服务评分（防恶意差评设计）</h3>
+        <li style="list-style:none;font-size:13px">🖨️ 文汇打印 <b class="mono">4.8</b>（评分 213 条）· 🔧 北门修车铺 <b class="mono">4.5</b>（96 条）· ✂️ 求真理发 <b class="mono">3.9</b>（310 条）</li>
+        <p class="muted" style="margin-top:6px">同一用户对同一服务 30 天内只能评一次；差评需附具体事由；商家可回应但不可删评。</p>
+      </div>
+    </section>
+
+    <!-- ============ 课程评价 ============ -->
+    <section class="page" id="page-course">
+      <div class="page-head"><h2>🎓 课程评价</h2><p>基于课程体验 · 同一课程同一学期限评一次 · 需信用 ≥ 60</p></div>
+      <div class="card">
+        <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap">
+          <div style="flex:1;min-width:220px">
+            <b style="font-size:15px">线性代数（李老师班）</b>
+            <div class="muted">数学学院 · 2025-2026 春季 · 37 条评价</div>
+            <p style="font-size:12.5px;margin-top:6px">高频标签：<span class="tag green">给分好</span><span class="tag green">板书清晰</span><span class="tag gray">点名多</span></p>
+          </div>
+          <div style="text-align:center"><div class="score-big">4.6</div><div class="muted">综合评分</div></div>
+        </div>
+      </div>
+      <div class="card">
+        <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap">
+          <div style="flex:1;min-width:220px">
+            <b style="font-size:15px">大学物理 II（周老师班）</b>
+            <div class="muted">物理学院 · 2025-2026 春季 · 3 条评价</div>
+          </div>
+          <div><span class="score-hidden">评价数不足 5 条，暂不显示分数</span></div>
+        </div>
+        <p class="muted" style="margin-top:8px">ⓘ 防止小样本误导：少于 5 条评价的课程只显示评价文字，不显示分数。</p>
+      </div>
+      <div class="rulebox">
+        <b>课评规则：</b>
+        <ul>
+          <li>禁止人身攻击、恶意造谣；禁止公开老师/助教私人联系方式。</li>
+          <li>评价必须基于课程体验，同一课程同一学期只能评价一次。</li>
+          <li>老师/助教可提交「事实更正」，附在原评论下方，但不能直接删评。</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- ============ 文明观察台 ============ -->
+    <section class="page" id="page-observe">
+      <div class="page-head"><h2>🔍 校园文明观察台</h2><p>只描述事件，不曝光个人 · 涉及具体个人/组织必须先人工审核 · 发帖需信用 ≥ 75</p></div>
+      <div class="dangerbox">
+        <b>📋 本区须知（发帖前必读并勾选确认）</b>
+        <ul style="padding-left:18px;margin-top:4px">
+          <li>只允许描述事件，<b>禁止</b>公开真实姓名、手机号、寝室、学号、照片、聊天记录中的个人信息。</li>
+          <li>涉及具体个人或组织的帖子，必须先进入人工审核。</li>
+          <li>被指认方拥有申诉与回应入口，回应将并列展示。</li>
+          <li>所有曝光内容默认打码；禁止「求扩散」「全校避雷某某人」等煽动性表达。</li>
+          <li>管理员只公示「处理结果和规则依据」，不公示隐私细节。</li>
+        </ul>
+      </div>
+      <article class="post">
+        <div class="p-head"><div class="p-avatar">匿</div><span class="p-name">匿名同学</span><span class="tag yellow">⏳ 人工审核中</span><span class="p-time">2 小时前</span></div>
+        <div class="p-title">7/4 晚自习期间，某教室有人外放短视频约 40 分钟</div>
+        <div class="p-body">描述：教三 ▓▓▓ 教室，劝阻后仍继续。已附打码视频证据交由审核。</div>
+        <div class="p-foot"><span class="muted">审核通过前仅发帖人可见</span></div>
+      </article>
+      <article class="post">
+        <div class="p-head"><div class="p-avatar">匿</div><span class="p-name">匿名同学</span><span class="tag green">✅ 审核通过</span><span class="tag blue">被指认方已回应</span><span class="p-time">3 天前</span></div>
+        <div class="p-title">某社团收取报名费后活动多次取消未退款</div>
+        <div class="p-body">事件描述已打码展示。<b>社团回应：</b>因场地审批延期，已于 7/3 全额退款并公示凭证。<b>管理员备注：</b>纠纷已解决，依据《社区规范》4.2 条结案。</div>
+      </article>
+    </section>
+
+    <!-- ============ 治理公示 ============ -->
+    <section class="page" id="page-gov">
+      <div class="page-head"><h2>⚖️ 社区治理公示</h2><p>处罚记录 · 规则判例库 · 违规案例说明（账号一律匿名化）</p></div>
+      <div class="card">
+        <table class="gov">
+          <tr><th>匿名化账号</th><th>违规类型</th><th>处理结果</th><th>规则依据</th><th>时间</th><th>申诉</th></tr>
+          <tr><td class="mono">用户 A****7</td><td>交易区发布违禁品（电子烟）</td><td>删帖 · 信用 −10 · 禁发交易帖 30 天</td><td>规范 3.1 禁售清单</td><td class="mono">07-03</td><td><span class="tag gray">申诉期已过</span></td></tr>
+          <tr><td class="mono">用户 K****2</td><td>观察台帖泄露他人学号</td><td>删帖 · 信用 −15 · 观察台禁言 90 天</td><td>规范 5.2 隐私保护</td><td class="mono">07-01</td><td><span class="tag yellow">申诉中</span></td></tr>
+          <tr><td class="mono">用户 W****9</td><td>车队爽约 3 次未请假</td><td>信用 −9 · 创建车队权限冻结 14 天</td><td>规范 6.4 车队信用</td><td class="mono">06-28</td><td><span class="tag green">可申诉</span></td></tr>
+          <tr><td class="mono">用户 M****3</td><td>课评人身攻击</td><td>删评 · 信用 −8 · 课评禁言 60 天</td><td>规范 7.1 课评规则</td><td class="mono">06-25</td><td><span class="tag gray">未申诉</span></td></tr>
+        </table>
+        <p class="muted" style="margin-top:8px">📚 判例库：每条处罚附案例说明，供全体用户查阅引用，做到同案同判。</p>
+      </div>
+    </section>
+
+    <!-- ============ 公告中心 ============ -->
+    <section class="page" id="page-announce">
+      <div class="page-head"><h2>📢 公告中心</h2><p>规则更新 / 停服维护 / 处罚规范变更 = 强提醒（弹窗一次 + 需已读确认）</p></div>
+      <div class="card" style="border-left:4px solid var(--stamp)">
+        <h3>《社区规范 v2.3》6/28 生效 <span class="tag red">强提醒</span></h3>
+        <p style="font-size:13px">交易区新增中介担保费率说明（2%）；观察台申诉期由 3 天延长至 7 天；车队爽约扣分规则细化。</p>
+        <p class="muted" style="margin-top:6px">已读确认：<b class="mono">8,241 / 9,530</b> 人 · <button class="btn ghost sm" onclick="toast('已确认阅读 ✓')">我已阅读</button></p>
+      </div>
+      <div class="card">
+        <h3>7/12 停服维护 <span class="tag red">强提醒</span></h3>
+        <p style="font-size:13px">凌晨 2:00–4:00 数据库升级，期间无法访问。当晚发车的车队提醒将提前发送。</p>
+      </div>
+      <div class="card">
+        <h3>新增游戏标签合并 <span class="tag gray">普通公告</span></h3>
+        <p style="font-size:13px">「Valorant / 瓦 / 无畏契约」「星穹铁道 / 星铁」已分别合并为统一标签，历史帖自动归并。</p>
+      </div>
+    </section>
+
+    <!-- ============ 校园活动 ============ -->
+    <section class="page" id="page-activity">
+      <div class="page-head"><h2>🎪 校园活动</h2><p>组织与搭子的聚集地</p></div>
+      <div style="margin-bottom:12px">
+        <span class="chip on">全部</span><span class="chip">社团招新</span><span class="chip">讲座信息</span><span class="chip">比赛组队</span><span class="chip">拼车/拼单</span><span class="chip">自习搭子</span><span class="chip">运动搭子</span><span class="chip">饭搭子</span><span class="chip">实验招募</span><span class="chip">问卷互填</span>
+      </div>
+      <article class="post"><div class="p-head"><div class="p-avatar">辩</div><span class="p-name">校辩论队</span><span class="tag blue">社团招新</span><span class="tag green">官方认证组织</span><span class="p-time">今天</span></div><div class="p-title">秋季纳新开启：9/10 明德楼报告厅宣讲</div></article>
+      <article class="post"><div class="p-head"><div class="p-avatar">跑</div><span class="p-name">晨跑失败者联盟</span><span class="tag blue">运动搭子</span><span class="p-time">昨天</span></div><div class="p-title">找 6:40 操场晨跑搭子，互相监督，已 4 人</div><div class="p-foot"><span>🙋 加入</span><span>💬 12</span></div></article>
+      <article class="post"><div class="p-head"><div class="p-avatar">拼</div><span class="p-name">周五回家人</span><span class="tag blue">拼车</span><span class="p-time">2 天前</span></div><div class="p-title">周五 17:00 校门口 → 高铁站拼车，还差 2 人均摊</div><div class="p-foot"><span>🙋 加入</span><span>💬 5</span></div></article>
+    </section>
+
+    <!-- ============ 失物招领 ============ -->
+    <section class="page" id="page-lost">
+      <div class="page-head" style="display:flex;align-items:flex-end;gap:14px">
+        <div style="flex:1"><h2>🧣 失物招领</h2><p>字段：捡到/丢失 · 地点 · 时间 · 物品类型 · 图片 · 联系方式 · 认领状态</p></div>
+        <button class="btn primary" onclick="toast('原型演示：打开失物登记表单')">+ 登记</button>
+      </div>
+      <article class="post"><div class="p-head"><span class="tag green">捡到</span><span class="tag yellow">待认领</span><span class="p-time">今天 14:20</span></div><div class="p-title">🎧 白色降噪耳机一副</div><div class="p-body">地点：图书馆三楼东侧自习区 ｜ 已交至图书馆服务台，凭描述认领。</div></article>
+      <article class="post"><div class="p-head"><span class="tag red">丢失</span><span class="tag gray">寻找中</span><span class="p-time">昨天</span></div><div class="p-title">🪪 校园卡（卡号尾号 0917）</div><div class="p-body">地点：可能在二食堂或篮球场 ｜ 联系方式：站内私信。</div></article>
+      <article class="post"><div class="p-head"><span class="tag green">捡到</span><span class="tag blue">✅ 已认领</span><span class="p-time">3 天前</span></div><div class="p-title">🔑 宿舍钥匙一串（带小熊挂件）</div><div class="p-body">已由失主凭挂件描述认领，感谢拾金不昧的同学 +2 信用分。</div></article>
+    </section>
+
+    <!-- ============ 我的信用 ============ -->
+    <section class="page" id="page-credit">
+      <div class="page-head"><h2>🪪 我的信用与身份</h2><p>信用分决定你在社区的权限边界 · 违规扣分，优质贡献加分</p></div>
+      <div class="card">
+        <div style="display:flex;align-items:center;gap:20px;flex-wrap:wrap">
+          <div style="text-align:center"><div class="score-big" style="font-size:44px">82</div><div class="muted">当前信用分</div></div>
+          <div style="flex:1;min-width:240px">
+            <p style="font-size:13px">身份标签：<span class="tag green">已认证本科生</span><span class="tag green">计算机学院</span><span class="tag green">高信用用户</span><span class="tag gray">东校区</span></p>
+            <p style="font-size:13px;margin-top:4px">头衔：<span class="tag yellow">答疑达人</span><span class="tag yellow">新生导师</span> · 经验值 <b class="mono">1,840</b></p>
+            <p class="muted" style="margin-top:4px">队友评价累计：友善 ×41 · 准时 ×38 · 沟通 ×27 · 技术 ×19</p>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <h3>🔓 权限门槛</h3>
+        <table class="gov">
+          <tr><th>权限</th><th>要求</th><th>状态</th></tr>
+          <tr><td>匿名发帖</td><td>信用 ≥ 60</td><td><span class="tag green">✓ 已解锁</span></td></tr>
+          <tr><td>发布交易帖</td><td>信用 ≥ 70 + 已认证</td><td><span class="tag green">✓ 已解锁</span></td></tr>
+          <tr><td>观察台 / 纠纷区发帖</td><td>信用 ≥ 75</td><td><span class="tag green">✓ 已解锁</span></td></tr>
+          <tr><td>发布联系方式</td><td>信用 ≥ 70</td><td><span class="tag green">✓ 已解锁</span></td></tr>
+          <tr><td>创建游戏车队</td><td>信用 ≥ 60</td><td><span class="tag green">✓ 已解锁</span></td></tr>
+          <tr><td>评价课程</td><td>信用 ≥ 60 + 修读记录</td><td><span class="tag green">✓ 已解锁</span></td></tr>
+          <tr><td>私信不限量</td><td>信用 ≥ 85（当前每日上限 20 条）</td><td><span class="tag yellow">差 3 分</span></td></tr>
+        </table>
+      </div>
+      <div class="card">
+        <h3>✉️ 私信设置（克制原则）</h3>
+        <li style="list-style:none;font-size:13px"><label><input type="checkbox" checked> 允许陌生人私信（关闭后仅互关可私信）</label></li>
+        <li style="list-style:none;font-size:13px"><label><input type="checkbox" checked> 交易私信启用快捷模板（在吗/还在吗/多少钱可刀）</label></li>
+        <li style="list-style:none;font-size:13px;color:var(--ink-soft)">ⓘ 新用户每日私信上限 5 条；被 5 人以上拉黑将限制私信；举报私信可一键附带聊天记录。</li>
+      </div>
+    </section>
+
+    <!-- APPEND-PAGES -->
+  </main>
+
+  <!-- ======= 右栏 ======= -->
+  <aside class="rail">
+    <div class="idcard" style="cursor:pointer" onclick="showPage('credit')" title="进入我的信用与后台">
+      <div class="row1">
+        <div class="avatar">桐</div>
+        <div style="flex:1">
+          <div style="font-weight:700">梧桐子_0421</div>
+          <div style="font-size:11px;color:#BFCFC2">edu.cn 邮箱已验证</div>
+        </div>
+        <div style="text-align:right">
+          <div class="credit">82</div>
+          <div style="font-size:10px;color:#BFCFC2">信用分</div>
+        </div>
+      </div>
+      <div class="tags">
+        <span class="tag">已认证本科生</span><span class="tag">计算机学院</span><span class="tag">高信用用户</span>
+      </div>
+      <div class="bar" title="信用 82 / 100"><i></i></div>
+      <div style="font-size:11px;color:#BFCFC2;margin-top:6px">信用 ≥ 80：可创建车队 · 可发交易帖 · 可匿名发帖</div>
+    </div>
+    <div class="card">
+      <h3 style="cursor:pointer" onclick="showPage('announce')">📌 侧栏公告 →</h3>
+      <li style="cursor:pointer" onclick="showPage('treehole')"><span class="dot">●</span>期末周树洞“仅倾诉模式”使用指引</li>
+      <li style="cursor:pointer" onclick="showPage('market')"><span class="dot">●</span>交易区中介担保费率下调至 2%</li>
+      <li style="cursor:pointer" onclick="showPage('game')"><span class="dot">●</span>新增游戏合并：瓦 / Valorant / 无畏契约</li>
+      <li style="cursor:pointer" onclick="showPage('lost')"><span class="dot">●</span>失物招领新增“东门快递站”地点标签</li>
+    </div>
+    <div class="card">
+      <h3 style="cursor:pointer" onclick="showPage('game')">🚗 今晚发车 →</h3>
+      <li><span>🎮</span>瓦 · 黄金车 <b class="mono" style="margin-left:auto">20:00</b></li>
+      <li><span>🀄</span>雀魂 · 友人房 <b class="mono" style="margin-left:auto">21:30</b></li>
+      <li><span>⛏️</span>MC 建筑服 <b class="mono" style="margin-left:auto">22:00</b></li>
+      <button class="btn ghost sm" style="width:100%;margin-top:6px" onclick="showPage('game')">进入车队大厅 →</button>
+    </div>
+  </aside>
+</div>
+
+<!-- ======= 弹窗：重要公告（仅弹一次） ======= -->
+<div class="overlay" id="m-announce">
+  <div class="modal" style="max-width:480px;border-top:6px solid var(--stamp)">
+    <button class="x" onclick="closeModal('m-announce')">✕</button>
+    <h3>📢 重要公告</h3>
+    <p class="sub">重要公告仅弹窗一次，确认已读后不再打扰</p>
+    <p style="font-size:13.5px"><b>《社区规范 v2.3》将于 6/28 生效：</b>交易区新增中介担保费率说明（2%）；文明观察台申诉期延长至 7 天；车队爽约扣分细化为「−3/次，月内 3 次冻结建队权限」。</p>
+    <div class="actions">
+      <button class="btn ghost" onclick="closeModal('m-announce');showPage('announce')">查看全文</button>
+      <button class="btn primary" onclick="closeModal('m-announce');toast('已确认阅读，本公告不再弹出')">我已阅读 ✓</button>
+    </div>
+  </div>
+</div>
+
+<!-- ======= 弹窗：注册（邮箱验证码） ======= -->
+<div class="overlay" id="m-register">
+  <div class="modal" style="max-width:460px">
+    <button class="x" onclick="closeModal('m-register')">✕</button>
+    <h3>注册梧桐墙</h3>
+    <p class="sub">仅支持 QQ 邮箱 / Gmail / edu.cn 校园邮箱，edu.cn 注册自动获得「已认证学生」身份</p>
+    <div class="field"><label>邮箱</label><div style="display:flex;gap:8px"><input type="email" id="reg-email" style="flex:1" placeholder="you@stu.xxxx.edu.cn" oninput="checkMail(this)"><button class="btn ghost" id="btnSendCode" onclick="V4.sendCode()">发送验证码</button></div><div id="mailHint" style="font-size:12px;margin-top:3px"></div></div>
+    <div class="field" style="margin-top:10px"><label>邮箱验证码</label><input id="reg-code" maxlength="6" placeholder="6 位数字，10 分钟内有效"></div>
+    <div class="field" style="margin-top:10px"><label>昵称</label><input id="reg-nick" placeholder="你的公开昵称"></div>
+    <div class="field" style="margin-top:10px"><label>密码</label><input type="password" id="reg-pw" placeholder="至少 6 位"></div>
+    <label class="checkline"><input type="checkbox" id="reg-agree"><span>我已阅读并同意<a href="#" onclick="openModal('m-terms');return false">《用户协议》</a>与<a href="#" onclick="openModal('m-rules');return false">《社区规范》</a>，理解后台将保留账号、发帖、处罚、举报记录用于治理，前台不公开真实身份。<b>（必须勾选）</b></span></label>
+    <div class="actions"><button class="btn primary" style="width:100%" onclick="V4.doRegister2()">注册并自动登录</button></div>
+    <p class="muted" style="margin-top:8px">已有账号？<a href="#" onclick="closeModal('m-register');openModal('m-login');return false">直接登录 →</a></p>
+  </div>
+</div>
+
+<!-- ======= 弹窗：登录 ======= -->
+<div class="overlay" id="m-login">
+  <div class="modal" style="max-width:420px">
+    <button class="x" onclick="closeModal('m-login')">✕</button>
+    <h3>登录</h3>
+    <p class="sub">欢迎回来</p>
+    <div class="field"><label>邮箱</label><input type="email" id="lg-email" placeholder="you@stu.xxxx.edu.cn"></div>
+    <div class="field" style="margin-top:10px"><label>密码</label><input type="password" id="lg-pw" placeholder="你的密码" onkeydown="if(event.key==='Enter')doLogin()"></div>
+    <div class="actions"><button class="btn primary" style="width:100%" onclick="doLogin()">登录</button></div>
+    <p class="muted" style="margin-top:8px">没有账号？<a href="#" onclick="closeModal('m-login');openModal('m-register');return false">邮箱验证码注册 →</a><br>演示账号：laok@stu.demo.edu.cn / demo1234 ｜ 管理员：admin@campus.edu.cn / admin1234</p>
+  </div>
+</div>
+
+<!-- ======= 弹窗：用户协议 ======= -->
+<div class="overlay" id="m-terms">
+  <div class="modal" style="max-width:560px">
+    <button class="x" onclick="closeModal('m-terms')">✕</button>
+    <h3>《梧桐墙用户协议》（摘要版）</h3>
+    <div style="font-size:12.5px;max-height:52vh;overflow-y:auto;line-height:1.8">
+      <p><b>1. 账号</b>：仅限本校学生、校友与受邀人员注册；一人一号，禁止转借、买卖账号；注册即绑定校园身份状态（已认证学生/未认证访客/校友/导员/管理员）。</p>
+      <p><b>2. 数据</b>：平台后台保留账号、发帖、处罚、举报记录用于社区治理；前台不公开真实身份；匿名帖不被搜索引擎收录；可见期到期的匿名帖将被系统自动删除。</p>
+      <p><b>3. 内容责任</b>：你对发布内容承担法律责任；禁止发布违法违规、侵权、涉隐私内容；交易区禁售烟酒、处方药、管制刀具等物品。</p>
+      <p><b>4. 信用</b>：违规扣分、优质贡献加分；信用分影响匿名发帖、交易、观察台发帖、建队等权限；处罚以匿名化形式进入治理公示。</p>
+      <p><b>5. 终止</b>：严重违规将被限权或封禁；你可申请注销账号，注销后公开内容将匿名化保留。</p>
+      <p class="muted">完整版本见公告中心《用户协议 v1.0》。</p>
+    </div>
+  </div>
+</div>
+
+<!-- ======= 弹窗：社区规范 ======= -->
+<div class="overlay" id="m-rules">
+  <div class="modal" style="max-width:560px">
+    <button class="x" onclick="closeModal('m-rules')">✕</button>
+    <h3>《梧桐墙社区规范》（摘要版）</h3>
+    <div style="font-size:12.5px;max-height:52vh;overflow-y:auto;line-height:1.8">
+      <p><b>树洞</b>：可匿名，但禁止曝光他人隐私；辱骂内容将被拦截；涉及自伤情绪会推送心理支持资源。</p>
+      <p><b>车队</b>：爽约（发车前 30 分钟内无故退出）信用 −3；提前请假免罚；准时签到 +1。</p>
+      <p><b>集市</b>：如实描述物品；推荐担保交易（费率 2%）；纠纷走「举报→冻结→举证→仲裁→信用处理」流程。</p>
+      <p><b>观察台</b>：只描述事件；禁止公开真实姓名、手机号、寝室、学号、照片、聊天记录；禁止「求扩散」等煽动表达；涉及具体个人/组织必须先人工审核；被指认方有申诉与回应入口。</p>
+      <p><b>课评</b>：基于课程体验；禁止人身攻击与造谣；同课同学期限评一次。</p>
+      <p><b>处罚</b>：违规处理进入治理公示（匿名化）；均可在申诉期内申诉。</p>
+      <p class="muted">完整版本见公告中心《社区规范 v2.3》。</p>
+    </div>
+  </div>
+</div>
+
+<!-- ======= 弹窗：通用发帖 ======= -->
+<div class="overlay" id="m-compose">
+  <div class="modal" style="max-width:520px">
+    <button class="x" onclick="closeModal('m-compose')">✕</button>
+    <h3>✏️ 发帖</h3>
+    <p class="sub">选择板块后将载入对应模板与规则须知</p>
+    <div class="fgrid">
+      <div class="field"><label>板块</label><select><option>树洞 · 微墙</option><option>游戏车队（开车模板）</option><option>二手集市（交易模板）</option><option>打听 · 求助</option><option>生存手册</option><option>文明观察台（需先阅读须知）</option><option>校园活动</option><option>失物招领</option></select></div>
+      <div class="field"><label>发帖身份</label><select><option>实名昵称</option><option>匿名昵称（固定马甲）</option><option>完全匿名</option></select></div>
+      <div class="field full"><label>正文</label><textarea rows="4" placeholder="敏感词与辱骂检测将在提交时运行…"></textarea></div>
+    </div>
+    <div class="actions"><button class="btn ghost" onclick="closeModal('m-compose')">取消</button><button class="btn primary" onclick="closeModal('m-compose');toast('已发布（原型演示）')">发布</button></div>
+  </div>
+</div>
+
+<!-- ======= 弹窗：发布开车（完整开车模板） ======= -->
+<div class="overlay" id="m-createteam">
+  <div class="modal">
+    <button class="x" onclick="closeModal('m-createteam')">✕</button>
+    <h3>🚗 发布开车</h3>
+    <p class="sub">需信用 ≥ 60 · 你当前信用 82 ✓</p>
+    <div class="fgrid">
+      <div class="field"><label>游戏</label><select id="ct-game"><option>LOL</option><option>瓦</option><option>CS2</option><option>原神</option><option>星铁</option><option>王者</option><option>雀魂</option><option>MC</option><option>饥荒</option><option>DND</option></select></div>
+      <div class="field"><label>模式</label><input id="ct-mode" placeholder="如：竞技排位 / 友人房 / 大乱斗"></div>
+      <div class="field"><label>段位要求</label><input id="ct-rank" placeholder="如：黄金~铂金 / 不限"></div>
+      <div class="field"><label>人数</label><select id="ct-cap"><option>2</option><option>3</option><option>4</option><option selected>5</option><option>6</option><option>10</option></select></div>
+      <div class="field full"><label>时间机制</label>
+        <div class="opt-row" id="ct-time" data-single="1">
+          <span class="chip on" data-v="tonight">今晚 8 点</span><span class="chip" data-v="friday">周五晚</span><span class="chip" data-v="weekly">长期固定队（每周重复）</span><span class="chip" data-v="custom" onclick="document.getElementById('ct-datetime').style.display='flex'">📅 选择日期时间</span>
+        </div>
+        <div id="ct-datetime" style="display:none;gap:8px;margin-top:8px">
+          <input type="date" id="ct-date" style="flex:1;border:1px solid var(--line);border-radius:7px;padding:8px 10px;background:#FDFCF7">
+          <input type="time" id="ct-time2" style="flex:1;border:1px solid var(--line);border-radius:7px;padding:8px 10px;background:#FDFCF7">
+        </div>
+      </div>
+      <div class="field"><label>语音方式</label><select id="ct-voice"><option>KOOK</option><option>QQ 群语音</option><option>Discord</option><option>OOPZ</option><option>Teamspeak</option><option>飞书</option><option>不需要语音</option></select></div>
+      <div class="field"><label>频道跳转链接（选填）</label><input id="ct-link" placeholder="粘贴 QQ 群 / KOOK / TS 邀请链接"></div>
+      <div class="field"><label>是否欢迎新手</label><select id="ct-newbie"><option>欢迎新手，带练</option><option>欢迎新手</option><option>需要基础</option><option>仅限熟练</option></select></div>
+      <div class="field"><label>车队氛围</label><input id="ct-vibe" placeholder="如：娱乐为主不骂人 / 认真上分 / 剧情沉浸"></div>
+      <div class="field full"><label>附加信息 / 注意事项（车友上车后自动推送）</label><textarea id="ct-notes" rows="2" placeholder="如：提前 10 分钟集合试麦；新人先看群公告"></textarea></div>
+      <div class="field"><label>发车前提醒时间</label><select id="ct-remindbefore"><option value="15">15 分钟前</option><option value="30" selected>30 分钟前</option><option value="60">1 小时前</option><option value="120">2 小时前</option></select></div>
+      <div class="field full"><label>提醒方式（可多选）</label>
+        <div class="opt-row" id="ct-remind">
+          <span class="chip on" data-v="邮件">📧 邮件</span><span class="chip on" data-v="站内">🔔 站内通知</span><span class="chip" data-v="日历">📅 日历订阅（.ics）</span><span class="chip" data-v="QQ机器人">🤖 QQ 群机器人</span><span class="chip" data-v="KOOK">KOOK Bot</span><span class="chip" data-v="Discord">Discord Bot</span><span class="chip" data-v="飞书">飞书群提醒</span>
+        </div>
+      </div>
+    </div>
+    <div class="actions"><button class="btn ghost" onclick="closeModal('m-createteam')">取消</button><button class="btn primary" onclick="createTeam()">发车！</button></div>
+  </div>
+</div>
+
+<!-- ======= 弹窗：提交新游戏 ======= -->
+<div class="overlay" id="m-submitgame">
+  <div class="modal" style="max-width:420px">
+    <button class="x" onclick="closeModal('m-submitgame')">✕</button>
+    <h3>🕹️ 提交新游戏</h3>
+    <p class="sub">提交后进入管理员审核，重复名称将被合并（如 Valorant / 瓦 / 无畏契约）</p>
+    <div class="field"><label>游戏名称</label><input placeholder="官方名或常用简称均可"></div>
+    <div class="field" style="margin-top:10px"><label>常见别名（帮助管理员合并）</label><input placeholder="用 / 分隔，如：星穹铁道 / 星铁"></div>
+    <div class="actions"><button class="btn primary" style="width:100%" onclick="closeModal('m-submitgame');toast('已提交审核，通过后会通知你')">提交</button></div>
+  </div>
+</div>
+
+<!-- ======= 弹窗：车队详情 ======= -->
+<div class="overlay" id="m-teamdetail">
+  <div class="modal" style="max-width:520px">
+    <button class="x" onclick="closeModal('m-teamdetail')">✕</button>
+    <h3>无畏契约 · 今晚 8 点黄金车</h3>
+    <p class="sub">竞技排位 · 黄金~铂金 · KOOK 语音 · 欢迎新手 · 氛围：娱乐上分两不误</p>
+    <div style="background:#FBFAF3;border:1px solid var(--line);border-radius:8px;padding:12px;margin-bottom:12px">
+      <b style="font-size:13px">当前成员 4/5</b>
+      <li style="list-style:none;font-size:13px;margin-top:6px">🧑‍✈️ 车头_老K <span class="stamp-badge">发车率 98%</span></li>
+      <li style="list-style:none;font-size:13px">🎮 米线不要香菜 <span class="tag green">准时 ×12</span></li>
+      <li style="list-style:none;font-size:13px">🎮 蒸汽波奶茶 <span class="tag blue">技术 ×8</span></li>
+      <li style="list-style:none;font-size:13px">🎮 匿名车友（对外隐藏昵称）</li>
+    </div>
+    <div class="field"><label>上车后接收提醒的方式</label>
+      <div class="opt-row"><span class="chip on">📧 邮件</span><span class="chip on">🔔 站内</span><span class="chip">📅 加入我的日历</span><span class="chip">🤖 QQ 提醒</span></div>
+    </div>
+    <p class="muted" style="margin:10px 0">⏰ 发车前 30 分钟推送「准备发车」提醒 · 爽约（发车前 1 小时内无故退出）信用 −3</p>
+    <div class="actions">
+      <button class="btn ghost" onclick="toast('原型演示：跳转 KOOK 频道')">先去频道看看 ↗</button>
+      <button class="btn primary" onclick="closeModal('m-teamdetail');toast('上车成功！20:00 见 🚗')">确认上车</button>
+    </div>
+  </div>
+</div>
+
+<!-- ======= 弹窗：发布出售（交易模板） ======= -->
+<div class="overlay" id="m-trade">
+  <div class="modal">
+    <button class="x" onclick="closeModal('m-trade')">✕</button>
+    <h3>🛒 发布出售</h3>
+    <p class="sub">需信用 ≥ 70 且已认证 · 你当前信用 82 ✓ · 请勿发布禁售物品</p>
+    <div class="fgrid">
+      <div class="field full"><label>物品标题</label><input id="mk-title" placeholder="品牌 + 型号 + 关键信息"></div>
+      <div class="field"><label>价格（¥）</label><input id="mk-price" type="number" placeholder="0"></div>
+      <div class="field"><label>是否可刀</label><select id="mk-bargain"><option>可小刀</option><option>可大刀（诚心要）</option><option>一口价</option></select></div>
+      <div class="field"><label>成色</label><select id="mk-cond"><option>全新未拆</option><option>99 新</option><option>95 新</option><option>9 成新</option><option>有明显使用痕迹</option></select></div>
+      <div class="field"><label>购买时间</label><input id="mk-bought" type="month"></div>
+      <div class="field full"><label>物品说明（如实描述可降低纠纷率）</label><textarea id="mk-flaws" rows="2" placeholder="成色细节、使用感受、有无瑕疵（无瑕疵也请注明）"></textarea></div>
+      <div class="field"><label>交付地点（可自行填写）</label><input id="mk-place" list="placeList" placeholder="如：东门快递站面交"><datalist id="placeList"><option>东门快递站面交</option><option>图书馆门口面交</option><option>宿舍楼下面交</option><option>校内跑腿代送</option></datalist></div>
+      <div class="field"><label>交易方式</label><select id="mk-escrow"><option value="1">🛡️ 中介担保（平台收 2%）</option><option value="0">自由交易（风险自担）</option></select></div>
+    </div>
+    <label class="checkline"><input type="checkbox" id="mk-agree"><span>我确认此物品不属于禁售清单（烟酒、处方药、管制刀具等），并接受纠纷仲裁流程。</span></label>
+    <div class="actions"><button class="btn ghost" onclick="closeModal('m-trade')">取消</button><button class="btn primary" onclick="publishListing()">发布</button></div>
+  </div>
+</div>
+
+<!-- ======= 移动端底部导航 ======= -->
+<nav class="tabbar" id="tabbar">
+  <button data-page="home" class="active" onclick="showPage('home')"><span class="ti">🏠</span>首页</button>
+  <button data-page="treehole" onclick="showPage('treehole')"><span class="ti">🌳</span>树洞</button>
+  <button data-page="game" onclick="showPage('game')"><span class="ti">🎮</span>车队</button>
+  <button data-page="market" onclick="showPage('market')"><span class="ti">🛒</span>集市</button>
+  <button onclick="toggleDrawer(true)"><span class="ti">☰</span>更多</button>
+</nav>
+<!-- ======= 移动端抽屉导航 ======= -->
+<div class="drawer-mask" id="drawerMask" onclick="toggleDrawer(false)"></div>
+<nav class="drawer" id="drawer">
+  <div class="group-label">全部板块</div>
+  <button class="navitem" onclick="showPage('qa')"><span class="ico">🙋</span>打听 · 求助</button>
+  <button class="navitem" onclick="showPage('handbook')"><span class="ico">📖</span>生存手册</button>
+  <button class="navitem" onclick="showPage('course')"><span class="ico">🎓</span>课程评价</button>
+  <button class="navitem" onclick="showPage('observe')"><span class="ico">🔍</span>文明观察台</button>
+  <button class="navitem" onclick="showPage('gov')"><span class="ico">⚖️</span>治理公示</button>
+  <button class="navitem" onclick="showPage('announce')"><span class="ico">📢</span>公告中心</button>
+  <button class="navitem" onclick="showPage('activity')"><span class="ico">🎪</span>校园活动</button>
+  <button class="navitem" onclick="showPage('lost')"><span class="ico">🧣</span>失物招领</button>
+  <button class="navitem" onclick="showPage('credit')"><span class="ico">🪪</span>我的信用</button>
+</nav>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* ========== 页面切换 ========== */
+function showPage(id){
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  var pg=document.getElementById('page-'+id);
+  if(pg)pg.classList.add('active');
+  document.querySelectorAll('.navitem').forEach(n=>n.classList.toggle('active',n.dataset.page===id));
+  document.querySelectorAll('#tabbar button').forEach(b=>b.classList.toggle('active',b.dataset.page===id));
+  toggleDrawer(false);
+  window.scrollTo({top:0});
+}
+/* ========== 移动端抽屉 ========== */
+function toggleDrawer(open){
+  document.getElementById('drawer').classList.toggle('show',open);
+  document.getElementById('drawerMask').classList.toggle('show',open);
+}
+/* ========== 弹窗 ========== */
+function openModal(id){document.getElementById(id).classList.add('show')}
+function closeModal(id){document.getElementById(id).classList.remove('show')}
+document.querySelectorAll('.overlay').forEach(o=>o.addEventListener('click',e=>{if(e.target===o)o.classList.remove('show')}));
+/* ========== Toast ========== */
+var toastTimer;
+function toast(msg){
+  var t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');
+  clearTimeout(toastTimer);toastTimer=setTimeout(()=>t.classList.remove('show'),2600);
+}
+/* ========== 热榜 Tab ========== */
+function switchRank(btn,key){
+  document.querySelectorAll('.rank-tab').forEach(b=>b.classList.remove('on'));
+  btn.classList.add('on');
+  document.querySelectorAll('.sticky-grid').forEach(g=>g.style.display='none');
+  document.getElementById('rank-'+key).style.display='grid';
+}
+/* ========== 车队筛选 ========== */
+function filterGame(btn,key){
+  document.querySelectorAll('#gameFilter .chip').forEach(c=>c.classList.remove('on'));
+  btn.classList.add('on');
+  document.querySelectorAll('.ticket').forEach(t=>{
+    t.style.display=(key==='all'||t.dataset.game===key)?'flex':'none';
+  });
+}
+/* ========== 发车倒计时（今晚 20:00） ========== */
+function tickCountdown(){
+  var el=document.getElementById('cd-valo');if(!el)return;
+  var now=new Date(),target=new Date();
+  target.setHours(20,0,0,0);
+  if(target<now)target.setDate(target.getDate()+1);
+  var s=Math.floor((target-now)/1000);
+  var h=String(Math.floor(s/3600)).padStart(2,'0'),m=String(Math.floor(s%3600/60)).padStart(2,'0'),sec=String(s%60).padStart(2,'0');
+  el.textContent=h+':'+m+':'+sec+' 后发车';
+}
+setInterval(tickCountdown,1000);tickCountdown();
+/* ========== 树洞敏感词关怀 ========== */
+var careWords=['自杀','轻生','不想活','自残','活不下去','想死','想跳楼','死了算了','撑不下去','没有意义了','结束这一切'];
+function checkCare(ta){
+  var hit=careWords.some(w=>ta.value.includes(w));
+  document.getElementById('careBox').classList.toggle('show',hit);
+}
+/* ========== 重要公告弹窗：仅弹一次 ========== */
+var annShown=false;
+window.addEventListener('load',function(){
+  if(!annShown){annShown=true;setTimeout(()=>openModal('m-announce'),600)}
+});
+/* ========== 注册邮箱校验演示 ========== */
+function checkMail(inp){
+  var ok=/@(qq\.com|gmail\.com|[\w.-]+\.edu\.cn)$/i.test(inp.value.trim());
+  document.getElementById('mailHint').textContent=inp.value?(ok?'✓ 邮箱后缀符合要求':'✗ 仅支持 QQ 邮箱 / Gmail / edu.cn 校园邮箱'):'';
+  document.getElementById('mailHint').style.color=ok?'#3E7D5C':'#C0432B';
+}
+
+/* ================================================================
+   后端 API 对接（FastAPI）。后端不可用时自动降级为静态演示模式。
+   ================================================================ */
+var LIVE=false, TOKEN=localStorage.getItem('wt_token')||'', ME=null;
+
+async function api(path,method,body){
+  var opts={method:method||'GET',headers:{'Content-Type':'application/json'}};
+  if(TOKEN)opts.headers['Authorization']='Bearer '+TOKEN;
+  if(body)opts.body=JSON.stringify(body);
+  var r=await fetch(path,opts);
+  var data=await r.json().catch(()=>({}));
+  if(!r.ok)throw new Error(data.detail||('请求失败 '+r.status));
+  return data;
+}
+function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
+function needLogin(){if(!TOKEN){toast('请先注册 / 登录');openModal('m-register');return true}return false}
+
+/* ---------- 登录态 ---------- */
+async function loadMe(){
+  if(!TOKEN)return;
+  try{
+    ME=await api('/api/me');
+    var chip=document.querySelector('.userchip');
+    chip.querySelector('.uname').textContent=ME.nickname;
+    chip.querySelector('.umeta').textContent=ME.identity+' · 信用 '+ME.credit;
+    chip.querySelector('.avatar').textContent=ME.nickname[0];
+  }catch(e){TOKEN='';localStorage.removeItem('wt_token')}
+}
+async function doRegister(){
+  try{
+    var d=await api('/api/auth/register','POST',{
+      email:document.getElementById('reg-email').value,
+      password:document.getElementById('reg-pw').value,
+      nickname:document.getElementById('reg-nick').value,
+      agreed:document.getElementById('reg-agree').checked});
+    TOKEN=d.token;localStorage.setItem('wt_token',TOKEN);
+    closeModal('m-register');toast('注册成功！身份：'+d.identity);loadMe();
+  }catch(e){toast(e.message)}
+}
+async function doLogin(){
+  try{
+    var d=await api('/api/auth/login','POST',{
+      email:document.getElementById('lg-email').value,
+      password:document.getElementById('lg-pw').value});
+    TOKEN=d.token;localStorage.setItem('wt_token',TOKEN);
+    closeModal('m-login');toast('欢迎回来，'+d.nickname+'，正在刷新…');
+    setTimeout(function(){location.reload()},700);
+  }catch(e){toast(e.message)}
+}
+
+/* ---------- 树洞 ---------- */
+function postCard(p){
+  var vis=p.expires_at?'<span class="tag yellow">限时可见</span>':'';
+  var cm=p.allow_comments?'<span style="cursor:pointer" onclick="XCM.open(\'post\','+p.id+',this)">💬 '+p.replies+' 回帖</span>':'<span style="color:#BBB">评论已关闭</span>';
+  return '<article class="post"><div class="p-head"><div class="p-avatar">'+esc(p.author[0])+'</div>'+
+    '<span class="p-name">'+esc(p.author)+'</span>'+vis+
+    '<span class="p-time">'+esc((p.created_at||'').slice(5,16).replace('T',' '))+'</span></div>'+
+    (p.title?'<div class="p-title">'+esc(p.title)+'</div>':'')+
+    '<div class="p-body">'+(window.mdRender||esc)(p.body)+'</div>'+
+    '<div class="p-foot"><span onclick="likePost('+p.id+',this)">👍 '+p.likes+'</span>'+cm+
+    '<span>⭐ 收藏</span><span>🚩 举报</span></div></article>';
+}
+async function loadPosts(){
+  try{
+    var list=await api('/api/posts?board=treehole');
+    document.getElementById('treeholeFeed').innerHTML=list.map(postCard).join('')||'<p class="muted">树洞里还很安静…</p>';
+  }catch(e){}
+}
+async function likePost(id,el){
+  try{var d=await api('/api/posts/'+id+'/like','POST');el.textContent='👍 '+d.likes}catch(e){}
+}
+async function publishTreehole(){
+  if(!LIVE){toast('已发布到树洞（原型演示）');return}
+  if(needLogin())return;
+  var body=document.getElementById('th-body');
+  if(!body.value.trim()){toast('先写点什么吧');return}
+  try{
+    var d=await api('/api/posts','POST',{
+      board:'treehole',body:body.value,
+      identity_mode:document.getElementById('th-identity').value,
+      visibility:document.getElementById('th-vis').value,
+      allow_comments:!document.getElementById('th-nocomment').checked});
+    body.value='';document.getElementById('careBox').classList.remove('show');
+    toast(d.care?'已发布。'+d.care_message:'已发布到树洞 🌳');
+    loadPosts();
+  }catch(e){toast(e.message)}
+}
+
+/* ---------- 车队 ---------- */
+var SCHED_LABEL={tonight:'今晚 8 点',friday:'周五晚',weekly:'长期固定队',custom:'自定义时间'};
+function ticketCard(t){
+  var dots='';for(var i=0;i<t.capacity&&i<10;i++)dots+='<i'+(i<t.members.length?'':' class="empty"')+'></i>';
+  var link=t.voice_link?'（<a href="'+esc(t.voice_link)+'" target="_blank" rel="noopener">进频道 ↗</a>）':'';
+  return '<div class="ticket" data-game="'+esc(t.game)+'"><div class="t-left">'+
+    '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span class="t-game">'+esc(t.game)+'</span>'+
+    '<span class="tag '+(t.schedule_type==='tonight'?'red':'blue')+'">'+(SCHED_LABEL[t.schedule_type]||'')+' · '+esc(t.departure_at.slice(5,16).replace('T',' '))+'</span>'+
+    '<span class="tag green">'+esc(t.newbie)+'</span>'+(t.vibe?'<span class="tag yellow">氛围：'+esc(t.vibe)+'</span>':'')+'</div>'+
+    '<div class="t-row">模式 <b>'+esc(t.mode)+'</b> ｜ 段位 <b>'+esc(t.rank_req)+'</b> ｜ 语音 <b>'+esc(t.voice)+'</b>'+link+'</div>'+
+    '<div class="t-row">车头：<b>'+esc(t.owner)+'</b></div>'+
+    '<div class="t-row muted">提醒方式：'+esc(t.remind_channels)+'（发车前 30 分钟推送）</div></div>'+
+    '<div class="t-right"><div class="seats">'+t.seats+'</div><div class="seatdots">'+dots+'</div>'+
+    '<div class="cd" data-dep="'+esc(t.departure_at)+'"></div>'+
+    '<button class="btn primary sm" onclick="joinTeam('+t.id+')">上车</button>'+
+    '<div style="display:flex;gap:8px;font-size:11px"><a href="#" onclick="XT.excuse('+t.id+');return false">请假</a>'+
+    '<a href="#" onclick="XT.leave('+t.id+');return false">下车</a>'+
+    '<a href="#" onclick="XT.manage('+t.id+');return false">管理</a></div></div></div>';
+}
+async function loadTeams(){
+  try{
+    var list=await api('/api/teams');
+    document.getElementById('ticketList').innerHTML=list.map(ticketCard).join('')||'<p class="muted">还没有车队，点右上角发布开车！</p>';
+  }catch(e){}
+}
+async function joinTeam(id){
+  if(needLogin())return;
+  try{var d=await api('/api/teams/'+id+'/join','POST',{remind_channels:'邮件,站内'});toast(d.message);loadTeams()}
+  catch(e){toast(e.message)}
+}
+function pickChips(rowId){
+  return Array.from(document.querySelectorAll('#'+rowId+' .chip.on')).map(c=>c.dataset.v);
+}
+async function createTeam(){
+  if(!LIVE){closeModal('m-createteam');toast('车队已发布！到点自动提醒全员发车 🚗（原型演示）');return}
+  if(needLogin())return;
+  var sched=pickChips('ct-time')[0]||'tonight';
+  var custom=null;
+  if(sched==='custom'){
+    var dd=document.getElementById('ct-date').value,tt=document.getElementById('ct-time2').value;
+    if(!dd||!tt){toast('请先选择发车日期和时间');return}
+    custom=dd+'T'+tt+':00';
+    if(new Date(custom)<new Date()){toast('发车时间不能早于现在');return}
+  }
+  try{
+    var t=await api('/api/teams','POST',{
+      game:document.getElementById('ct-game').value,
+      mode:document.getElementById('ct-mode').value||'常规',
+      rank_req:document.getElementById('ct-rank').value||'不限',
+      capacity:parseInt(document.getElementById('ct-cap').value),
+      schedule_type:sched,custom_time:custom,
+      voice:document.getElementById('ct-voice').value,
+      voice_link:document.getElementById('ct-link').value,
+      newbie:document.getElementById('ct-newbie').value,
+      vibe:document.getElementById('ct-vibe').value,
+      notes:document.getElementById('ct-notes').value,
+      remind_before:parseInt(document.getElementById('ct-remindbefore').value),
+      remind_channels:pickChips('ct-remind').join(',')||'邮件,站内'});
+    closeModal('m-createteam');toast('车队已发布！'+(t.note||'到点自动提醒全员发车 🚗'));loadTeams();
+  }catch(e){toast(e.message)}
+}
+
+/* ---------- 集市 ---------- */
+function listingCard(l){
+  var s=l.seller;
+  return '<div class="card"><div style="display:flex;gap:16px;flex-wrap:wrap">'+
+    '<div style="width:110px;height:110px;background:#EFEDE0;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:34px;flex-shrink:0">📦</div>'+
+    '<div style="flex:1;min-width:240px"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><b style="font-size:16px">'+esc(l.title)+'</b>'+
+    (l.escrow?'<span class="tag yellow">🛡️ 中介担保</span>':'<span class="tag gray">自由交易</span>')+
+    '<span class="tag green">'+esc(l.bargain)+'</span></div>'+
+    '<div style="font-family:var(--mono);font-size:22px;color:var(--stamp);font-weight:800;margin:4px 0">¥'+l.price+'</div>'+
+    '<table style="font-size:12.5px;border-spacing:0 2px">'+
+    '<tr><td class="muted" style="padding-right:14px">成色</td><td>'+esc(l.condition)+'</td></tr>'+
+    '<tr><td class="muted">购买时间</td><td>'+esc(l.bought_at||'—')+'</td></tr>'+
+    '<tr><td class="muted">瑕疵</td><td>'+esc(l.flaws)+'</td></tr>'+
+    '<tr><td class="muted">交付地点</td><td>'+esc(l.place)+'</td></tr></table></div>'+
+    '<div style="width:210px;flex-shrink:0;border-left:1px dashed var(--line);padding-left:16px">'+
+    '<div style="font-size:12px;font-weight:700;margin-bottom:6px">卖家信用</div>'+
+    '<b style="font-size:13px">'+esc(s.nickname)+'</b>'+
+    '<li style="list-style:none;font-size:12px">✅ '+esc(s.identity)+'</li>'+
+    '<li style="list-style:none;font-size:12px">🪪 信用 <b class="mono">'+s.credit+'</b> · 历史成交 <b class="mono">'+s.sold+'</b> 单</li>'+
+    '<button class="btn primary sm" style="width:100%;margin-top:8px" onclick="toast(\'原型演示：打开交易私信\')">私信购买</button>'+
+    '<button class="btn ghost sm" style="width:100%;margin-top:6px" onclick="XCM.open(\'listing\','+l.id+',this)">💬 评论问价</button>'+
+    (l.escrow?'<button class="btn ghost sm" style="width:100%;margin-top:6px" onclick="toast(\'原型演示：发起担保交易，费率 2%\')">🛡️ 走担保</button>':'')+
+    '</div></div></div>';
+}
+async function loadMarket(){
+  try{
+    var list=await api('/api/market');
+    document.getElementById('marketList').innerHTML=list.map(listingCard).join('')||'<p class="muted">集市空空如也</p>';
+  }catch(e){}
+}
+async function publishListing(){
+  if(!LIVE){closeModal('m-trade');toast('已发布到集市（原型演示）');return}
+  if(needLogin())return;
+  if(!document.getElementById('mk-agree').checked){toast('请先确认禁售条款');return}
+  try{
+    var d=await api('/api/market','POST',{
+      title:document.getElementById('mk-title').value,
+      price:parseFloat(document.getElementById('mk-price').value||'0'),
+      condition:document.getElementById('mk-cond').value,
+      bought_at:document.getElementById('mk-bought').value,
+      flaws:document.getElementById('mk-flaws').value||'无瑕疵',
+      bargain:document.getElementById('mk-bargain').value,
+      place:document.getElementById('mk-place').value,
+      escrow:document.getElementById('mk-escrow').value==='1'});
+    closeModal('m-trade');
+    toast('已发布'+(d.escrow_fee?'，担保费约 ¥'+d.escrow_fee:''));loadMarket();
+  }catch(e){toast(e.message)}
+}
+
+/* ---------- 热榜 ---------- */
+async function loadHot(){
+  try{
+    var list=await api('/api/hot');
+    var target={post:'treehole',team:'game',listing:'market'};
+    document.getElementById('rank-hot').innerHTML=list.map(function(x,i){
+      return '<div class="sticky-note" onclick="showPage(\''+target[x.type]+'\')"><span class="rk">'+String(i+1).padStart(2,'0')+'</span>'+
+        '<span class="t">'+esc(x.title)+'</span><span class="m">'+esc(x.meta)+'</span></div>';
+    }).join('');
+  }catch(e){}
+}
+
+/* ---------- 动态车票倒计时 ---------- */
+setInterval(function(){
+  document.querySelectorAll('.cd[data-dep]').forEach(function(el){
+    var s=Math.floor((new Date(el.dataset.dep)-new Date())/1000);
+    if(s<=0){el.textContent='🚗 已发车';return}
+    if(s>86400){el.textContent=Math.floor(s/86400)+' 天后发车';return}
+    var h=String(Math.floor(s/3600)).padStart(2,'0'),m=String(Math.floor(s%3600/60)).padStart(2,'0'),sec=String(s%60).padStart(2,'0');
+    el.textContent=h+':'+m+':'+sec+' 后发车';
+  });
+},1000);
+
+/* ---------- 选项 chip 通用切换 ---------- */
+document.querySelectorAll('.opt-row .chip').forEach(function(c){
+  c.addEventListener('click',function(){
+    var row=c.parentElement;
+    if(row.dataset.single){row.querySelectorAll('.chip').forEach(x=>x.classList.remove('on'));c.classList.add('on')}
+    else c.classList.toggle('on');
+  });
+});
+
+/* ---------- 启动：探测后端 ---------- */
+(async function boot(){
+  try{
+    await api('/api/hot');
+    LIVE=true;
+    loadHot();loadTeams();loadPosts();loadMarket();loadMe();
+    console.log('[梧桐墙] 已连接后端，实时模式');
+  }catch(e){
+    console.log('[梧桐墙] 后端未启动，静态演示模式');
+  }
+})();
+</script>
+<script src="app-extra.js"></script>
+<script src="polish.js"></script>
+<script src="app-v4.js"></script>
+<!-- 梧桐墙原型 v1.2 · 完整版：全板块后端对接 -->
+</body>
+</html>

@@ -1,0 +1,113 @@
+name: wutong-wall
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    mem_limit: 768m
+    cpus: 0.75
+    networks: [internal]
+
+  migrate:
+    build: ./backend
+    env_file: ${ENV_FILE:-.env}
+    command: ["alembic", "upgrade", "head"]
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+    networks: [internal]
+
+  api:
+    build: ./backend
+    restart: unless-stopped
+    env_file: ${ENV_FILE:-.env}
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    volumes:
+      - uploads:/data/uploads
+      - backups:/data/backups
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/health/live"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+    mem_limit: 768m
+    cpus: 1.25
+    networks: [internal]
+
+  worker:
+    build: ./backend
+    command: ["python", "-m", "app.worker"]
+    restart: unless-stopped
+    env_file: ${ENV_FILE:-.env}
+    environment:
+      DB_POOL_SIZE: 2
+      DB_MAX_OVERFLOW: 1
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    volumes:
+      - uploads:/data/uploads
+      - backups:/data/backups
+    mem_limit: 384m
+    cpus: 0.5
+    networks: [internal]
+
+  web:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    restart: unless-stopped
+    environment:
+      DOMAIN: ${DOMAIN}
+      NGINX_ENVSUBST_FILTER: DOMAIN
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - uploads:/data/uploads:ro
+      - letsencrypt:/etc/letsencrypt:ro
+      - certbot_web:/var/www/certbot:ro
+    mem_limit: 128m
+    cpus: 0.25
+    networks: [internal]
+
+  certbot:
+    image: certbot/certbot:latest
+    profiles: ["tools"]
+    ports:
+      - "80:80"
+    volumes:
+      - letsencrypt:/etc/letsencrypt
+      - certbot_web:/var/www/certbot
+
+volumes:
+  postgres_data:
+  uploads:
+  backups:
+  letsencrypt:
+  certbot_web:
+
+networks:
+  internal:
+    driver: bridge
