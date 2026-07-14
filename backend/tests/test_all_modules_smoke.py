@@ -23,7 +23,7 @@ def make_admin() -> TestClient:
                 alias="梧桐#admin",
                 campus_identity="staff",
                 role="admin",
-                credit=100,
+                credit=1000,
             )
         )
         db.commit()
@@ -183,7 +183,7 @@ def test_lost_observe_feedback_and_audience_workflows(client: TestClient) -> Non
         json={"type": "suggestion", "title": "增加教学楼筛选", "body": "希望活动列表可以按照教学楼或校区筛选。"},
     ).json()
     before = client.get("/api/v1/me").json()["xp"]
-    payload = {"status": "accepted", "admin_note": "已进入开发计划", "reward_xp": 20, "reward_credit": 1}
+    payload = {"status": "accepted", "admin_note": "已进入开发计划", "reward_xp": 20}
     admin.post(f"/api/v1/admin/feedback/{feedback['id']}/decision", headers=csrf(admin), json=payload)
     admin.post(f"/api/v1/admin/feedback/{feedback['id']}/decision", headers=csrf(admin), json=payload)
     assert client.get("/api/v1/me").json()["xp"] == before + 20

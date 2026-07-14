@@ -9,7 +9,9 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
+from ..anonymous import DEFAULT_ANONYMOUS_NICKNAMES, normalize_nickname_pool
 from ..config import get_settings
+from ..credit import MAX_CREDIT, apply_credit_rule
 from ..database import get_db
 from ..deps import admin_user, current_user, moderator_user
 from ..errors import APIError
@@ -44,7 +46,7 @@ from ..models import (
     utcnow,
 )
 from ..security import clear_session_cookies, hash_password, verify_password
-from ..services import audit, enqueue_email, notify, require_campus_email
+from ..services import audit, enqueue_email, moderate_text, notify, require_campus_email
 from .auth import consume_code, user_payload
 
 settings = get_settings()
@@ -54,6 +56,7 @@ admin_router = APIRouter(prefix="/admin", tags=["管理后台"])
 
 class ProfileUpdate(BaseModel):
     nickname: str | None = Field(default=None, min_length=2, max_length=20)
+    alias: str | None = Field(default=None, min_length=2, max_length=20)
     avatar_attachment_id: int | None = None
 
 
@@ -155,6 +158,16 @@ def me(user: User = Depends(current_user), db: Session = Depends(get_db)) -> dic
 def update_profile(data: ProfileUpdate, user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
     if data.nickname is not None:
         user.nickname = data.nickname.strip()
+    if data.alias is not None:
+        alias = data.alias.strip()
+        if len(alias) < 2 or len(alias) > 20 or any(ord(char) < 32 for char in alias):
+            raise APIError(400, "ALIAS_INVALID", "固定匿名昵称需为 2–20 个字符，且不能包含换行或控制字符")
+        moderation_status, reason, _ = moderate_text(alias, db=db)
+        if moderation_status != "published":
+            raise APIError(400, "ALIAS_REJECTED", reason or "固定匿名昵称包含不适合公开展示的内容")
+        if db.scalar(select(User.id).where(User.alias == alias, User.id != user.id)):
+            raise APIError(409, "ALIAS_EXISTS", "这个固定匿名昵称已被使用")
+        user.alias = alias
     if data.avatar_attachment_id is not None:
         attachment = db.get(Attachment, data.avatar_attachment_id)
         if not attachment or attachment.owner_id != user.id or attachment.status != "pending":
@@ -399,7 +412,7 @@ class UserAdminUpdate(BaseModel):
     role: str | None = None
     campus_identity: str | None = None
     status: str | None = None
-    credit: int | None = Field(default=None, ge=0, le=100)
+    credit: int | None = Field(default=None, ge=0, le=MAX_CREDIT)
     reason: str = Field(min_length=2, max_length=1000)
 
     @field_validator("role")
@@ -442,7 +455,7 @@ class PenaltyCreate(BaseModel):
     violation_type: str = Field(min_length=2, max_length=120)
     result: str = Field(min_length=2, max_length=3000)
     rule: str = Field(min_length=2, max_length=160)
-    credit_delta: int = Field(default=0, ge=-100, le=0)
+    credit_delta: int = Field(default=0, ge=-MAX_CREDIT, le=0)
 
 
 class AppealDecision(BaseModel):
@@ -486,7 +499,6 @@ class FeedbackDecision(BaseModel):
     status: str
     admin_note: str = Field(default="", max_length=3000)
     reward_xp: int = Field(default=0, ge=0, le=500)
-    reward_credit: int = Field(default=0, ge=0, le=20)
 
     @field_validator("status")
     @classmethod
@@ -743,7 +755,7 @@ def create_penalty(
     if not target:
         raise APIError(404, "USER_NOT_FOUND", "用户不存在")
     before_credit = target.credit
-    target.credit = max(0, min(100, target.credit + data.credit_delta))
+    target.credit = max(0, min(MAX_CREDIT, target.credit + data.credit_delta))
     row = Penalty(
         user_id=target.id,
         public_mask=f"用户 {target.alias[-4:]}",
@@ -857,7 +869,9 @@ def create_announcement(
 def settings_list(admin: User = Depends(admin_user), db: Session = Depends(get_db)) -> dict:
     del admin
     rows = db.scalars(select(Setting).order_by(Setting.key)).all()
-    return {x.key: x.value for x in rows}
+    values = {x.key: x.value for x in rows}
+    values.setdefault("anonymous_nickname_pool", "\n".join(DEFAULT_ANONYMOUS_NICKNAMES))
+    return values
 
 
 @admin_router.put("/settings/{key}")
@@ -867,19 +881,31 @@ def update_setting(
     admin: User = Depends(admin_user),
     db: Session = Depends(get_db),
 ) -> dict:
-    allowed = {"handbook_categories", "risk_words", "site_notice", "registration_open"}
+    allowed = {
+        "handbook_categories",
+        "risk_words",
+        "site_notice",
+        "registration_open",
+        "anonymous_nickname_pool",
+    }
     if key not in allowed:
         raise APIError(400, "SETTING_NOT_ALLOWED", "不支持该设置项")
+    value = data.value
+    if key == "anonymous_nickname_pool":
+        try:
+            value = "\n".join(normalize_nickname_pool(value))
+        except ValueError as exc:
+            raise APIError(400, "ANONYMOUS_POOL_INVALID", str(exc)) from exc
     row = db.get(Setting, key)
     before = row.value if row else ""
     if row:
-        row.value = data.value
+        row.value = value
         row.updated_by = admin.id
     else:
-        row = Setting(key=key, value=data.value, updated_by=admin.id)
+        row = Setting(key=key, value=value, updated_by=admin.id)
         db.add(row)
-    audit(db, admin.id, "setting.update", "setting", key, before=before, after=data.value)
-    return {"key": key, "value": data.value}
+    audit(db, admin.id, "setting.update", "setting", key, before=before, after=value)
+    return {"key": key, "value": value}
 
 
 @admin_router.get("/feedback")
@@ -939,7 +965,14 @@ def decide_feedback(
     owner = db.get(User, entity.owner_id)
     if data.status == "accepted":
         owner.xp += data.reward_xp
-        owner.credit = min(100, owner.credit + data.reward_credit)
+        apply_credit_rule(
+            db,
+            owner,
+            "reward.feedback_accepted",
+            actor_id=moderator.id,
+            target_type="feedback",
+            target_id=feedback_id,
+        )
     notify(db, owner.id, "反馈处理结果", f"{data.status}：{data.admin_note}", "/me")
     audit(
         db,

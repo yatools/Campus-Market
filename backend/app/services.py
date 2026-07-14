@@ -23,7 +23,6 @@ from .models import (
     User,
     utcnow,
 )
-from .security import thread_anonymous_name
 
 ABUSE_WORDS = {"傻逼", "去死吧", "全家死", "人肉", "代考", "代写"}
 HIGH_RISK_WORDS = {"电子烟", "处方药", "管制刀", "求扩散", "避雷", "学号", "身份证"}
@@ -64,6 +63,13 @@ def enqueue_email(db: Session, email: str, subject: str, body: str) -> None:
 
 def notify(db: Session, user_id: int, title: str, body: str, link: str = "", kind: str = "system") -> None:
     db.add(Notification(user_id=user_id, type=kind, title=title, body=body, link=link))
+
+
+def touch_entity(db: Session, entity_id: int) -> None:
+    """Mark a public root entity as meaningfully updated for the home activity feed."""
+    entity = db.get(ContentEntity, entity_id)
+    if entity:
+        entity.updated_at = utcnow()
 
 
 def audit(
@@ -203,7 +209,9 @@ def author_name(db: Session, entity: ContentEntity, identity_mode: str, thread_i
     if identity_mode == "alias":
         return user.alias
     if identity_mode == "anonymous":
-        return thread_anonymous_name(thread_id or entity.id, user.id)
+        from .anonymous import thread_anonymous_identity
+
+        return thread_anonymous_identity(db, thread_id or entity.id, user.id)
     return user.nickname
 
 

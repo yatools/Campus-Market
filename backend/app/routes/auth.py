@@ -10,6 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..config import get_settings
+from ..credit import credit_value
 from ..database import get_db
 from ..deps import current_user, get_session_record
 from ..errors import APIError
@@ -140,6 +141,7 @@ def register(data: RegisterRequest, request: Request, response: Response, db: Se
         nickname=data.nickname.strip(),
         alias=new_alias(),
         campus_identity="student",
+        credit=credit_value(db, "baseline.initial_credit"),
     )
     db.add(user)
     try:

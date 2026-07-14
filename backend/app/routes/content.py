@@ -12,6 +12,7 @@ from sqlalchemy import delete, func, literal, or_, select, union_all
 from sqlalchemy.orm import Session
 
 from ..config import get_settings
+from ..credit import require_credit
 from ..database import get_db
 from ..deps import current_user, optional_user, participating_user
 from ..errors import APIError
@@ -42,6 +43,7 @@ from ..services import (
     public_entity_or_404,
     record_revision,
     remoderate_entity,
+    touch_entity,
 )
 
 router = APIRouter(tags=["内容与互动"])
@@ -77,12 +79,14 @@ class PostUpdate(BaseModel):
     title: str | None = Field(default=None, max_length=120)
     body: str | None = Field(default=None, min_length=1, max_length=10000)
     allow_comments: bool | None = None
+    attachment_ids: list[int] = Field(default_factory=list, max_length=9)
 
 
 class CommentCreate(BaseModel):
     body: str = Field(min_length=1, max_length=3000)
     parent_id: int | None = None
     identity_mode: str = "nickname"
+    attachment_ids: list[int] = Field(default_factory=list, max_length=6)
 
     @field_validator("identity_mode")
     @classmethod
@@ -177,6 +181,7 @@ def attach_uploads(db: Session, user: User, entity_id: int, attachment_ids: list
     for row in rows:
         row.entity_id = entity_id
         row.status = "attached"
+    db.flush()
 
 
 @router.get("/posts")
@@ -216,8 +221,8 @@ def list_posts(
 
 @router.post("/posts", status_code=201)
 def create_post(data: PostCreate, user: User = Depends(participating_user), db: Session = Depends(get_db)) -> dict:
-    if data.identity_mode == "anonymous" and user.credit < 60:
-        raise APIError(403, "CREDIT_REQUIRED", "匿名发帖需要信用分不低于 60")
+    if data.identity_mode == "anonymous":
+        require_credit(db, user, "threshold.anonymous_post", "匿名发帖")
     expires = {"24h": utcnow() + timedelta(hours=24), "7d": utcnow() + timedelta(days=7)}.get(data.visibility)
     entity, care = create_entity(
         db,
@@ -287,7 +292,9 @@ def update_post(
         post.body = data.body.strip()
     if data.allow_comments is not None:
         entity.allow_comments = data.allow_comments
+    attach_uploads(db, user, entity.id, data.attachment_ids)
     remoderate_entity(db, entity, f"{post.title}\n{post.body}")
+    touch_entity(db, entity.id)
     audit(db, user.id, "post.update", "content", entity.id)
     return post_payload(db, entity, post, user)
 
@@ -381,6 +388,8 @@ def comment_payload(db: Session, entity: ContentEntity, comment: Comment, viewer
         "status": entity.status,
         "mine": bool(viewer and entity.owner_id == viewer.id),
         "created_at": entity.created_at,
+        "updated_at": entity.updated_at,
+        "attachments": attachment_payload(db, entity.id),
         "likes": db.scalar(
             select(func.count(Reaction.id)).where(Reaction.entity_id == entity.id, Reaction.type == "like")
         )
@@ -486,6 +495,8 @@ def create_comment(
         identity_mode=data.identity_mode,
     )
     db.add(comment)
+    attach_uploads(db, user, entity.id, data.attachment_ids)
+    touch_entity(db, target_id)
     recipient = reply_to or target.owner_id
     if recipient != user.id and entity.status == "published":
         notify(

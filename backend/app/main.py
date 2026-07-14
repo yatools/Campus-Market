@@ -22,7 +22,7 @@ from .database import Base, SessionLocal, engine
 from .deps import current_user, get_session_record
 from .errors import install_error_handlers
 from .models import Notification, SessionRecord, User, utcnow
-from .routes import auth, content, governance, me_admin, modules, teams
+from .routes import auth, campus_services, content, credit, feed, games, governance, me_admin, modules, teams
 from .security import token_hash
 
 settings = get_settings()
@@ -144,7 +144,14 @@ async def csrf_protection(request: Request, call_next):
 api_routers = [
     auth.router,
     content.router,
+    credit.router,
+    credit.admin_router,
+    feed.router,
     teams.router,
+    games.router,
+    games.admin_router,
+    campus_services.router,
+    campus_services.admin_router,
     modules.router,
     governance.router,
     me_admin.me_router,

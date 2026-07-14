@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
+from ..credit import credit_value, require_credit
 from ..database import get_db
 from ..deps import current_user, optional_user, participating_user
 from ..errors import APIError
@@ -30,7 +31,8 @@ from ..models import (
     User,
     utcnow,
 )
-from ..services import audit, check_rate_limit, create_entity, insert_unique, mask_observe_body, notify
+from ..services import audit, check_rate_limit, create_entity, insert_unique, mask_observe_body, notify, touch_entity
+from .modules import bind_files, files
 
 router = APIRouter(tags=["治理与通信"])
 
@@ -43,10 +45,12 @@ def page(items: list, page_no: int, page_size: int, total: int) -> dict:
 class ObserveCreate(BaseModel):
     title: str = Field(min_length=4, max_length=160)
     body: str = Field(min_length=10, max_length=10000)
+    attachment_ids: list[int] = Field(default_factory=list, max_length=9)
 
 
 class ObserveResponse(BaseModel):
     body: str = Field(min_length=2, max_length=5000)
+    attachment_ids: list[int] = Field(default_factory=list, max_length=6)
 
 
 class AppealCreate(BaseModel):
@@ -65,6 +69,8 @@ def observe_payload(db: Session, entity: ContentEntity, row: ObservePost, viewer
         "mine": bool(viewer and viewer.id == entity.owner_id),
         "respondent": bool(viewer and viewer.id == row.respondent_id),
         "created_at": entity.created_at,
+        "updated_at": entity.updated_at,
+        "attachments": files(db, entity.id),
     }
 
 
@@ -111,8 +117,7 @@ def list_observe(
 
 @router.post("/observe-posts", status_code=201)
 def create_observe(data: ObserveCreate, user: User = Depends(participating_user), db: Session = Depends(get_db)) -> dict:
-    if user.credit < 75:
-        raise APIError(403, "CREDIT_REQUIRED", "发布观察帖需要信用分不低于 75")
+    require_credit(db, user, "threshold.observe_publish", "发布观察帖")
     entity, _ = create_entity(
         db,
         user.id,
@@ -128,6 +133,7 @@ def create_observe(data: ObserveCreate, user: User = Depends(participating_user)
         body_raw=data.body.strip(),
     )
     db.add(row)
+    bind_files(db, user, entity.id, data.attachment_ids)
     audit(db, user.id, "observe.create", "observe", entity.id)
     return observe_payload(db, entity, row, user)
 
@@ -147,6 +153,8 @@ def respond_observe(
         raise APIError(403, "RESPONDENT_REQUIRED", "只有审核员指定的回应方可以回应")
     row.response = data.body.strip()
     row.response_at = utcnow()
+    bind_files(db, user, entity.id, data.attachment_ids)
+    touch_entity(db, observe_id)
     audit(db, user.id, "observe.respond", "observe", observe_id)
     notify(db, entity.owner_id, "观察帖收到回应", row.title, f"/observe/{observe_id}")
     return {"ok": True, "response": row.response}
@@ -335,7 +343,7 @@ def find_pair_conversation(
 def add_message(db: Session, conversation: Conversation, sender: User, body: str) -> Message:
     check_rate_limit(db, "message_send_minute", str(sender.id), 30, 1)
     check_rate_limit(db, "message_send_day", str(sender.id), 300, 24 * 60)
-    if sender.credit < 85:
+    if sender.credit < credit_value(db, "threshold.dm_unlimited"):
         today = utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
         sent = (
             db.scalar(

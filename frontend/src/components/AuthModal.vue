@@ -1,16 +1,21 @@
 <script setup lang="ts">
-import { reactive, ref } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import { api, json } from '../api'
 import { useAuthStore } from '../stores/auth'
-import type { RegisterRequest, User, VerificationCodeRequest } from '../types'
+import type { AuthMode, RegisterRequest, User, VerificationCodeRequest } from '../types'
 import BaseModal from './BaseModal.vue'
 
 const auth = useAuthStore()
-const mode = ref<'login' | 'register' | 'reset'>('login')
+const props = withDefaults(defineProps<{ initialMode?: AuthMode }>(), { initialMode: 'login' })
+const mode = ref<AuthMode>(props.initialMode)
 const busy = ref(false)
 const message = ref('')
 const error = ref('')
 const form = reactive({ email: '', password: '', nickname: '', code: '', newPassword: '' })
+const title = computed(() => mode.value === 'login' ? '登录' : mode.value === 'register' ? '注册梧桐墙' : '重置密码')
+const subtitle = computed(() => mode.value === 'login' ? '欢迎回来' : mode.value === 'register' ? '使用校园邮箱验证身份，注册后自动登录' : '验证码通过后会使所有旧设备退出登录')
+
+watch(() => props.initialMode, (value) => { mode.value = value })
 
 async function sendCode(purpose: 'register' | 'reset_password') {
   error.value = ''
@@ -51,27 +56,21 @@ async function submit() {
 </script>
 
 <template>
-  <BaseModal title="校园身份登录" @close="auth.authOpen = false">
-    <div class="segmented">
-      <button :class="{ active: mode === 'login' }" @click="mode = 'login'">登录</button>
-      <button :class="{ active: mode === 'register' }" @click="mode = 'register'">注册</button>
-      <button :class="{ active: mode === 'reset' }" @click="mode = 'reset'">忘记密码</button>
-    </div>
+  <BaseModal :title="title" @close="auth.authOpen = false">
+    <p class="modal-sub auth-sub-v4">{{ subtitle }}</p>
     <form class="form-stack" @submit.prevent="submit">
-      <label>校园邮箱<input v-model.trim="form.email" type="email" required autocomplete="email" /></label>
+      <div class="auth-email-row-v4"><label>校园邮箱<input v-model.trim="form.email" type="email" required autocomplete="email" placeholder="you@stu.xxxx.edu.cn" /></label><button v-if="mode !== 'login'" type="button" class="btn ghost" @click="sendCode(mode === 'register' ? 'register' : 'reset_password')">发送验证码</button></div>
       <template v-if="mode !== 'login'">
-        <label v-if="mode === 'register'">昵称<input v-model.trim="form.nickname" required minlength="2" maxlength="20" /></label>
-        <div class="inline-field">
-          <label>验证码<input v-model.trim="form.code" required pattern="\d{6}" inputmode="numeric" /></label>
-          <button type="button" class="button secondary" @click="sendCode(mode === 'register' ? 'register' : 'reset_password')">发送验证码</button>
-        </div>
+        <label>邮箱验证码<input v-model.trim="form.code" required pattern="\d{6}" inputmode="numeric" placeholder="6 位数字，10 分钟内有效" /></label>
+        <label v-if="mode === 'register'">昵称<input v-model.trim="form.nickname" required minlength="2" maxlength="20" placeholder="你的公开昵称" /></label>
       </template>
       <label v-if="mode !== 'reset'">密码<input v-model="form.password" type="password" required :minlength="mode === 'register' ? 10 : 1" autocomplete="current-password" /></label>
       <label v-else>新密码<input v-model="form.newPassword" type="password" required minlength="10" autocomplete="new-password" /></label>
-      <label v-if="mode === 'register'" class="check"><input type="checkbox" required /> 我已阅读并同意用户协议、隐私政策和社区规范</label>
+      <label v-if="mode === 'register'" class="check auth-agreement-v4"><input type="checkbox" required /> 我已阅读并同意《用户协议》与《社区规范》，理解后台将保留账号、发帖、处罚和举报记录用于治理，前台不公开真实身份。</label>
       <p v-if="message" class="notice success">{{ message }}</p>
       <p v-if="error" class="notice danger">{{ error }}</p>
-      <button class="button primary" :disabled="busy">{{ busy ? '处理中…' : mode === 'login' ? '登录' : mode === 'register' ? '验证并注册' : '重置密码' }}</button>
+      <button class="btn primary auth-submit-v4" :disabled="busy">{{ busy ? '处理中…' : mode === 'login' ? '登录' : mode === 'register' ? '注册并自动登录' : '重置密码' }}</button>
     </form>
+    <p class="auth-switch-v4"><template v-if="mode === 'login'">没有账号？<button @click="mode = 'register'">邮箱验证码注册 →</button> <button @click="mode = 'reset'">忘记密码</button></template><template v-else>已有账号？<button @click="mode = 'login'">直接登录 →</button></template></p>
   </BaseModal>
 </template>

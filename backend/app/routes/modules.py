@@ -1,12 +1,14 @@
 from __future__ import annotations
 
-from datetime import datetime
+from collections import Counter
+from datetime import date, datetime
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from ..credit import apply_credit_rule, require_credit
 from ..database import get_db
 from ..deps import current_user, moderator_user, optional_user, participating_user
 from ..errors import APIError
@@ -29,7 +31,16 @@ from ..models import (
     db_datetime,
     utcnow,
 )
-from ..services import audit, author_name, create_entity, moderate_text, notify, record_revision, remoderate_entity
+from ..services import (
+    audit,
+    author_name,
+    create_entity,
+    moderate_text,
+    notify,
+    record_revision,
+    remoderate_entity,
+    touch_entity,
+)
 
 router = APIRouter(tags=["校园模块"])
 
@@ -58,6 +69,7 @@ def bind_files(db: Session, user: User, entity_id: int, ids: list[int]) -> None:
     for row in rows:
         row.entity_id = entity_id
         row.status = "attached"
+    db.flush()
 
 
 # ---------------------------------------------------------------- 问答
@@ -67,6 +79,7 @@ class QuestionCreate(BaseModel):
     category: str = Field(default="其他", max_length=60)
     tags: list[str] = Field(default_factory=list, max_length=8)
     bounty_xp: int = Field(default=0, ge=0, le=500)
+    attachment_ids: list[int] = Field(default_factory=list, max_length=9)
 
 
 class QuestionUpdate(BaseModel):
@@ -74,10 +87,12 @@ class QuestionUpdate(BaseModel):
     body: str | None = Field(default=None, max_length=10000)
     category: str | None = Field(default=None, max_length=60)
     tags: list[str] | None = Field(default=None, max_length=8)
+    attachment_ids: list[int] = Field(default_factory=list, max_length=9)
 
 
 class AnswerCreate(BaseModel):
     body: str = Field(min_length=2, max_length=10000)
+    attachment_ids: list[int] = Field(default_factory=list, max_length=6)
 
 
 def answer_payload(db: Session, entity: ContentEntity, answer: Answer, viewer: User | None = None) -> dict:
@@ -88,6 +103,8 @@ def answer_payload(db: Session, entity: ContentEntity, answer: Answer, viewer: U
         "mine": bool(viewer and entity.owner_id == viewer.id),
         "status": entity.status,
         "created_at": entity.created_at,
+        "updated_at": entity.updated_at,
+        "attachments": files(db, entity.id),
     }
 
 
@@ -111,6 +128,8 @@ def question_payload(db: Session, entity: ContentEntity, question: Question, vie
         "mine": bool(viewer and entity.owner_id == viewer.id),
         "status": entity.status,
         "created_at": entity.created_at,
+        "updated_at": entity.updated_at,
+        "attachments": files(db, entity.id),
     }
     if detail:
         data["answers"] = [answer_payload(db, ae, answer, viewer) for ae, answer in answers]
@@ -162,6 +181,7 @@ def create_question(data: QuestionCreate, user: User = Depends(participating_use
     )
     user.xp -= data.bounty_xp
     db.add(question)
+    bind_files(db, user, entity.id, data.attachment_ids)
     return question_payload(db, entity, question, user, True)
 
 
@@ -180,7 +200,7 @@ def update_question(
         raise APIError(403, "NOT_OWNER", "只有提问者可以编辑问题")
     if question.accepted_answer_id:
         raise APIError(409, "QUESTION_SETTLED", "已有采纳回答的问题不能再编辑")
-    values = data.model_dump(exclude_none=True)
+    values = data.model_dump(exclude_none=True, exclude={"attachment_ids"})
     if not values:
         return question_payload(db, entity, question, user, True)
     record_revision(db, entity, user.id, question.title, question.body)
@@ -190,6 +210,8 @@ def update_question(
         else:
             setattr(question, key, value.strip() if isinstance(value, str) else value)
     remoderate_entity(db, entity, f"{question.title}\n{question.body}")
+    bind_files(db, user, entity.id, data.attachment_ids)
+    touch_entity(db, entity.id)
     audit(db, user.id, "question.update", "question", entity.id)
     return question_payload(db, entity, question, user, True)
 
@@ -217,6 +239,8 @@ def create_answer(
     entity, _ = create_entity(db, user.id, "answer", data.body)
     answer = Answer(entity_id=entity.id, question_id=question_id, body=data.body.strip())
     db.add(answer)
+    bind_files(db, user, entity.id, data.attachment_ids)
+    touch_entity(db, question_id)
     if parent.owner_id != user.id and entity.status == "published":
         notify(db, parent.owner_id, "问题有了新回答", question.title, f"/questions/{question_id}", "answer")
     return answer_payload(db, entity, answer, user)
@@ -242,6 +266,7 @@ def accept_answer(answer_id: int, user: User = Depends(current_user), db: Sessio
         raise APIError(409, "ALREADY_ACCEPTED", "该问题已经采纳过回答")
     question.accepted_answer_id = answer_id
     question.bounty_settled = True
+    touch_entity(db, question.entity_id)
     answerer = db.get(User, answer_entity.owner_id)
     reward = 20 + question.bounty_xp
     answerer.xp += reward
@@ -278,6 +303,7 @@ def article_payload(db: Session, entity: ContentEntity, article: HandbookArticle
         "favorite_count": db.scalar(select(func.count(Favorite.id)).where(Favorite.entity_id == entity.id)) or 0,
         "attachments": files(db, entity.id),
         "created_at": entity.created_at,
+        "updated_at": entity.updated_at,
     }
 
 
@@ -324,6 +350,7 @@ def create_article(data: ArticleCreate, user: User = Depends(participating_user)
     )
     db.add(article)
     bind_files(db, user, entity.id, data.attachment_ids)
+    touch_entity(db, entity.id)
     return article_payload(db, entity, article, user)
 
 
@@ -349,6 +376,7 @@ def update_article(
             remoderate_entity(db, entity, f"{article.title}\n{article.body}")
     bind_files(db, user, entity.id, data.attachment_ids)
     audit(db, user.id, "handbook.update", "handbook", entity.id)
+    touch_entity(db, entity.id)
     return article_payload(db, entity, article, user)
 
 
@@ -417,6 +445,7 @@ class ReviewCreate(BaseModel):
     rating: int = Field(ge=1, le=5)
     tags: list[str] = Field(default_factory=list, max_length=8)
     body: str = Field(min_length=5, max_length=5000)
+    attachment_ids: list[int] = Field(default_factory=list, max_length=6)
 
 
 class CorrectionCreate(BaseModel):
@@ -431,6 +460,7 @@ def offering_payload(db: Session, offering: CourseOffering) -> dict:
         .where(CourseReview.offering_id == offering.id, ContentEntity.status == "published")
     ).all()
     count = len(rows)
+    tag_counts = Counter(tag.strip() for row in rows for tag in row.tags.split(",") if tag.strip())
     return {
         "id": offering.id,
         "course": course.name,
@@ -438,6 +468,7 @@ def offering_payload(db: Session, offering: CourseOffering) -> dict:
         "semester": offering.semester,
         "section": offering.section,
         "review_count": count,
+        "tags": [tag for tag, _ in tag_counts.most_common(5)],
         "score": round(sum(x.rating for x in rows) / count, 1) if count >= 5 else None,
         "score_hidden_reason": None if count >= 5 else "评价不足 5 条，暂不显示分数",
         "reviews": [
@@ -447,6 +478,7 @@ def offering_payload(db: Session, offering: CourseOffering) -> dict:
                 "tags": x.tags.split(",") if x.tags else [],
                 "body": x.body,
                 "correction": x.correction,
+                "attachments": files(db, x.entity_id),
             }
             for x in rows[-10:]
         ],
@@ -507,8 +539,7 @@ def create_offering(
 
 @router.post("/course-reviews", status_code=201)
 def create_review(data: ReviewCreate, user: User = Depends(participating_user), db: Session = Depends(get_db)) -> dict:
-    if user.credit < 60:
-        raise APIError(403, "CREDIT_REQUIRED", "评价课程需要信用分不低于 60")
+    require_credit(db, user, "threshold.course_review", "评价课程")
     if not db.scalar(select(CourseOffering).where(CourseOffering.id == data.offering_id).with_for_update()):
         raise APIError(404, "OFFERING_NOT_FOUND", "课程班次不存在")
     if db.scalar(
@@ -527,6 +558,7 @@ def create_review(data: ReviewCreate, user: User = Depends(participating_user), 
         body=data.body.strip(),
     )
     db.add(review)
+    bind_files(db, user, entity.id, data.attachment_ids)
     return {"id": entity.id, "status": entity.status}
 
 
@@ -555,6 +587,8 @@ class ListingCreate(BaseModel):
     description: str = Field(min_length=5, max_length=10000)
     price: float = Field(ge=0, le=1_000_000)
     condition: str = Field(min_length=1, max_length=80)
+    negotiable: bool = True
+    purchased_at: date | None = None
     location: str = Field(min_length=2, max_length=120)
     attachment_ids: list[int] = Field(default_factory=list, max_length=9)
 
@@ -576,12 +610,19 @@ class ListingUpdate(BaseModel):
     description: str | None = Field(default=None, min_length=5, max_length=10000)
     price: float | None = Field(default=None, ge=0, le=1_000_000)
     condition: str | None = Field(default=None, min_length=1, max_length=80)
+    negotiable: bool | None = None
+    purchased_at: date | None = None
     location: str | None = Field(default=None, min_length=2, max_length=120)
     attachment_ids: list[int] = Field(default_factory=list, max_length=9)
 
 
 def listing_payload(db: Session, entity: ContentEntity, listing: Listing, viewer: User | None = None) -> dict:
     seller = db.get(User, entity.owner_id)
+    completed_sales = db.scalar(
+        select(func.count(Listing.entity_id))
+        .join(ContentEntity, ContentEntity.id == Listing.entity_id)
+        .where(ContentEntity.owner_id == entity.owner_id, Listing.trade_status == "sold")
+    ) or 0
     return {
         "id": entity.id,
         "category": listing.category,
@@ -589,14 +630,23 @@ def listing_payload(db: Session, entity: ContentEntity, listing: Listing, viewer
         "description": listing.description,
         "price": listing.price,
         "condition": listing.condition,
+        "negotiable": listing.negotiable,
+        "purchased_at": listing.purchased_at,
         "location": listing.location,
         "trade_status": listing.trade_status,
         "trade_mode": "offline_only",
-        "seller": {"id": seller.id, "nickname": seller.nickname, "credit": seller.credit} if seller else None,
+        "seller": {
+            "id": seller.id,
+            "nickname": seller.nickname,
+            "credit": seller.credit,
+            "verified": bool(seller.verified_at),
+            "completed_sales": completed_sales,
+        } if seller else None,
         "mine": bool(viewer and entity.owner_id == viewer.id),
         "attachments": files(db, entity.id),
         "favorite_count": db.scalar(select(func.count(Favorite.id)).where(Favorite.entity_id == entity.id)) or 0,
         "created_at": entity.created_at,
+        "updated_at": entity.updated_at,
     }
 
 
@@ -632,8 +682,7 @@ def list_listings(
 
 @router.post("/listings", status_code=201)
 def create_listing(data: ListingCreate, user: User = Depends(participating_user), db: Session = Depends(get_db)) -> dict:
-    if user.credit < 70:
-        raise APIError(403, "CREDIT_REQUIRED", "发布商品需要信用分不低于 70")
+    require_credit(db, user, "threshold.listing_publish", "发布商品")
     entity, _ = create_entity(db, user.id, "listing", f"{data.title}\n{data.description}")
     listing = Listing(
         entity_id=entity.id,
@@ -642,6 +691,8 @@ def create_listing(data: ListingCreate, user: User = Depends(participating_user)
         description=data.description.strip(),
         price=data.price,
         condition=data.condition.strip(),
+        negotiable=data.negotiable,
+        purchased_at=data.purchased_at,
         location=data.location.strip(),
     )
     db.add(listing)
@@ -666,6 +717,7 @@ def update_listing_status(
     if data.status == "offline":
         entity.status = "hidden"
     audit(db, user.id, "listing.status", "listing", listing_id, after={"status": data.status})
+    touch_entity(db, entity.id)
     return listing_payload(db, entity, listing, user)
 
 
@@ -689,6 +741,7 @@ def update_listing(
         setattr(listing, key, value.strip() if isinstance(value, str) else value)
     remoderate_entity(db, entity, f"{listing.title}\n{listing.description}")
     bind_files(db, user, entity.id, data.attachment_ids)
+    touch_entity(db, entity.id)
     audit(db, user.id, "listing.update", "listing", listing_id)
     return listing_payload(db, entity, listing, user)
 
@@ -702,6 +755,7 @@ class ActivityCreate(BaseModel):
     starts_at: datetime
     ends_at: datetime | None = None
     capacity: int | None = Field(default=None, ge=2, le=10000)
+    attachment_ids: list[int] = Field(default_factory=list, max_length=9)
 
 
 class ActivityUpdate(BaseModel):
@@ -712,6 +766,7 @@ class ActivityUpdate(BaseModel):
     starts_at: datetime | None = None
     ends_at: datetime | None = None
     capacity: int | None = Field(default=None, ge=2, le=10000)
+    attachment_ids: list[int] = Field(default_factory=list, max_length=9)
 
 
 def activity_payload(db: Session, entity: ContentEntity, activity: Activity, viewer: User | None = None) -> dict:
@@ -744,6 +799,9 @@ def activity_payload(db: Session, entity: ContentEntity, activity: Activity, vie
         "joined": bool(joined),
         "mine": bool(viewer and viewer.id == entity.owner_id),
         "author": author_name(db, entity, "nickname"),
+        "attachments": files(db, entity.id),
+        "created_at": entity.created_at,
+        "updated_at": entity.updated_at,
     }
 
 
@@ -786,12 +844,13 @@ def create_activity(data: ActivityCreate, user: User = Depends(participating_use
     if ends_at and ends_at <= starts_at:
         raise APIError(400, "INVALID_END_TIME", "活动结束时间必须晚于开始时间")
     entity, _ = create_entity(db, user.id, "activity", f"{data.title}\n{data.body}")
-    values = data.model_dump()
+    values = data.model_dump(exclude={"attachment_ids"})
     values["starts_at"] = starts_at
     values["ends_at"] = ends_at
     activity = Activity(entity_id=entity.id, **values)
     db.add(activity)
     db.flush()
+    bind_files(db, user, entity.id, data.attachment_ids)
     db.add(ActivityMember(activity_id=entity.id, user_id=user.id))
     return activity_payload(db, entity, activity, user)
 
@@ -811,7 +870,7 @@ def update_activity(
         raise APIError(403, "NOT_OWNER", "只有发起人可以编辑活动")
     if activity.status != "open" or activity.starts_at <= utcnow():
         raise APIError(409, "ACTIVITY_NOT_EDITABLE", "活动已开始或结束，不能再编辑")
-    values = data.model_dump(exclude_none=True)
+    values = data.model_dump(exclude_none=True, exclude={"attachment_ids"})
     if "starts_at" in values:
         values["starts_at"] = db_datetime(values["starts_at"])
     if "ends_at" in values:
@@ -836,6 +895,8 @@ def update_activity(
     for key, value in values.items():
         setattr(activity, key, value.strip() if isinstance(value, str) else value)
     remoderate_entity(db, entity, f"{activity.title}\n{activity.body}")
+    bind_files(db, user, entity.id, data.attachment_ids)
+    touch_entity(db, entity.id)
     audit(db, user.id, "activity.update", "activity", entity.id)
     return activity_payload(db, entity, activity, user)
 
@@ -874,6 +935,7 @@ def join_activity(activity_id: int, user: User = Depends(participating_user), db
             f"{user.nickname} 加入了《{activity.title}》",
             f"/activities/{activity_id}",
         )
+    touch_entity(db, activity_id)
     return activity_payload(db, entity, activity, user)
 
 
@@ -887,6 +949,7 @@ def leave_activity(activity_id: int, user: User = Depends(current_user), db: Ses
     )
     if row:
         row.status = "left"
+    touch_entity(db, activity_id)
     return {"ok": True}
 
 
@@ -1025,6 +1088,7 @@ def update_lost_item(
             setattr(item, key, value.strip() if isinstance(value, str) else value)
         remoderate_entity(db, entity, f"{item.item_name}\n{item.description}")
     bind_files(db, user, entity.id, data.attachment_ids)
+    touch_entity(db, entity.id)
     audit(db, user.id, "lost_item.update", "lost_item", entity.id)
     return lost_payload(db, entity, item, user)
 
@@ -1114,7 +1178,16 @@ def decide_claim(
             {LostClaim.status: "rejected"}, synchronize_session=False
         )
         if item.kind == "found":
-            user.credit = min(100, user.credit + 2)
+            finder = db.get(User, entity.owner_id)
+            if finder:
+                apply_credit_rule(
+                    db,
+                    finder,
+                    "reward.lost_claim",
+                    actor_id=user.id,
+                    target_type="lost_item",
+                    target_id=item_id,
+                )
         notify(db, claim.claimant_id, "认领已确认", f"《{item.item_name}》认领流程已完成", f"/lost-items/{item_id}")
     else:
         notify(

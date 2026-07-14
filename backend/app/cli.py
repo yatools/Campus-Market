@@ -28,7 +28,7 @@ def create_admin(email: str, nickname: str) -> None:
             alias=new_alias(),
             campus_identity="staff",
             role="admin",
-            credit=100,
+            credit=1000,
             verified_at=utcnow(),
         )
         db.add(user)

@@ -298,6 +298,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/feed": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Feed */
+        get: operations["list_feed_api_v1_feed_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/feed/changes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Feed Changes */
+        get: operations["feed_changes_api_v1_feed_changes_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/teams": {
         parameters: {
             query?: never;
@@ -397,6 +431,23 @@ export interface paths {
         put?: never;
         /** Join Team */
         post: operations["join_team_api_v1_teams__team_id__join_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/teams/{team_id}/calendar.ics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Team Calendar */
+        get: operations["team_calendar_api_v1_teams__team_id__calendar_ics_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -520,6 +571,176 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/api/v1/team-games": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Team Games */
+        get: operations["list_team_games_api_v1_team_games_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/game-submissions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Submit Game */
+        post: operations["submit_game_api_v1_game_submissions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/game-submissions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Game Submissions */
+        get: operations["list_game_submissions_api_v1_admin_game_submissions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/game-submissions/{submission_id}/decision": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Decide Game Submission */
+        post: operations["decide_game_submission_api_v1_admin_game_submissions__submission_id__decision_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/campus-services": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Campus Services */
+        get: operations["list_campus_services_api_v1_campus_services_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/campus-services/{service_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Campus Service */
+        get: operations["get_campus_service_api_v1_campus_services__service_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/campus-services/{service_id}/ratings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Rate Campus Service */
+        post: operations["rate_campus_service_api_v1_campus_services__service_id__ratings_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/campus-service-ratings/{rating_id}/response": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Respond To Rating */
+        post: operations["respond_to_rating_api_v1_campus_service_ratings__rating_id__response_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/campus-services": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create Campus Service */
+        post: operations["create_campus_service_api_v1_admin_campus_services_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/campus-services/{service_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update Campus Service */
+        patch: operations["update_campus_service_api_v1_admin_campus_services__service_id__patch"];
         trace?: never;
     };
     "/api/v1/questions": {
@@ -1668,6 +1889,8 @@ export interface components {
             ends_at?: string | null;
             /** Capacity */
             capacity?: number | null;
+            /** Attachment Ids */
+            attachment_ids?: number[];
         };
         /** ActivityUpdate */
         ActivityUpdate: {
@@ -1685,6 +1908,8 @@ export interface components {
             ends_at?: string | null;
             /** Capacity */
             capacity?: number | null;
+            /** Attachment Ids */
+            attachment_ids?: number[];
         };
         /** AnnouncementCreate */
         AnnouncementCreate: {
@@ -1707,6 +1932,8 @@ export interface components {
         AnswerCreate: {
             /** Body */
             body: string;
+            /** Attachment Ids */
+            attachment_ids?: number[];
         };
         /** AppealCreate */
         AppealCreate: {
@@ -1755,6 +1982,44 @@ export interface components {
             /** File */
             file: string;
         };
+        /** CampusServiceCreate */
+        CampusServiceCreate: {
+            /** Name */
+            name: string;
+            /**
+             * Category
+             * @default 校园服务
+             */
+            category: string;
+            /** Manager User Id */
+            manager_user_id?: number | null;
+        };
+        /** CampusServiceRatingCreate */
+        CampusServiceRatingCreate: {
+            /** Rating */
+            rating: number;
+            /**
+             * Body
+             * @default
+             */
+            body: string;
+        };
+        /** CampusServiceResponseCreate */
+        CampusServiceResponseCreate: {
+            /** Body */
+            body: string;
+        };
+        /** CampusServiceUpdate */
+        CampusServiceUpdate: {
+            /** Name */
+            name?: string | null;
+            /** Category */
+            category?: string | null;
+            /** Manager User Id */
+            manager_user_id?: number | null;
+            /** Active */
+            active?: boolean | null;
+        };
         /** ClaimCreate */
         ClaimCreate: {
             /** Message */
@@ -1786,6 +2051,8 @@ export interface components {
              * @default nickname
              */
             identity_mode: string;
+            /** Attachment Ids */
+            attachment_ids?: number[];
         };
         /** ConversationCreate */
         ConversationCreate: {
@@ -1859,10 +2126,39 @@ export interface components {
              */
             reward_credit: number;
         };
+        /** GameSubmissionCreate */
+        GameSubmissionCreate: {
+            /** Name */
+            name: string;
+            /** Aliases */
+            aliases?: string[];
+        };
+        /** GameSubmissionDecision */
+        GameSubmissionDecision: {
+            /** Action */
+            action: string;
+            /** Target Game Id */
+            target_game_id?: number | null;
+            /**
+             * Canonical Name
+             * @default
+             */
+            canonical_name: string;
+            /**
+             * Admin Note
+             * @default
+             */
+            admin_note: string;
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /** JoinRequest */
+        JoinRequest: {
+            /** Reminder Channels */
+            reminder_channels?: string[];
         };
         /** ListingCreate */
         ListingCreate: {
@@ -1876,6 +2172,13 @@ export interface components {
             price: number;
             /** Condition */
             condition: string;
+            /**
+             * Negotiable
+             * @default true
+             */
+            negotiable: boolean;
+            /** Purchased At */
+            purchased_at?: string | null;
             /** Location */
             location: string;
             /** Attachment Ids */
@@ -1898,6 +2201,10 @@ export interface components {
             price?: number | null;
             /** Condition */
             condition?: string | null;
+            /** Negotiable */
+            negotiable?: boolean | null;
+            /** Purchased At */
+            purchased_at?: string | null;
             /** Location */
             location?: string | null;
             /** Attachment Ids */
@@ -1964,11 +2271,15 @@ export interface components {
             title: string;
             /** Body */
             body: string;
+            /** Attachment Ids */
+            attachment_ids?: number[];
         };
         /** ObserveResponse */
         ObserveResponse: {
             /** Body */
             body: string;
+            /** Attachment Ids */
+            attachment_ids?: number[];
         };
         /** OfferingCreate */
         OfferingCreate: {
@@ -2049,6 +2360,8 @@ export interface components {
             body?: string | null;
             /** Allow Comments */
             allow_comments?: boolean | null;
+            /** Attachment Ids */
+            attachment_ids?: number[];
         };
         /** PrivacyUpdate */
         PrivacyUpdate: {
@@ -2085,6 +2398,8 @@ export interface components {
              * @default 0
              */
             bounty_xp: number;
+            /** Attachment Ids */
+            attachment_ids?: number[];
         };
         /** QuestionUpdate */
         QuestionUpdate: {
@@ -2096,6 +2411,8 @@ export interface components {
             category?: string | null;
             /** Tags */
             tags?: string[] | null;
+            /** Attachment Ids */
+            attachment_ids?: number[];
         };
         /** RatingRequest */
         RatingRequest: {
@@ -2137,6 +2454,8 @@ export interface components {
             tags?: string[];
             /** Body */
             body: string;
+            /** Attachment Ids */
+            attachment_ids?: number[];
         };
         /** SettingUpdate */
         SettingUpdate: {
@@ -2145,7 +2464,12 @@ export interface components {
         };
         /** TeamCreate */
         TeamCreate: {
-            /** Game */
+            /** Game Id */
+            game_id?: number | null;
+            /**
+             * Game
+             * @default
+             */
             game: string;
             /** Mode */
             mode: string;
@@ -2185,6 +2509,18 @@ export interface components {
              */
             notes: string;
             /**
+             * Newbie Level
+             * @default 欢迎新手
+             */
+            newbie_level: string;
+            /**
+             * Vibe
+             * @default
+             */
+            vibe: string;
+            /** Reminder Channels */
+            reminder_channels?: string[];
+            /**
              * Reminder Minutes
              * @default 30
              */
@@ -2207,6 +2543,8 @@ export interface components {
         };
         /** TeamUpdate */
         TeamUpdate: {
+            /** Game Id */
+            game_id?: number | null;
             /** Mode */
             mode?: string | null;
             /** Rank Requirement */
@@ -2219,6 +2557,12 @@ export interface components {
             voice_link?: string | null;
             /** Notes */
             notes?: string | null;
+            /** Newbie Level */
+            newbie_level?: string | null;
+            /** Vibe */
+            vibe?: string | null;
+            /** Reminder Channels */
+            reminder_channels?: string[] | null;
             /** Reminder Minutes */
             reminder_minutes?: number | null;
         };
@@ -2993,12 +3337,80 @@ export interface operations {
             };
         };
     };
+    list_feed_api_v1_feed_get: {
+        parameters: {
+            query?: {
+                page?: number;
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    feed_changes_api_v1_feed_changes_get: {
+        parameters: {
+            query: {
+                after: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_teams_api_v1_teams_get: {
         parameters: {
             query?: {
                 page?: number;
                 page_size?: number;
                 game?: string;
+                game_id?: number | null;
             };
             header?: never;
             path?: never;
@@ -3286,7 +3698,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["JoinRequest"] | null;
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {
@@ -3297,6 +3713,37 @@ export interface operations {
                     "application/json": {
                         [key: string]: unknown;
                     };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    team_calendar_api_v1_teams__team_id__calendar_ics_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                team_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */
@@ -3528,6 +3975,347 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["RatingRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_team_games_api_v1_team_games_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
+    submit_game_api_v1_game_submissions_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GameSubmissionCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_game_submissions_api_v1_admin_game_submissions_get: {
+        parameters: {
+            query?: {
+                status?: string;
+                page?: number;
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    decide_game_submission_api_v1_admin_game_submissions__submission_id__decision_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                submission_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GameSubmissionDecision"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_campus_services_api_v1_campus_services_get: {
+        parameters: {
+            query?: {
+                category?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_campus_service_api_v1_campus_services__service_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                service_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    rate_campus_service_api_v1_campus_services__service_id__ratings_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                service_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CampusServiceRatingCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    respond_to_rating_api_v1_campus_service_ratings__rating_id__response_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                rating_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CampusServiceResponseCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_campus_service_api_v1_admin_campus_services_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CampusServiceCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_campus_service_api_v1_admin_campus_services__service_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                service_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CampusServiceUpdate"];
             };
         };
         responses: {

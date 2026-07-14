@@ -9,5 +9,11 @@ describe('RichText', () => {
     expect(wrapper.html()).not.toContain('onerror')
     expect(wrapper.html()).not.toContain('<script')
   })
-})
 
+  it('renders uploaded inline images but removes external tracking images', () => {
+    const wrapper = mount(RichText, { props: { content: '![校内图片](/uploads/2026/photo.webp)\n\n![外部图片](https://tracker.example/pixel.png)' } })
+    expect(wrapper.find('img').attributes('src')).toBe('/uploads/2026/photo.webp')
+    expect(wrapper.html()).toContain('loading="lazy"')
+    expect(wrapper.html()).not.toContain('tracker.example')
+  })
+})

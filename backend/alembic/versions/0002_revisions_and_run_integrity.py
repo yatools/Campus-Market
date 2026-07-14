@@ -4,9 +4,9 @@ Revision ID: 0002_revisions_and_run_integrity
 Revises: 0001_production_schema
 """
 
-from alembic import op
 import sqlalchemy as sa
 
+from alembic import op
 
 revision = "0002_revisions_and_run_integrity"
 down_revision = "0001_production_schema"

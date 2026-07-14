@@ -92,9 +92,3 @@ def set_session_cookies(response: Response, raw_token: str, record: SessionRecor
 def clear_session_cookies(response: Response) -> None:
     response.delete_cookie(settings.session_cookie_name, path="/")
     response.delete_cookie(settings.csrf_cookie_name, path="/")
-
-
-def thread_anonymous_name(target_entity_id: int, user_id: int) -> str:
-    digest = token_hash(f"anon:{target_entity_id}:{user_id}")
-    number = int(digest[:8], 16) % 999 + 1
-    return f"匿名同学·{number}"

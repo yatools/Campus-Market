@@ -35,7 +35,7 @@ def make_admin() -> TestClient:
                 alias="梧桐#admin-gap",
                 campus_identity="staff",
                 role="admin",
-                credit=100,
+                credit=1000,
             )
         )
         db.commit()

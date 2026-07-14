@@ -62,7 +62,7 @@ def test_member_can_rejoin_same_run_after_leaving(client: TestClient) -> None:
     )
     member.close()
     assert checkin.status_code == 200
-    assert checkin.json()["credit_delta"] == 1
+    assert checkin.json()["credit_delta"] == 2
 
 
 def test_activity_join_is_idempotent(client: TestClient) -> None:

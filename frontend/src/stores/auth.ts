@@ -1,12 +1,35 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { api, json } from '../api'
-import type { User } from '../types'
+import type { AuthMode, CreditRuleSet, User } from '../types'
+
+const defaultCreditRules: CreditRuleSet = {
+  max_score: 1000,
+  initial_score: 800,
+  values: {
+    'baseline.initial_credit': 800,
+    'threshold.anonymous_post': 600,
+    'threshold.team_create': 600,
+    'threshold.course_review': 600,
+    'threshold.listing_publish': 700,
+    'threshold.contact_publish': 700,
+    'threshold.observe_publish': 750,
+    'threshold.high_credit': 800,
+    'threshold.dm_unlimited': 850,
+    'reward.team_check_in': 2,
+    'reward.lost_claim': 5,
+    'reward.feedback_accepted': 5,
+    'penalty.team_late_leave': -20,
+  },
+  rules: [],
+}
 
 export const useAuthStore = defineStore('auth', () => {
   const user = ref<User | null>(null)
   const loading = ref(true)
   const authOpen = ref(false)
+  const authMode = ref<AuthMode>('login')
+  const creditRules = ref<CreditRuleSet>(defaultCreditRules)
   const isAdmin = computed(() => user.value?.role === 'admin')
   const canModerate = computed(() => ['moderator', 'admin'].includes(user.value?.role || ''))
   let notificationStream: EventSource | null = null
@@ -26,6 +49,8 @@ export const useAuthStore = defineStore('auth', () => {
 
   async function load() {
     loading.value = true
+    try { creditRules.value = await api<CreditRuleSet>('/credit-rules') }
+    catch { creditRules.value = defaultCreditRules }
     try {
       user.value = await api<User>('/me')
       connectNotifications()
@@ -52,9 +77,18 @@ export const useAuthStore = defineStore('auth', () => {
 
   function requireLogin(): boolean {
     if (user.value) return true
-    authOpen.value = true
+    openAuth('login')
     return false
   }
 
-  return { user, loading, authOpen, isAdmin, canModerate, load, login, logout, requireLogin }
+  function openAuth(mode: AuthMode = 'login') {
+    authMode.value = mode
+    authOpen.value = true
+  }
+
+  function creditRule(key: string): number {
+    return creditRules.value.values[key] ?? defaultCreditRules.values[key] ?? 0
+  }
+
+  return { user, loading, authOpen, authMode, creditRules, isAdmin, canModerate, load, login, logout, requireLogin, openAuth, creditRule }
 })

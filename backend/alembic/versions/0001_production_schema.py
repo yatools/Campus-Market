@@ -4,10 +4,8 @@ Revision ID: 0001_production_schema
 Revises:
 """
 from alembic import op
-
 from app import models  # noqa: F401
 from app.database import Base
-
 
 revision = "0001_production_schema"
 down_revision = None

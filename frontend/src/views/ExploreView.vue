@@ -1,66 +1,162 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { api, json, uploadImage } from '../api'
+import { api, json } from '../api'
+import AttachmentGrid from '../components/AttachmentGrid.vue'
 import BaseModal from '../components/BaseModal.vue'
 import CommentThread from '../components/CommentThread.vue'
+import RichEditor from '../components/RichEditor.vue'
 import RichText from '../components/RichText.vue'
 import { useAuthStore } from '../stores/auth'
-import type { Page } from '../types'
+import type { CampusService, CampusServiceRating, Page } from '../types'
 
-const route = useRoute(), router = useRouter(), auth = useAuthStore()
-const sections = [
-  ['questions', '问答'], ['handbook', '生存手册'], ['courses', '课程评价'], ['listings', '二手集市'],
-  ['activities', '校园活动'], ['lost', '失物招领'], ['observe', '文明观察台'], ['governance', '治理公示'], ['announcements', '公告'],
-]
-const section = computed(() => sections.some((x) => x[0] === route.params.section) ? String(route.params.section) : 'questions')
+const route = useRoute()
+const router = useRouter()
+const auth = useAuthStore()
+
+const sectionNames = ['questions', 'handbook', 'courses', 'listings', 'activities', 'lost', 'observe', 'governance', 'announcements']
+const sectionInfo: Record<string, { icon: string; title: string; subtitle: string }> = {
+  questions: { icon: '🙋', title: '打听 · 求助', subtitle: '悬赏提问 · 采纳加经验 · 高赞回答可转入生存手册' },
+  handbook: { icon: '📖', title: '生存手册', subtitle: '老登经验合集 · 积分与「被收藏 / 被采纳 / 加精 / 长期有效」绑定，拒绝灌水' },
+  courses: { icon: '🎓', title: '课程评价', subtitle: '基于课程体验 · 同一课程同一学期限评一次 · 需达到信用门槛' },
+  listings: { icon: '🛒', title: '二手集市', subtitle: '仅支持私信联系与校内线下面交 · 平台不经手资金' },
+  activities: { icon: '🎪', title: '校园活动', subtitle: '组织与搭子的聚集地' },
+  lost: { icon: '🧣', title: '失物招领', subtitle: '捡到/丢失 · 地点 · 时间 · 图片 · 认领状态' },
+  observe: { icon: '🔍', title: '校园文明观察台', subtitle: '只描述事件，不曝光个人 · 涉及具体个人/组织必须先人工审核 · 发帖需达到信用门槛' },
+  governance: { icon: '⚖️', title: '社区治理公示', subtitle: '处罚记录 · 规则判例库 · 违规案例说明（账号一律匿名化）' },
+  announcements: { icon: '📢', title: '公告中心', subtitle: '规则更新 / 停服维护 / 处罚规范变更 = 强提醒' },
+}
+const endpoints: Record<string, string> = {
+  questions: '/questions?page_size=50',
+  handbook: '/handbook?page_size=50',
+  courses: '/course-offerings',
+  listings: '/listings?page_size=50',
+  activities: '/activities',
+  lost: '/lost-items',
+  observe: '/observe-posts?page_size=50',
+  governance: '/penalties',
+  announcements: '/announcements',
+}
+const handbookCategories = [
+  ['🎒', '新生入学指南'], ['🗓️', '选课指南'], ['🛏️', '宿舍避坑'], ['🍜', '食堂/外卖评价'],
+  ['🗺️', '校园地图与隐藏地点'], ['🧪', '实验室/办事流程'], ['🏆', '奖学金/竞赛/保研/考研'],
+  ['🎭', '社团体验'], ['🖨️', '打印/维修/快递'], ['🏥', '校医院攻略'], ['🎓', '毕业手续指南'], ['⭐', '校园服务评分'],
+] as const
+const activityCategories = ['全部', '社团招新', '讲座信息', '比赛组队', '拼车/拼单', '自习搭子', '运动搭子', '饭搭子', '实验招募', '问卷互填']
+
+const section = computed(() => sectionNames.includes(String(route.params.section)) ? String(route.params.section) : 'questions')
+const currentInfo = computed(() => {
+  const info = sectionInfo[section.value]
+  if (section.value === 'courses') return { ...info, subtitle: `基于课程体验 · 同一课程同一学期限评一次 · 需信用 ≥ ${auth.creditRule('threshold.course_review')}` }
+  if (section.value === 'observe') return { ...info, subtitle: `只描述事件，不曝光个人 · 涉及具体个人/组织必须先人工审核 · 发帖需信用 ≥ ${auth.creditRule('threshold.observe_publish')}` }
+  return info
+})
 const items = ref<any[]>([])
-const currentPage = ref(1), pageSize = ref(20), total = ref(0)
-const loading = ref(true), error = ref(''), modal = ref(false), action = ref('create'), target = ref<any>(null), comments = ref<number | null>(null)
+const currentPage = ref(1)
+const pageSize = ref(20)
+const total = ref(0)
+const loading = ref(true)
+const error = ref('')
+const modal = ref(false)
+const action = ref('create')
+const target = ref<any>(null)
+const detailItem = ref<any | null>(null)
+const comments = ref<number | null>(null)
 const form = reactive<any>({})
+const handbookFilter = ref('')
+const activityFilter = ref('全部')
+const campusServices = ref<CampusService[]>([])
+const serviceDetail = ref<CampusService | null>(null)
+const serviceForm = reactive({ rating: 5, body: '' })
 
-const endpoint: Record<string, string> = {
-  questions: '/questions?page_size=50', handbook: '/handbook?page_size=50', courses: '/course-offerings', listings: '/listings?page_size=50',
-  activities: '/activities', lost: '/lost-items', observe: '/observe-posts?page_size=50', governance: '/penalties', announcements: '/announcements',
+const handbookItems = computed(() => items.value.filter((item) => item.category === handbookFilter.value))
+const activityItems = computed(() => activityFilter.value === '全部' ? items.value : items.value.filter((item) => item.category === activityFilter.value))
+const modalTitle = computed(() => action.value === 'answer' ? '回答问题'
+  : action.value === 'claim' ? '提交认领线索'
+    : action.value === 'claims' ? '处理认领申请'
+      : action.value === 'appeal' ? '提交申诉'
+        : action.value === 'respond' ? '提交指定回应'
+          : action.value === 'edit_listing' ? '编辑商品'
+            : action.value === 'edit' ? '编辑内容' : '发布内容')
+
+function resetForm() {
+  Object.keys(form).forEach((key) => delete form[key])
+  form.attachments = []
+  form.body = ''
+  form.description = ''
 }
 
-function resetForm() { Object.keys(form).forEach((key) => delete form[key]); form.attachments = [] }
 async function load() {
-  loading.value = true; error.value = ''
+  loading.value = true
+  error.value = ''
   try {
-    const base = endpoint[section.value]
-    const response = await api<Page<any>>(`${base}${base.includes('?') ? '&' : '?'}page=${currentPage.value}`)
-    items.value = response.items; pageSize.value = response.page_size; total.value = response.total
+    const base = endpoints[section.value]
+    const [response, services] = await Promise.all([
+      api<Page<any>>(`${base}${base.includes('?') ? '&' : '?'}page=${currentPage.value}`),
+      section.value === 'handbook' ? api<{ items: CampusService[] }>('/campus-services') : Promise.resolve({ items: [] as CampusService[] }),
+    ])
+    items.value = response.items
+    pageSize.value = response.page_size
+    total.value = response.total
+    campusServices.value = services.items
     if (section.value === 'questions') {
       items.value = await Promise.all(items.value.map((item) => api(`/questions/${item.id}`)))
     }
+    if (detailItem.value) detailItem.value = items.value.find((item) => item.id === detailItem.value?.id) || null
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : '加载失败'
+  } finally {
+    loading.value = false
   }
-  catch (e) { error.value = e instanceof Error ? e.message : '加载失败' }
-  finally { loading.value = false }
 }
-function navigate(name: string) { currentPage.value = 1; router.push(`/explore/${name}`) }
+
 function openCreate() {
   if (!auth.requireLogin()) return
-  resetForm(); action.value = 'create'; target.value = null
+  resetForm()
+  action.value = 'create'
+  target.value = null
   Object.assign(form, section.value === 'questions' ? { category: '其他', bounty_xp: 0, tags: '' }
-    : section.value === 'handbook' ? { category: '新生入学指南', draft: false }
-    : section.value === 'courses' ? { offering_id: items.value[0]?.id, rating: 5, tags: '' }
-    : section.value === 'listings' ? { category: '数码', price: 0, condition: '九成新', location: '校内面交' }
-    : section.value === 'activities' ? { category: '找搭子', capacity: 10 }
-    : section.value === 'lost' ? { kind: 'lost' }
-    : section.value === 'observe' ? {} : {})
+    : section.value === 'handbook' ? { category: handbookFilter.value || '新生入学指南', draft: false }
+      : section.value === 'courses' ? { offering_id: items.value[0]?.id, rating: 5, tags: '' }
+        : section.value === 'listings' ? { category: '数码', price: 0, condition: '九成新', negotiable: true, purchased_at: '', location: '校内面交' }
+          : section.value === 'activities' ? { category: '找搭子', capacity: 10 }
+            : section.value === 'lost' ? { kind: 'lost' }
+              : {})
   modal.value = true
 }
+
+function openDetail(item: any) { detailItem.value = item; comments.value = null }
+function closeDetail() { detailItem.value = null; comments.value = null }
 function openAnswer(item: any) { if (auth.requireLogin()) { resetForm(); action.value = 'answer'; target.value = item; modal.value = true } }
 function openClaim(item: any) { if (auth.requireLogin()) { resetForm(); action.value = 'claim'; target.value = item; modal.value = true } }
-async function openClaims(item: any) { if (auth.requireLogin()) { resetForm(); target.value = item; target.value.claims = (await api<Page<any>>(`/lost-items/${item.id}/claims`)).items; action.value = 'claims'; modal.value = true } }
+async function openClaims(item: any) {
+  if (!auth.requireLogin()) return
+  resetForm()
+  target.value = item
+  target.value.claims = (await api<Page<any>>(`/lost-items/${item.id}/claims`)).items
+  action.value = 'claims'
+  modal.value = true
+}
 function openAppeal(item: any) { if (auth.requireLogin()) { resetForm(); action.value = 'appeal'; target.value = item; modal.value = true } }
 function openResponse(item: any) { if (auth.requireLogin()) { resetForm(); action.value = 'respond'; target.value = item; modal.value = true } }
-function openListingEdit(item: any) { if (auth.requireLogin()) { resetForm(); action.value = 'edit_listing'; target.value = item; Object.assign(form, { category: item.category, title: item.title, description: item.description, price: item.price, condition: item.condition, location: item.location, attachments: [] }); modal.value = true } }
-function inputDate(value: string | null) { if (!value) return ''; const date = new Date(value); return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16) }
+function openListingEdit(item: any) {
+  if (!auth.requireLogin()) return
+  resetForm()
+  action.value = 'edit_listing'
+  target.value = item
+  Object.assign(form, { category: item.category, title: item.title, description: item.description, price: item.price, condition: item.condition, negotiable: item.negotiable, purchased_at: item.purchased_at || '', location: item.location, attachments: [] })
+  modal.value = true
+}
+function inputDate(value: string | null) {
+  if (!value) return ''
+  const date = new Date(value)
+  return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16)
+}
 function openEdit(item: any) {
   if (!auth.requireLogin()) return
-  resetForm(); action.value = 'edit'; target.value = item
+  resetForm()
+  action.value = 'edit'
+  target.value = item
   if (section.value === 'questions') Object.assign(form, { title: item.title, body: item.body, category: item.category, tags: item.tags?.join(',') || '' })
   else if (section.value === 'handbook') Object.assign(form, { title: item.title, body: item.body, category: item.category })
   else if (section.value === 'activities') Object.assign(form, { title: item.title, body: item.body, category: item.category, location: item.location, capacity: item.capacity, starts_at: inputDate(item.starts_at), ends_at: inputDate(item.ends_at) })
@@ -68,33 +164,34 @@ function openEdit(item: any) {
   modal.value = true
 }
 
-async function images(event: Event) {
-  const input = event.target as HTMLInputElement
-  for (const file of [...(input.files || [])].slice(0, 9)) form.attachments.push(await uploadImage(file))
-}
-
 async function submit() {
   try {
-    if (action.value === 'answer') await api(`/questions/${target.value.id}/answers`, json('POST', { body: form.body }))
+    const attachmentIds = form.attachments.map((item: any) => item.id)
+    if (action.value === 'answer') await api(`/questions/${target.value.id}/answers`, json('POST', { body: form.body, attachment_ids: attachmentIds }))
     else if (action.value === 'claim') await api(`/lost-items/${target.value.id}/claims`, json('POST', { message: form.message }))
     else if (action.value === 'appeal') await api(`/penalties/${target.value.id}/appeals`, json('POST', { reason: form.reason }))
-    else if (action.value === 'respond') await api(`/observe-posts/${target.value.id}/response`, json('POST', { body: form.body }))
-    else if (action.value === 'edit_listing') await api(`/listings/${target.value.id}`, json('PATCH', { ...form, price: Number(form.price), attachment_ids: form.attachments.map((x: any) => x.id) }))
-    else if (action.value === 'edit' && section.value === 'questions') await api(`/questions/${target.value.id}`, json('PATCH', { ...form, tags: String(form.tags || '').split(',').filter(Boolean) }))
-    else if (action.value === 'edit' && section.value === 'handbook') await api(`/handbook/${target.value.id}`, json('PATCH', { ...form, attachment_ids: form.attachments.map((x: any) => x.id) }))
-    else if (action.value === 'edit' && section.value === 'activities') await api(`/activities/${target.value.id}`, json('PATCH', { ...form, capacity: form.capacity ? Number(form.capacity) : null, starts_at: new Date(form.starts_at).toISOString(), ends_at: form.ends_at ? new Date(form.ends_at).toISOString() : null }))
-    else if (action.value === 'edit' && section.value === 'lost') await api(`/lost-items/${target.value.id}`, json('PATCH', { ...form, happened_at: form.happened_at ? new Date(form.happened_at).toISOString() : null, attachment_ids: form.attachments.map((x: any) => x.id) }))
-    else if (section.value === 'questions') await api('/questions', json('POST', { ...form, tags: String(form.tags || '').split(',').filter(Boolean), bounty_xp: Number(form.bounty_xp) }))
-    else if (section.value === 'handbook') await api('/handbook', json('POST', { ...form, attachment_ids: form.attachments.map((x: any) => x.id) }))
-    else if (section.value === 'courses') await api('/course-reviews', json('POST', { ...form, offering_id: Number(form.offering_id), rating: Number(form.rating), tags: String(form.tags || '').split(',').filter(Boolean) }))
-    else if (section.value === 'listings') await api('/listings', json('POST', { ...form, price: Number(form.price), attachment_ids: form.attachments.map((x: any) => x.id) }))
-    else if (section.value === 'activities') await api('/activities', json('POST', { ...form, capacity: form.capacity ? Number(form.capacity) : null, starts_at: new Date(form.starts_at).toISOString(), ends_at: form.ends_at ? new Date(form.ends_at).toISOString() : null }))
-    else if (section.value === 'lost') await api('/lost-items', json('POST', { ...form, happened_at: form.happened_at ? new Date(form.happened_at).toISOString() : null, attachment_ids: form.attachments.map((x: any) => x.id) }))
-    else if (section.value === 'observe') await api('/observe-posts', json('POST', form))
-    modal.value = false; await auth.load(); await load()
-  } catch (e) { error.value = e instanceof Error ? e.message : '提交失败' }
+    else if (action.value === 'respond') await api(`/observe-posts/${target.value.id}/response`, json('POST', { body: form.body, attachment_ids: attachmentIds }))
+    else if (action.value === 'edit_listing') await api(`/listings/${target.value.id}`, json('PATCH', { ...form, price: Number(form.price), attachment_ids: attachmentIds }))
+    else if (action.value === 'edit' && section.value === 'questions') await api(`/questions/${target.value.id}`, json('PATCH', { ...form, tags: String(form.tags || '').split(',').filter(Boolean), attachment_ids: attachmentIds }))
+    else if (action.value === 'edit' && section.value === 'handbook') await api(`/handbook/${target.value.id}`, json('PATCH', { ...form, attachment_ids: attachmentIds }))
+    else if (action.value === 'edit' && section.value === 'activities') await api(`/activities/${target.value.id}`, json('PATCH', { ...form, capacity: form.capacity ? Number(form.capacity) : null, starts_at: new Date(form.starts_at).toISOString(), ends_at: form.ends_at ? new Date(form.ends_at).toISOString() : null, attachment_ids: attachmentIds }))
+    else if (action.value === 'edit' && section.value === 'lost') await api(`/lost-items/${target.value.id}`, json('PATCH', { ...form, happened_at: form.happened_at ? new Date(form.happened_at).toISOString() : null, attachment_ids: attachmentIds }))
+    else if (section.value === 'questions') await api('/questions', json('POST', { ...form, tags: String(form.tags || '').split(',').filter(Boolean), bounty_xp: Number(form.bounty_xp), attachment_ids: attachmentIds }))
+    else if (section.value === 'handbook') await api('/handbook', json('POST', { ...form, attachment_ids: attachmentIds }))
+    else if (section.value === 'courses') await api('/course-reviews', json('POST', { ...form, offering_id: Number(form.offering_id), rating: Number(form.rating), tags: String(form.tags || '').split(',').filter(Boolean), attachment_ids: attachmentIds }))
+    else if (section.value === 'listings') await api('/listings', json('POST', { ...form, price: Number(form.price), purchased_at: form.purchased_at || null, attachment_ids: attachmentIds }))
+    else if (section.value === 'activities') await api('/activities', json('POST', { ...form, capacity: form.capacity ? Number(form.capacity) : null, starts_at: new Date(form.starts_at).toISOString(), ends_at: form.ends_at ? new Date(form.ends_at).toISOString() : null, attachment_ids: attachmentIds }))
+    else if (section.value === 'lost') await api('/lost-items', json('POST', { ...form, happened_at: form.happened_at ? new Date(form.happened_at).toISOString() : null, attachment_ids: attachmentIds }))
+    else if (section.value === 'observe') await api('/observe-posts', json('POST', { ...form, attachment_ids: attachmentIds }))
+    modal.value = false
+    await auth.load()
+    await load()
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : '提交失败'
+  }
 }
-async function accept(question: any, answer: any) { await api(`/answers/${answer.id}/accept`, json('POST')); await load() }
+
+async function accept(answer: any) { await api(`/answers/${answer.id}/accept`, json('POST')); await load() }
 async function favorite(item: any) { if (auth.requireLogin()) { await api(`/entities/${item.id}/favorite`, { method: 'PUT' }); await load() } }
 async function activityJoin(item: any) { if (auth.requireLogin()) { await api(`/activities/${item.id}/membership`, { method: item.joined ? 'DELETE' : 'PUT' }); await load() } }
 async function cancelActivity(item: any) { if (confirm('确定取消活动并通知所有成员？')) { await api(`/activities/${item.id}/cancel`, json('POST')); await load() } }
@@ -108,62 +205,171 @@ async function messageSeller(item: any) {
 }
 async function listingStatus(item: any, status: string) { await api(`/listings/${item.id}/status`, json('PATCH', { status })); await load() }
 async function decideClaim(item: any, approve: boolean) { await api(`/lost-items/${target.value.id}/claims/${item.id}/decision`, json('POST', { approve })); await openClaims(target.value); await load() }
-function local(value: string) { return value ? new Date(value).toLocaleString() : '—' }
-watch(section, load)
-onMounted(load)
+
+function selectHandbookCategory(name: string) {
+  if (name === '校园服务评分') {
+    document.querySelector('#campus-service-panel')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    return
+  }
+  handbookFilter.value = name
+}
+async function openService(service: CampusService) {
+  serviceDetail.value = await api<CampusService>(`/campus-services/${service.id}`)
+  Object.assign(serviceForm, { rating: 5, body: '' })
+}
+async function rateService() {
+  if (!serviceDetail.value || !auth.requireLogin()) return
+  try {
+    await api(`/campus-services/${serviceDetail.value.id}/ratings`, json('POST', serviceForm))
+    await load()
+    await openService(serviceDetail.value)
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : '评价失败'
+  }
+}
+async function respondService(rating: CampusServiceRating) {
+  const body = prompt('填写服务方公开回应：', '')
+  if (!body) return
+  await api(`/campus-service-ratings/${rating.id}/response`, json('POST', { body }))
+  if (serviceDetail.value) await openService(serviceDetail.value)
+}
+
+function local(value: string) { return value ? new Date(value).toLocaleString('zh-CN') : '—' }
+function shortDate(value: string) { return value ? new Date(value).toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' }) : '—' }
+function categoryIcon(value: string) { return Object.fromEntries(handbookCategories.map(([icon, name]) => [name, icon]))[value] || '📌' }
+function statusLabel(value: string) { return ({ open: '待认领', claimed: '已认领', published: '审核通过', pending: '人工审核中' } as Record<string, string>)[value] || value }
+
+async function consumeCreate() {
+  if (route.query.create !== '1' || ['governance', 'announcements'].includes(section.value)) return
+  openCreate()
+  const query = { ...route.query }
+  delete query.create
+  await router.replace({ path: route.path, query })
+}
+
+watch(section, async () => {
+  handbookFilter.value = ''
+  detailItem.value = null
+  activityFilter.value = '全部'
+  currentPage.value = 1
+  await load()
+  await consumeCreate()
+})
+watch(() => route.query.create, consumeCreate)
+onMounted(async () => { await load(); await consumeCreate() })
 </script>
 
 <template>
-  <section>
-    <header class="page-head with-action"><div><h1>校园广场</h1><p>问答、经验、课程、交易和活动，都有清楚的发布与治理边界。</p></div><button v-if="!['governance','announcements'].includes(section)" class="button primary" @click="openCreate">发布</button></header>
-    <nav class="section-tabs"><button v-for="tab in sections" :key="tab[0]" :class="{ active: section === tab[0] }" @click="navigate(tab[0])">{{ tab[1] }}</button></nav>
-    <p v-if="error" class="notice danger">{{ error }}</p><p v-if="loading" class="empty">正在加载…</p><p v-else-if="!items.length" class="empty">这个板块还没有内容。</p>
-    <div v-else class="stack">
-      <template v-if="section === 'questions'">
-        <article v-for="item in items" :key="item.id" class="card"><div class="meta"><span class="badge blue">{{ item.category }}</span><span v-if="item.bounty_xp" class="badge yellow">悬赏 {{ item.bounty_xp }} XP</span><span v-if="item.accepted_answer_id" class="badge">已采纳</span></div><h2>{{ item.title }}</h2><RichText :content="item.body" /><p class="meta">{{ item.author }} · {{ item.answer_count }} 个回答</p><div v-for="answer in item.answers || []" :key="answer.id" class="notice info" style="margin-top:8px"><strong>{{ answer.author }}</strong><RichText :content="answer.body" /><button v-if="item.mine && !item.accepted_answer_id" class="button small secondary" @click="accept(item, answer)">采纳</button></div><div class="actions"><button @click="openAnswer(item)">回答</button><button v-if="item.mine && !item.accepted_answer_id" @click="openEdit(item)">编辑</button><button @click="comments = comments === item.id ? null : item.id">讨论</button></div><CommentThread v-if="comments === item.id" :entity-id="item.id" /></article>
-      </template>
-      <template v-else-if="section === 'handbook'">
-        <article v-for="item in items" :key="item.id" class="card"><div class="meta"><span class="badge">{{ item.category }}</span><span v-if="item.featured" class="badge red">精华</span><span>收藏 {{ item.favorite_count }}</span></div><h2>{{ item.title }}</h2><RichText :content="item.body" /><div class="media-grid"><img v-for="file in item.attachments" :key="file.id" :src="file.thumbnail_url" /></div><div class="actions"><button @click="favorite(item)">收藏</button><button v-if="item.mine" @click="openEdit(item)">编辑</button><button @click="comments = comments === item.id ? null : item.id">回帖</button></div><CommentThread v-if="comments === item.id" :entity-id="item.id" /></article>
-      </template>
-      <template v-else-if="section === 'courses'">
-        <article v-for="item in items" :key="item.id" class="card"><div class="card-head"><div><h2>{{ item.course }}</h2><p class="meta">{{ item.teacher }} · {{ item.semester }} {{ item.section }}</p></div><div><strong v-if="item.score" style="font-size:28px;color:var(--green)">{{ item.score }}</strong><span v-else class="badge yellow">{{ item.score_hidden_reason }}</span></div></div><div v-for="review in item.reviews" :key="review.id" class="notice info" style="margin-top:8px"><strong>{{ '★'.repeat(review.rating) }}</strong> {{ review.body }}<p v-if="review.correction" class="muted">教职工更正：{{ review.correction }}</p></div></article>
-      </template>
-      <template v-else-if="section === 'listings'">
-        <article v-for="item in items" :key="item.id" class="card"><div class="card-head"><div><span class="badge blue">{{ item.category }}</span><h2>{{ item.title }}</h2></div><strong style="font-size:24px;color:var(--red)">¥{{ item.price }}</strong></div><RichText :content="item.description" /><div class="media-grid"><img v-for="file in item.attachments" :key="file.id" :src="file.thumbnail_url" /></div><p class="meta">{{ item.condition }} · {{ item.location }} · 卖家信用 {{ item.seller.credit }} · 仅校内线下面交</p><div class="actions"><button v-if="!item.mine" @click="messageSeller(item)">私信卖家</button><button @click="favorite(item)">收藏 {{ item.favorite_count }}</button><button @click="comments = comments === item.id ? null : item.id">回帖</button><template v-if="item.mine"><button @click="openListingEdit(item)">编辑</button><button @click="listingStatus(item,'reserved')">设为预留</button><button @click="listingStatus(item,'sold')">确认成交</button><button @click="listingStatus(item,'offline')">下架</button></template></div><CommentThread v-if="comments === item.id" :entity-id="item.id" /></article>
-      </template>
-      <template v-else-if="section === 'activities'">
-        <article v-for="item in items" :key="item.id" class="card"><div class="meta"><span class="badge blue">{{ item.category }}</span><span>{{ local(item.starts_at) }}</span></div><h2>{{ item.title }}</h2><RichText :content="item.body" /><p class="meta">地点 {{ item.location }} · {{ item.member_count }}<template v-if="item.capacity">/{{ item.capacity }}</template> 人</p><div class="actions"><button v-if="!item.mine" @click="activityJoin(item)">{{ item.joined ? '退出活动' : '加入活动' }}</button><template v-if="item.mine"><button @click="openEdit(item)">编辑</button><button @click="cancelActivity(item)">取消活动</button></template><button @click="comments = comments === item.id ? null : item.id">回帖</button></div><CommentThread v-if="comments === item.id" :entity-id="item.id" /></article>
-      </template>
-      <template v-else-if="section === 'lost'">
-        <article v-for="item in items" :key="item.id" class="card"><div class="meta"><span class="badge" :class="item.kind === 'lost' ? 'red' : ''">{{ item.kind === 'lost' ? '丢失' : '捡到' }}</span><span>{{ item.status }}</span></div><h2>{{ item.item_name }}</h2><RichText :content="item.description" /><p class="meta">地点 {{ item.location }} · {{ item.claim_count }} 个认领申请</p><div class="media-grid"><img v-for="file in item.attachments" :key="file.id" :src="file.thumbnail_url" /></div><div class="actions"><button v-if="!item.mine && item.status === 'open'" @click="openClaim(item)">提交认领线索</button><template v-if="item.mine"><button v-if="item.status === 'open'" @click="openEdit(item)">编辑</button><button v-if="item.claim_count" @click="openClaims(item)">处理认领申请</button></template><button @click="comments = comments === item.id ? null : item.id">回帖</button></div><CommentThread v-if="comments === item.id" :entity-id="item.id" /></article>
-      </template>
-      <template v-else-if="section === 'observe'">
-        <article v-for="item in items" :key="item.id" class="card"><div class="meta"><span class="badge" :class="item.status === 'published' ? '' : 'yellow'">{{ item.status }}</span><span>默认隐私打码</span></div><h2>{{ item.title }}</h2><RichText :content="item.body" /><div v-if="item.response" class="notice info"><strong>指定回应方：</strong>{{ item.response }}</div><p v-if="item.admin_note" class="muted">审核备注：{{ item.admin_note }}</p><div v-if="item.status === 'published'" class="actions"><button v-if="item.respondent" @click="openResponse(item)">提交回应</button><button @click="comments = comments === item.id ? null : item.id">回帖</button></div><CommentThread v-if="comments === item.id" :entity-id="item.id" /></article>
-      </template>
-      <template v-else-if="section === 'governance'">
-        <article v-for="item in items" :key="item.id" class="card"><div class="meta"><span class="badge red">治理公示</span><span>{{ local(item.created_at) }}</span></div><h2>{{ item.violation_type }}</h2><p>{{ item.user }} · {{ item.result }}</p><p class="muted">依据：{{ item.rule }}</p><div class="actions"><button @click="openAppeal(item)">申诉（仅责任人）</button></div></article>
+  <section class="explore-page-v4" :class="`section-${section}`">
+    <header v-if="section === 'listings'" class="page-head v4-page-head-action"><div><h2>🛒 二手集市</h2><p>{{ currentInfo.subtitle }}</p></div><button class="btn primary" @click="openCreate">+ 发布出售</button></header>
+    <header v-else-if="section === 'lost'" class="page-head v4-page-head-action"><div><h2>🧣 失物招领</h2><p>{{ currentInfo.subtitle }}</p></div><button class="btn primary" @click="openCreate">+ 登记</button></header>
+    <header v-else class="page-head"><h2>{{ currentInfo.icon }} {{ currentInfo.title }}</h2><p>{{ currentInfo.subtitle }}</p></header>
+
+    <p v-if="error" class="notice danger">{{ error }}</p>
+    <p v-if="loading" class="empty-state">正在加载…</p>
+
+    <template v-else-if="section === 'questions'">
+      <p v-if="!items.length" class="empty-state">还没有问题，使用顶部“发帖”提出第一个问题。</p>
+      <article v-for="item in items" :key="item.id" class="card qa-card-v4">
+        <div class="v4-tag-row"><span v-if="item.bounty_xp" class="tag red">悬赏 {{ item.bounty_xp }} 分</span><span class="tag gray">{{ item.category }}</span><span v-for="tag in item.tags || []" :key="tag" class="tag gray">{{ tag }}</span><span v-if="item.accepted_answer_id" class="tag green">✅ 已采纳</span><span v-else class="tag yellow">等待回答 · {{ item.answer_count }} 个回答</span></div>
+        <button class="v4-title-button" @click="openDetail(item)">{{ item.title }}</button>
+        <div v-for="answer in (item.answers || []).filter((row: any) => row.id === item.accepted_answer_id)" :key="answer.id" class="best-answer-v4"><b>✅ 最佳答案</b>（{{ answer.author }}）：<RichText :content="answer.body" /><div class="muted">采纳 +20 经验 · 高价值内容可转入生存手册</div></div>
+        <button class="v4-detail-link" @click="openDetail(item)">查看问题与全部回答 →</button>
+      </article>
+      <div class="rulebox"><b>问答区机制：</b>问题 = 标题 + 标签 + 分类（学院/校区/课程/宿舍/行政事务）+ 悬赏积分。回答被采纳 +20 经验；累计 10 次采纳解锁「答疑达人」头衔。</div>
+    </template>
+
+    <template v-else-if="section === 'handbook'">
+      <template v-if="!handbookFilter">
+        <div class="hb-grid">
+          <button v-for="entry in handbookCategories" :key="entry[1]" class="hb-item" @click="selectHandbookCategory(entry[1])"><span class="ico">{{ entry[0] }}</span>{{ entry[1] }}</button>
+        </div>
+        <div class="card handbook-reward-v4"><h3>🏅 贡献奖励体系</h3><p><span v-for="tag in ['经验值','贡献者头衔','精华作者','学院向导','新生导师','答疑达人','年度校园百科贡献者']" :key="tag" class="tag yellow">{{ tag }}</span></p><p class="muted">防灌水机制：单纯发帖不加经验。经验只来自 <b>被收藏 +2 / 回答被采纳 +20 / 管理员加精 +50 / 内容存续满一年且仍被访问 +30</b>。</p></div>
+        <div id="campus-service-panel" class="card campus-service-panel"><h3>⭐ 校园服务评分（防恶意差评设计）</h3><div v-if="campusServices.length" class="campus-service-inline"><button v-for="service in campusServices" :key="service.id" @click="openService(service)"><span>{{ service.name }}</span><b v-if="service.score !== null" class="mono">{{ service.score }}</b><small>（{{ service.rating_count }} 条）</small></button></div><p v-else class="muted">管理员尚未录入可评分的校园服务。</p><p class="muted">同一用户对同一服务 30 天内只能评一次；低分需附具体事由；服务方可回应但不可删评。</p></div>
       </template>
       <template v-else>
-        <article v-for="item in items" :key="item.id" class="card"><div class="meta"><span class="badge" :class="item.level === 'strong' ? 'red' : ''">{{ item.level }}</span><span>{{ local(item.published_at) }}</span></div><h2>{{ item.title }}</h2><RichText :content="item.body" /><div class="actions"><button v-if="!item.read" @click="markRead(item)">确认已读</button><span v-else class="muted">已阅读 · 共 {{ item.read_count }} 人确认</span></div></article>
+        <div class="handbook-drill-head"><button class="btn ghost sm" @click="handbookFilter = ''">← 返回分类</button><h3>{{ categoryIcon(handbookFilter) }} {{ handbookFilter }}</h3><button class="btn primary sm" @click="openCreate">+ 投稿</button></div>
+        <p v-if="!handbookItems.length" class="empty-state">这个分类还没有公开经验，欢迎投稿。</p>
+        <article v-for="item in handbookItems" :key="item.id" class="post handbook-entry-v4" @click="openDetail(item)"><div class="p-head"><span class="tag green">{{ item.category }}</span><span v-if="item.featured" class="stamp-badge">精华</span><span class="p-time">⭐ 收藏 {{ item.favorite_count }}</span></div><div class="p-title">{{ item.title }}</div><div class="p-body handbook-preview"><RichText :content="item.body" /></div></article>
       </template>
-    </div>
-    <div v-if="total > pageSize" class="actions"><button :disabled="currentPage === 1" @click="currentPage--; load()">上一页</button><span>第 {{ currentPage }} 页 · 共 {{ total }} 条</span><button :disabled="currentPage * pageSize >= total" @click="currentPage++; load()">下一页</button></div>
+    </template>
 
-    <BaseModal v-if="modal" :title="action === 'answer' ? '回答问题' : action === 'claim' ? '提交认领线索' : action === 'claims' ? '处理认领申请' : action === 'appeal' ? '提交申诉' : action === 'respond' ? '提交指定回应' : action === 'edit_listing' ? '编辑商品' : action === 'edit' ? '编辑内容' : '发布内容'" wide @close="modal = false">
+    <template v-else-if="section === 'courses'">
+      <p v-if="!items.length" class="empty-state">还没有可评价的课程班次。</p>
+      <article v-for="item in items" :key="item.id" class="card course-summary-v4" @click="openDetail(item)"><div><b>{{ item.course }}（{{ item.teacher }}班）</b><p class="muted">{{ item.semester }} · {{ item.section }} · {{ item.review_count }} 条评价</p><p v-if="item.tags?.length" class="course-tags-v4">高频标签：<span v-for="tag in item.tags" :key="tag" class="tag green">{{ tag }}</span></p></div><div class="course-score-v4"><div v-if="item.score" class="score-big">{{ item.score }}</div><div v-if="item.score" class="muted">综合评分</div><span v-else class="score-hidden">{{ item.score_hidden_reason }}</span></div></article>
+      <div class="rulebox"><b>课评规则：</b><ul><li>禁止人身攻击、恶意造谣；禁止公开老师/助教私人联系方式。</li><li>评价必须基于课程体验，同一课程同一学期只能评价一次。</li><li>老师/助教可提交「事实更正」，附在原评论下方，但不能直接删评。</li></ul></div>
+    </template>
+
+    <template v-else-if="section === 'listings'">
+      <div class="dangerbox">🚫 <b>禁售清单：</b>烟酒、处方药、管制刀具、活体动物、代写代考服务、账号买卖及其他法律法规禁止物品。平台不经手资金、不收取费用，也不提供担保。</div>
+      <p v-if="!items.length" class="empty-state">还没有在售物品。</p>
+      <article v-for="item in items" :key="item.id" class="card market-card-v4">
+        <div class="market-media-v4"><img v-if="item.attachments?.length" :src="item.attachments[0].thumbnail_url" :alt="item.title" loading="lazy" /><span v-else>📦</span></div>
+        <div class="market-main-v4"><div class="v4-tag-row"><b class="market-title-v4">{{ item.title }}</b><span v-if="item.negotiable" class="tag green">可小刀</span><span class="tag blue">{{ item.category }}</span></div><div class="market-price-v4">¥{{ item.price }}</div><table class="market-facts-v4"><tbody><tr><td>成色</td><td>{{ item.condition }}</td></tr><tr><td>购买时间</td><td>{{ item.purchased_at || '未填写' }}</td></tr><tr><td>瑕疵/说明</td><td><span class="market-description-clamp">{{ item.description }}</span></td></tr><tr><td>交付地点</td><td>{{ item.location }} · 校内线下面交</td></tr></tbody></table></div>
+        <aside class="market-seller-v4"><b>卖家信用</b><div class="market-seller-name"><span>{{ item.seller.nickname.slice(0, 1) }}</span><strong>{{ item.seller.nickname }}</strong></div><p>✅ {{ item.seller.verified ? '校园身份已认证' : '身份待核验' }}</p><p>🪪 信用 <b class="mono">{{ item.seller.credit }}</b></p><p>📦 历史成交 <b class="mono">{{ item.seller.completed_sales }}</b> 单</p><button v-if="!item.mine" class="btn primary sm" @click="messageSeller(item)">私信购买</button><button v-else class="btn ghost sm" @click="openDetail(item)">管理商品</button></aside>
+      </article>
+      <div class="rulebox"><b>线下交易提醒：</b>请在校内公共场所当面验货后交易；平台不保管资金、不收取服务费。遇到纠纷可举报并提交站内聊天记录。</div>
+    </template>
+
+    <template v-else-if="section === 'activities'">
+      <div class="activity-filter-v4"><button v-for="category in activityCategories" :key="category" class="chip" :class="{ on: activityFilter === category }" @click="activityFilter = category">{{ category }}</button></div>
+      <p v-if="!activityItems.length" class="empty-state">这个分类还没有活动。</p>
+      <article v-for="item in activityItems" :key="item.id" class="post activity-post-v4" @click="openDetail(item)"><div class="p-head"><div class="p-avatar">{{ item.title.slice(0, 1) }}</div><span class="p-name">{{ item.author || '校园同学' }}</span><span class="tag blue">{{ item.category }}</span><span class="p-time">{{ shortDate(item.starts_at) }}</span></div><div class="p-title">{{ item.title }}</div><div class="p-body">{{ item.location }} · {{ item.member_count }}<template v-if="item.capacity">/{{ item.capacity }}</template> 人</div><div class="p-foot"><span>🙋 {{ item.joined ? '已加入' : '加入' }}</span><span>💬 回帖</span></div></article>
+    </template>
+
+    <template v-else-if="section === 'lost'">
+      <p v-if="!items.length" class="empty-state">还没有失物登记。</p>
+      <article v-for="item in items" :key="item.id" class="post lost-post-v4" @click="openDetail(item)"><div class="p-head"><span class="tag" :class="item.kind === 'lost' ? 'red' : 'green'">{{ item.kind === 'lost' ? '丢失' : '捡到' }}</span><span class="tag" :class="item.status === 'open' ? 'yellow' : 'blue'">{{ statusLabel(item.status) }}</span><span class="p-time">{{ local(item.happened_at || item.created_at) }}</span></div><div class="p-title">{{ item.kind === 'lost' ? '🪪' : '🎧' }} {{ item.item_name }}</div><div class="p-body">地点：{{ item.location }} ｜ {{ item.description }}</div></article>
+    </template>
+
+    <template v-else-if="section === 'observe'">
+      <div class="dangerbox observe-rules-v4"><b>📋 本区须知（发帖前必读并勾选确认）</b><ul><li>只允许描述事件，<b>禁止</b>公开真实姓名、手机号、寝室、学号、照片、聊天记录中的个人信息。</li><li>涉及具体个人或组织的帖子，必须先进入人工审核。</li><li>被指认方拥有申诉与回应入口，回应将并列展示。</li><li>所有曝光内容默认打码；禁止「求扩散」「全校避雷某某人」等煽动性表达。</li><li>管理员只公示处理结果和规则依据，不公示隐私细节。</li></ul></div>
+      <p v-if="!items.length" class="empty-state">还没有可见的观察记录。</p>
+      <article v-for="item in items" :key="item.id" class="post observe-post-v4" @click="openDetail(item)"><div class="p-head"><div class="p-avatar">匿</div><span class="p-name">匿名同学</span><span class="tag" :class="item.status === 'published' ? 'green' : 'yellow'">{{ item.status === 'published' ? '✅ 审核通过' : '⏳ 人工审核中' }}</span><span v-if="item.response" class="tag blue">被指认方已回应</span><span class="p-time">{{ local(item.created_at) }}</span></div><div class="p-title">{{ item.title }}</div><div class="p-body"><RichText :content="item.body" /><template v-if="item.response"><b>指定回应：</b><RichText :content="item.response" /></template></div><div v-if="item.status !== 'published'" class="p-foot"><span class="muted">审核通过前仅发帖人可见</span></div></article>
+    </template>
+
+    <template v-else-if="section === 'governance'">
+      <div class="card governance-card-v4"><div class="table-wrap"><table class="gov governance-table"><thead><tr><th>匿名化账号</th><th>违规类型</th><th>处理结果</th><th>规则依据</th><th>时间</th><th>申诉</th></tr></thead><tbody><tr v-for="item in items" :key="item.id"><td class="mono">{{ item.user }}</td><td>{{ item.violation_type }}</td><td>{{ item.result }}</td><td>{{ item.rule }}</td><td class="mono">{{ shortDate(item.created_at) }}</td><td><button class="tag" :class="item.appeal_status === 'pending' ? 'yellow' : 'green'" @click="openAppeal(item)">{{ item.appeal_status === 'pending' ? '申诉中' : '可申诉' }}</button></td></tr></tbody></table></div><p class="muted governance-footnote">📚 判例库：每条处罚附案例说明，供全体用户查阅引用，做到同案同判。</p><p v-if="!items.length" class="empty-state">暂无公开处罚记录。</p></div>
+    </template>
+
+    <template v-else-if="section === 'announcements'">
+      <p v-if="!items.length" class="empty-state">暂无公告。</p>
+      <article v-for="item in items" :key="item.id" class="card announcement-card-v4" :class="{ strong: item.level === 'strong' }"><h3>{{ item.title }} <span class="tag" :class="item.level === 'strong' ? 'red' : 'gray'">{{ item.level === 'strong' ? '强提醒' : '普通公告' }}</span></h3><RichText :content="item.body" /><p class="muted">{{ local(item.published_at) }} · 已读确认：<b class="mono">{{ item.read_count }}</b> 人 <button v-if="!item.read" class="btn ghost sm" @click="markRead(item)">我已阅读</button><span v-else class="tag green">✓ 已确认</span></p></article>
+    </template>
+
+    <div v-if="total > pageSize" class="v4-pagination"><button class="btn ghost sm" :disabled="currentPage === 1" @click="currentPage--; load()">上一页</button><span>第 {{ currentPage }} 页 · 共 {{ total }} 条</span><button class="btn ghost sm" :disabled="currentPage * pageSize >= total" @click="currentPage++; load()">下一页</button></div>
+
+    <BaseModal v-if="detailItem" :title="detailItem.title || detailItem.item_name || detailItem.course || '详情'" wide @close="closeDetail">
+      <article class="v4-detail-content">
+        <template v-if="section === 'questions'"><div class="v4-tag-row"><span class="tag red">悬赏 {{ detailItem.bounty_xp }} 分</span><span class="tag gray">{{ detailItem.category }}</span></div><RichText :content="detailItem.body" /><AttachmentGrid :content="detailItem.body" :attachments="detailItem.attachments" /><h3>回答</h3><div v-for="answer in detailItem.answers || []" :key="answer.id" class="answer-box" :class="{ accepted: detailItem.accepted_answer_id === answer.id }"><strong>{{ detailItem.accepted_answer_id === answer.id ? '✅ 最佳答案 · ' : '' }}{{ answer.author }}</strong><RichText :content="answer.body" /><AttachmentGrid :content="answer.body" :attachments="answer.attachments" /><button v-if="detailItem.mine && !detailItem.accepted_answer_id" class="btn ghost sm" @click="accept(answer)">采纳</button></div><div class="modal-actions-v4"><button class="btn primary" @click="openAnswer(detailItem)">回答问题</button><button v-if="detailItem.mine && !detailItem.accepted_answer_id" class="btn ghost" @click="openEdit(detailItem)">编辑</button></div><CommentThread :entity-id="detailItem.id" /></template>
+        <template v-else-if="section === 'handbook'"><div class="v4-tag-row"><span class="tag green">{{ detailItem.category }}</span><span v-if="detailItem.featured" class="stamp-badge">精华</span><span class="muted">⭐ 收藏 {{ detailItem.favorite_count }}</span></div><RichText :content="detailItem.body" /><AttachmentGrid :content="detailItem.body" :attachments="detailItem.attachments" /><div class="modal-actions-v4"><button class="btn ghost" @click="favorite(detailItem)">收藏</button><button v-if="detailItem.mine" class="btn ghost" @click="openEdit(detailItem)">编辑</button></div><CommentThread :entity-id="detailItem.id" /></template>
+        <template v-else-if="section === 'courses'"><div class="course-detail-score"><strong v-if="detailItem.score" class="score-big">{{ detailItem.score }}</strong><span v-else class="score-hidden">{{ detailItem.score_hidden_reason }}</span><p>{{ detailItem.teacher }} · {{ detailItem.semester }} {{ detailItem.section }}</p></div><div v-for="review in detailItem.reviews || []" :key="review.id" class="review-box"><strong>{{ '★'.repeat(review.rating) }}</strong><RichText :content="review.body" /><AttachmentGrid :content="review.body" :attachments="review.attachments" /><p v-if="review.correction" class="muted">教职工更正：{{ review.correction }}</p></div><div class="modal-actions-v4"><button class="btn primary" @click="openCreate">撰写课程评价</button></div></template>
+        <template v-else-if="section === 'listings'"><strong class="market-price-v4">¥{{ detailItem.price }}</strong><RichText :content="detailItem.description" /><AttachmentGrid :content="detailItem.description" :attachments="detailItem.attachments" /><p class="rulebox">仅支持校内线下面交；平台不经手资金、不收费、不提供担保。</p><div class="modal-actions-v4"><button v-if="!detailItem.mine" class="btn primary" @click="messageSeller(detailItem)">私信购买</button><template v-else><button class="btn ghost" @click="openListingEdit(detailItem)">编辑</button><button class="btn ghost" @click="listingStatus(detailItem, 'reserved')">设为预留</button><button class="btn primary" @click="listingStatus(detailItem, 'sold')">确认成交</button><button class="btn warn" @click="listingStatus(detailItem, 'offline')">下架</button></template></div><CommentThread :entity-id="detailItem.id" /></template>
+        <template v-else-if="section === 'activities'"><div class="v4-tag-row"><span class="tag blue">{{ detailItem.category }}</span><span>{{ local(detailItem.starts_at) }} · {{ detailItem.location }}</span></div><RichText :content="detailItem.body" /><AttachmentGrid :content="detailItem.body" :attachments="detailItem.attachments" /><div class="modal-actions-v4"><button v-if="!detailItem.mine" class="btn primary" @click="activityJoin(detailItem)">{{ detailItem.joined ? '退出活动' : '加入活动' }}</button><template v-else><button class="btn ghost" @click="openEdit(detailItem)">编辑</button><button class="btn warn" @click="cancelActivity(detailItem)">取消活动</button></template></div><CommentThread :entity-id="detailItem.id" /></template>
+        <template v-else-if="section === 'lost'"><div class="v4-tag-row"><span class="tag" :class="detailItem.kind === 'lost' ? 'red' : 'green'">{{ detailItem.kind === 'lost' ? '丢失' : '捡到' }}</span><span class="tag yellow">{{ statusLabel(detailItem.status) }}</span></div><RichText :content="detailItem.description" /><AttachmentGrid :content="detailItem.description" :attachments="detailItem.attachments" /><p>地点：{{ detailItem.location }} · {{ local(detailItem.happened_at) }}</p><div class="modal-actions-v4"><button v-if="!detailItem.mine && detailItem.status === 'open'" class="btn primary" @click="openClaim(detailItem)">提交认领线索</button><template v-if="detailItem.mine"><button v-if="detailItem.status === 'open'" class="btn ghost" @click="openEdit(detailItem)">编辑</button><button v-if="detailItem.claim_count" class="btn primary" @click="openClaims(detailItem)">处理认领申请</button></template></div><CommentThread :entity-id="detailItem.id" /></template>
+        <template v-else-if="section === 'observe'"><RichText :content="detailItem.body" /><AttachmentGrid :content="`${detailItem.body}\n${detailItem.response || ''}`" :attachments="detailItem.attachments" /><div v-if="detailItem.response" class="best-answer-v4"><b>指定回应方：</b><RichText :content="detailItem.response" /></div><p v-if="detailItem.admin_note" class="muted">管理员备注：{{ detailItem.admin_note }}</p><div class="modal-actions-v4"><button v-if="detailItem.respondent" class="btn primary" @click="openResponse(detailItem)">提交回应</button></div><CommentThread v-if="detailItem.status === 'published'" :entity-id="detailItem.id" /></template>
+      </article>
+    </BaseModal>
+
+    <BaseModal v-if="serviceDetail" :title="`⭐ ${serviceDetail.name}`" wide @close="serviceDetail = null">
+      <div class="service-detail-v4"><div class="service-score-head"><strong>{{ serviceDetail.score ?? '—' }}</strong><span>{{ serviceDetail.rating_count }} 条真实评价 · 同一用户 30 天内限评一次</span></div><form class="service-rate-form" @submit.prevent="rateService"><label>评分<select v-model.number="serviceForm.rating"><option v-for="n in [5,4,3,2,1]" :key="n" :value="n">{{ n }} 星</option></select></label><label>具体体验（低于 3 星必填至少 10 个字）<textarea v-model.trim="serviceForm.body" rows="3" maxlength="2000" /></label><button class="btn primary">提交评价</button></form><div class="service-review-list"><article v-for="rating in serviceDetail.ratings || []" :key="rating.id"><div><b>{{ '★'.repeat(rating.rating) }}</b><span>{{ rating.author }} · {{ local(rating.created_at) }}</span></div><p>{{ rating.body || '未填写文字评价' }}</p><blockquote v-if="rating.response"><b>{{ rating.responder }} 回应：</b>{{ rating.response }}</blockquote><button v-else-if="serviceDetail.managed_by_me" class="btn ghost sm" @click="respondService(rating)">公开回应</button></article><p v-if="!serviceDetail.ratings?.length" class="empty-state">还没有评价。</p></div></div>
+    </BaseModal>
+
+    <BaseModal v-if="modal" :title="modalTitle" wide @close="modal = false">
       <form class="form-grid" @submit.prevent="submit">
-        <template v-if="action === 'answer'"><label class="full">回答<textarea v-model="form.body" rows="8" required /></label></template>
+        <template v-if="action === 'answer'"><div class="editor-field full"><span class="editor-field-label">回答</span><RichEditor v-model="form.body" v-model:attachments="form.attachments" aria-label="回答正文" :max-images="6" /></div></template>
         <template v-else-if="action === 'claim'"><label class="full">能帮助发布者核验的线索<textarea v-model="form.message" rows="6" required minlength="5" /></label></template>
-        <template v-else-if="action === 'claims'"><div v-for="item in target.claims" :key="item.id" class="card compact full"><strong>{{ item.claimant }}</strong><p>{{ item.message }}</p><div v-if="item.status === 'pending'" class="actions"><button type="button" @click="decideClaim(item, true)">确认认领完成</button><button type="button" @click="decideClaim(item, false)">不通过</button></div><span v-else class="badge">{{ item.status }}</span></div><p v-if="!target.claims.length" class="empty full">暂无认领申请。</p></template>
+        <template v-else-if="action === 'claims'"><div v-for="item in target.claims" :key="item.id" class="card compact full"><strong>{{ item.claimant }}</strong><p>{{ item.message }}</p><div v-if="item.status === 'pending'" class="actions"><button type="button" @click="decideClaim(item, true)">确认认领完成</button><button type="button" @click="decideClaim(item, false)">不通过</button></div><span v-else class="tag green">{{ item.status }}</span></div><p v-if="!target.claims.length" class="empty-state full">暂无认领申请。</p></template>
         <template v-else-if="action === 'appeal'"><label class="full">申诉理由与证据<textarea v-model="form.reason" rows="8" required minlength="10" /></label></template>
-        <template v-else-if="action === 'respond'"><label class="full">回应正文<textarea v-model="form.body" rows="8" required minlength="2" /></label></template>
-        <template v-else-if="section === 'questions'"><label class="full">问题标题<input v-model="form.title" required /></label><label>分类<input v-model="form.category" /></label><label>悬赏 XP<input v-model.number="form.bounty_xp" type="number" min="0" max="500" /></label><label class="full">标签（逗号分隔）<input v-model="form.tags" /></label><label class="full">补充说明<textarea v-model="form.body" rows="6" /></label></template>
-        <template v-else-if="section === 'handbook'"><label>分类<input v-model="form.category" required /></label><label class="check"><input v-model="form.draft" type="checkbox" /> 保存为草稿</label><label class="full">标题<input v-model="form.title" required /></label><label class="full">正文<textarea v-model="form.body" rows="10" required minlength="20" /></label><label class="full">图片<input type="file" accept="image/jpeg,image/png,image/webp" multiple @change="images" /></label></template>
-        <template v-else-if="section === 'courses'"><label>课程班次<select v-model="form.offering_id"><option v-for="item in items" :key="item.id" :value="item.id">{{ item.course }} · {{ item.teacher }} · {{ item.semester }}</option></select></label><label>评分<input v-model.number="form.rating" type="number" min="1" max="5" /></label><label class="full">标签（逗号分隔）<input v-model="form.tags" /></label><label class="full">评价<textarea v-model="form.body" rows="7" required minlength="5" /></label></template>
-        <template v-else-if="section === 'listings'"><label>分类<input v-model="form.category" required /></label><label>价格<input v-model.number="form.price" type="number" min="0" step="0.01" required /></label><label class="full">商品标题<input v-model="form.title" required /></label><label>成色<input v-model="form.condition" required /></label><label>面交地点<input v-model="form.location" required /></label><label class="full">详细描述<textarea v-model="form.description" rows="7" required /></label><label class="full">商品图片<input type="file" accept="image/jpeg,image/png,image/webp" multiple @change="images" /></label></template>
-        <template v-else-if="section === 'activities'"><label>分类<input v-model="form.category" required /></label><label>人数上限<input v-model.number="form.capacity" type="number" min="2" /></label><label class="full">标题<input v-model="form.title" required /></label><label>开始时间<input v-model="form.starts_at" type="datetime-local" required /></label><label>结束时间<input v-model="form.ends_at" type="datetime-local" /></label><label class="full">地点<input v-model="form.location" required /></label><label class="full">详情<textarea v-model="form.body" rows="6" /></label></template>
-        <template v-else-if="section === 'lost'"><label>类型<select v-model="form.kind"><option value="lost">我丢失了</option><option value="found">我捡到了</option></select></label><label>发生时间<input v-model="form.happened_at" type="datetime-local" /></label><label class="full">物品名称<input v-model="form.item_name" required /></label><label class="full">地点<input v-model="form.location" required /></label><label class="full">特征说明<textarea v-model="form.description" rows="6" /></label><label class="full">图片<input type="file" accept="image/jpeg,image/png,image/webp" multiple @change="images" /></label></template>
-        <template v-else-if="section === 'observe'"><p class="notice info full">观察帖默认先审后发。请只描述事件，不公开可识别个人信息。</p><label class="full">事件标题<input v-model="form.title" required /></label><label class="full">事件描述<textarea v-model="form.body" rows="9" required minlength="10" /></label></template>
-        <button v-if="action !== 'claims'" class="button primary full">提交</button>
+        <template v-else-if="action === 'respond'"><div class="editor-field full"><span class="editor-field-label">回应正文</span><RichEditor v-model="form.body" v-model:attachments="form.attachments" aria-label="回应正文" :max-images="6" /></div></template>
+        <template v-else-if="section === 'questions'"><label class="full">问题标题<input v-model="form.title" required /></label><label>分类<input v-model="form.category" /></label><label>悬赏 XP<input v-model.number="form.bounty_xp" type="number" min="0" max="500" /></label><label class="full">标签（逗号分隔）<input v-model="form.tags" /></label><div class="editor-field full"><span class="editor-field-label">补充说明</span><RichEditor v-model="form.body" v-model:attachments="form.attachments" aria-label="问题补充说明" /></div></template>
+        <template v-else-if="section === 'handbook'"><label>分类<select v-model="form.category"><option v-for="entry in handbookCategories.filter((entry) => entry[1] !== '校园服务评分')" :key="entry[1]" :value="entry[1]">{{ entry[1] }}</option></select></label><label class="check"><input v-model="form.draft" type="checkbox" /> 保存为草稿</label><label class="full">标题<input v-model="form.title" required /></label><div class="editor-field full"><span class="editor-field-label">正文</span><RichEditor v-model="form.body" v-model:attachments="form.attachments" aria-label="手册正文" :max-length="30000" /></div></template>
+        <template v-else-if="section === 'courses'"><label>课程班次<select v-model="form.offering_id"><option v-for="item in items" :key="item.id" :value="item.id">{{ item.course }} · {{ item.teacher }} · {{ item.semester }}</option></select></label><label>评分<input v-model.number="form.rating" type="number" min="1" max="5" /></label><label class="full">标签（逗号分隔）<input v-model="form.tags" /></label><div class="editor-field full"><span class="editor-field-label">评价</span><RichEditor v-model="form.body" v-model:attachments="form.attachments" aria-label="课程评价正文" :max-length="5000" :max-images="6" /></div></template>
+        <template v-else-if="section === 'listings'"><label>分类<input v-model="form.category" required /></label><label>价格（¥）<input v-model.number="form.price" type="number" min="0" step="0.01" required /></label><label class="full">物品标题<input v-model="form.title" required placeholder="品牌 + 型号 + 关键信息" /></label><label>成色<select v-model="form.condition"><option>全新未拆</option><option>九五新</option><option>九成新</option><option>八成新</option><option>有明显使用痕迹</option></select></label><label>购买日期（选填）<input v-model="form.purchased_at" type="date" /></label><label>是否可刀<select v-model="form.negotiable"><option :value="true">可小刀</option><option :value="false">一口价</option></select></label><label>交付地点<input v-model="form.location" required placeholder="校内线下面交地点" /></label><div class="editor-field full"><span class="editor-field-label">瑕疵与详细说明</span><RichEditor v-model="form.description" v-model:attachments="form.attachments" aria-label="商品详细说明" /></div><p class="notice info full">平台不经手资金、不收取费用、不提供担保。买卖双方通过私信约定校内线下面交。</p></template>
+        <template v-else-if="section === 'activities'"><label>分类<input v-model="form.category" required /></label><label>人数上限<input v-model.number="form.capacity" type="number" min="2" /></label><label class="full">标题<input v-model="form.title" required /></label><label>开始时间<input v-model="form.starts_at" type="datetime-local" required /></label><label>结束时间<input v-model="form.ends_at" type="datetime-local" /></label><label class="full">地点<input v-model="form.location" required /></label><div class="editor-field full"><span class="editor-field-label">详情</span><RichEditor v-model="form.body" v-model:attachments="form.attachments" aria-label="活动详情" /></div></template>
+        <template v-else-if="section === 'lost'"><label>类型<select v-model="form.kind"><option value="lost">我丢失了</option><option value="found">我捡到了</option></select></label><label>发生时间<input v-model="form.happened_at" type="datetime-local" /></label><label class="full">物品名称<input v-model="form.item_name" required /></label><label class="full">地点<input v-model="form.location" required /></label><div class="editor-field full"><span class="editor-field-label">特征说明</span><RichEditor v-model="form.description" v-model:attachments="form.attachments" aria-label="失物特征说明" :max-length="5000" :max-images="6" /></div></template>
+        <template v-else-if="section === 'observe'"><p class="notice info full">观察帖默认先审后发。请只描述事件，不公开可识别个人信息。</p><label class="full">事件标题<input v-model="form.title" required /></label><div class="editor-field full"><span class="editor-field-label">事件描述</span><RichEditor v-model="form.body" v-model:attachments="form.attachments" aria-label="事件描述" /></div></template>
+        <button v-if="action !== 'claims'" class="btn primary full">提交</button>
       </form>
     </BaseModal>
   </section>

@@ -12,6 +12,12 @@
     "generate:api": "openapi-typescript http://127.0.0.1:8000/openapi.json -o src/generated/api.d.ts"
   },
   "dependencies": {
+    "@tiptap/extension-image": "^3.27.4",
+    "@tiptap/extension-link": "^3.27.4",
+    "@tiptap/extension-placeholder": "^3.27.4",
+    "@tiptap/markdown": "^3.27.4",
+    "@tiptap/starter-kit": "^3.27.4",
+    "@tiptap/vue-3": "^3.27.4",
     "dompurify": "^3.2.6",
     "marked": "^15.0.12",
     "pinia": "^3.0.3",

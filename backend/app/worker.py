@@ -37,6 +37,7 @@ from .models import (
 )
 from .security import hash_password
 from .services import enqueue_email, notify
+from .team_lifecycle import advance_team_lifecycles
 
 settings = get_settings()
 LOCK_ID = 846_208_411
@@ -104,28 +105,21 @@ def process_team_runs(db: Session) -> None:
                 user = db.get(User, member.user_id)
                 if not user:
                     continue
+                membership = db.scalar(
+                    select(TeamMembership).where(
+                        TeamMembership.team_id == team.entity_id,
+                        TeamMembership.user_id == member.user_id,
+                        TeamMembership.status == "active",
+                    )
+                )
+                channels = set((membership.reminder_channels if membership else team.reminder_channels).split(","))
                 body = f"{team.game} · {team.mode} 将于 {run.starts_at:%m-%d %H:%M} 发车。"
-                notify(db, user.id, "车队即将发车", body, f"/teams/{team.entity_id}", "team")
-                if user.email:
+                if "in_app" in channels:
+                    notify(db, user.id, "车队即将发车", body, f"/teams/{team.entity_id}", "team")
+                if "email" in channels and user.email:
                     enqueue_email(db, user.email, "【梧桐墙】车队发车提醒", body)
             run.reminder_sent_at = now
-        if run.starts_at + timedelta(hours=2) <= now:
-            run.status = "completed"
-            if team.recurrence == "weekly" and team.status == "active":
-                next_start = run.starts_at + timedelta(days=7)
-                next_run = db.scalar(
-                    select(TeamRun).where(TeamRun.team_id == team.entity_id, TeamRun.starts_at == next_start)
-                )
-                if not next_run:
-                    next_run = TeamRun(team_id=team.entity_id, starts_at=next_start)
-                    db.add(next_run)
-                    db.flush()
-                    members = db.scalars(
-                        select(TeamMembership).where(
-                            TeamMembership.team_id == team.entity_id, TeamMembership.status == "active"
-                        )
-                    ).all()
-                    db.add_all([TeamRunMember(run_id=next_run.id, user_id=x.user_id) for x in members])
+    advance_team_lifecycles(db, now=now)
 
 
 def cleanup(db: Session) -> None:

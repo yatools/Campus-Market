@@ -53,13 +53,13 @@ onMounted(async () => { await auth.load(); await loadConversations(); await load
 
 <template>
   <section>
-    <header class="page-head"><h1>站内私信</h1><p>商品和车队会话保留上下文；可随时拉黑或举报不当消息。</p></header>
-    <p v-if="!auth.loading && !auth.user" class="empty">请先登录查看私信。<button class="button primary" @click="auth.authOpen = true">登录</button></p>
-    <p v-else-if="loading" class="empty">正在加载会话…</p>
+    <header class="page-head"><h1>✉️ 站内私信</h1><p>商品和车队会话保留上下文；可随时拉黑或举报不当消息。</p></header>
+    <p v-if="!auth.loading && !auth.user" class="empty-state">请先登录查看私信。<button class="button primary" @click="auth.openAuth('login')">登录</button></p>
+    <p v-else-if="loading" class="empty-state">正在加载会话…</p>
     <p v-if="error" class="notice" :class="error.startsWith('已') ? 'success' : 'danger'">{{ error }}</p>
     <div v-if="auth.user" class="message-layout">
       <aside class="card conversation-list"><h3>会话</h3><button v-for="item in conversations" :key="item.id" :class="{ active: item.id === activeId }" @click="router.push(`/messages/${item.id}`)"><span class="avatar">{{ item.other_user?.nickname?.slice(0,1) || '?' }}</span><span><b>{{ item.other_user?.nickname || '已注销用户' }}</b><small>{{ item.last_message }}</small></span><i v-if="item.unread">{{ item.unread }}</i></button><p v-if="!conversations.length" class="muted">暂无私信。可以从商品页联系卖家。</p></aside>
-      <section class="card chat"><header v-if="active"><div><h3>{{ active.other_user?.nickname }}</h3><span class="muted">{{ active.context_type === 'listing' ? '商品会话' : active.context_type === 'team' ? '车队会话' : active.context_type === 'activity' ? '活动会话' : '私信' }}</span></div><button class="text-button" @click="block">拉黑</button></header><div class="message-feed"><p v-if="!messages.length" class="empty">选择会话开始交流。</p><div v-for="item in messages" :key="item.id" class="bubble" :class="{ mine: item.mine }"><p>{{ item.body }}</p><time>{{ new Date(item.created_at).toLocaleString() }}</time><button v-if="!item.mine" class="report-link" @click="reportMessage(item)">举报</button></div></div><form v-if="active" class="row" @submit.prevent="send"><textarea v-model="text" rows="2" maxlength="2000" placeholder="写消息…" :disabled="sending" /><button class="button primary" :disabled="sending">{{ sending ? '发送中…' : '发送' }}</button></form></section>
+      <section class="card chat"><header v-if="active"><div><h3>{{ active.other_user?.nickname }}</h3><span class="muted">{{ active.context_type === 'listing' ? '商品会话' : active.context_type === 'team' ? '车队会话' : active.context_type === 'activity' ? '活动会话' : '私信' }}</span></div><button class="text-button" @click="block">拉黑</button></header><div class="message-feed"><p v-if="!messages.length" class="empty-state">选择会话开始交流。</p><div v-for="item in messages" :key="item.id" class="bubble" :class="{ mine: item.mine }"><p>{{ item.body }}</p><time>{{ new Date(item.created_at).toLocaleString() }}</time><button v-if="!item.mine" class="report-link" @click="reportMessage(item)">举报</button></div></div><form v-if="active" class="row" @submit.prevent="send"><textarea v-model="text" rows="2" maxlength="2000" placeholder="写消息…" :disabled="sending" /><button class="button primary" :disabled="sending">{{ sending ? '发送中…' : '发送' }}</button></form></section>
     </div>
   </section>
 </template>

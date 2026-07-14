@@ -29,7 +29,7 @@ def make_user(db, email: str, nickname: str) -> User:
         password_hash=hash_password("WorkerPassword123"),
         nickname=nickname,
         alias=f"梧桐#{nickname}",
-        credit=80,
+        credit=800,
     )
     db.add(user)
     db.flush()
@@ -72,6 +72,7 @@ def test_worker_sends_team_reminder_and_rolls_weekly_run() -> None:
         assert db.scalar(select(func.count(EmailOutbox.id))) == 2
 
         run.starts_at = utcnow() - timedelta(hours=3)
+        run.expires_at = run.starts_at + timedelta(minutes=team.post_departure_retention_minutes)
         process_team_runs(db)
         db.flush()
         assert run.status == "completed"
