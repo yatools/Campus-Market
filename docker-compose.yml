@@ -22,7 +22,7 @@ services:
   migrate:
     build: ./backend
     env_file: ${ENV_FILE:-.env}
-    command: ["alembic", "upgrade", "head"]
+    command: ["migrate", "up"]
     depends_on:
       db:
         condition: service_healthy
@@ -52,7 +52,7 @@ services:
 
   worker:
     build: ./backend
-    command: ["python", "-m", "app.worker"]
+    command: ["worker"]
     restart: unless-stopped
     env_file: ${ENV_FILE:-.env}
     environment:

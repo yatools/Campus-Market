@@ -1,0 +1,1321 @@
+package httpapi
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"regexp"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5"
+)
+
+func (s *Server) registerGovernanceRoutes(r chi.Router) {
+	r.Get("/observe-posts", s.handle(s.listObserve))
+	r.Post("/observe-posts", s.handle(s.createObserve))
+	r.Post("/observe-posts/{observeID}/response", s.handle(s.respondObserve))
+	r.Get("/penalties", s.handle(s.listPenalties))
+	r.Post("/penalties/{penaltyID}/appeals", s.handle(s.appealPenalty))
+	r.Get("/conversations", s.handle(s.listConversations))
+	r.Post("/conversations", s.handle(s.createConversation))
+	r.Get("/conversations/{conversationID}/messages", s.handle(s.listMessages))
+	r.Post("/conversations/{conversationID}/messages", s.handle(s.sendMessage))
+	r.Put("/blocks/{blockedID}", s.handle(s.blockUser))
+	r.Delete("/blocks/{blockedID}", s.handle(s.unblockUser))
+	r.Get("/notifications", s.handle(s.listNotifications))
+	r.Get("/notifications/stream", s.handle(s.notificationStream))
+	r.Post("/notifications/{notificationID}/read", s.handle(s.readNotification))
+	r.Post("/notifications/read-all", s.handle(s.readAllNotifications))
+	r.Get("/announcements", s.handle(s.listAnnouncements))
+	r.Put("/announcements/{announcementID}/read", s.handle(s.readAnnouncement))
+	r.Post("/feedback", s.handle(s.createFeedback))
+	r.Get("/campus-services", s.handle(s.listCampusServices))
+	r.Get("/campus-services/{serviceID}", s.handle(s.getCampusService))
+	r.Post("/campus-services/{serviceID}/ratings", s.handle(s.rateCampusService))
+	r.Post("/campus-service-ratings/{ratingID}/response", s.handle(s.respondCampusServiceRating))
+	r.Post("/admin/campus-services", s.handle(s.adminCreateCampusService))
+	r.Patch("/admin/campus-services/{serviceID}", s.handle(s.adminUpdateCampusService))
+	r.Get("/credit-rules", s.handle(s.publicCreditRules))
+	r.Get("/admin/credit-rules", s.handle(s.adminCreditRules))
+	r.Patch("/admin/credit-rules", s.handle(s.updateCreditRules))
+}
+
+// Observe and governance.
+type Observe struct {
+	ID                 int64
+	Title, Masked, Raw string
+	Respondent         *int64
+	Response           string
+	ResponseAt         *time.Time
+	AdminNote          string
+}
+
+const observeSelect = `SELECT entity_id,title,body_masked,body_raw,respondent_id,response,response_at,admin_note FROM observe_posts`
+
+func scanObserve(row pgx.Row) (Observe, error) {
+	var o Observe
+	err := row.Scan(&o.ID, &o.Title, &o.Masked, &o.Raw, &o.Respondent, &o.Response, &o.ResponseAt, &o.AdminNote)
+	return o, err
+}
+func (s *Server) listObserve(w http.ResponseWriter, r *http.Request) error {
+	page, size, err := pagination(r, 20, 50)
+	if err != nil {
+		return err
+	}
+	viewer, _, err := s.currentUser(w, r, false)
+	if err != nil {
+		return err
+	}
+	where := "e.status='published'"
+	args := []any{}
+	if viewer.ID != 0 {
+		if viewer.Role == "moderator" || viewer.Role == "admin" {
+			where = "true"
+		} else {
+			where = "(e.status='published' OR e.owner_id=$1 OR o.respondent_id=$1)"
+			args = append(args, viewer.ID)
+		}
+	}
+	var total int
+	_ = s.DB.QueryRow(r.Context(), "SELECT count(*) FROM observe_posts o JOIN content_entities e ON e.id=o.entity_id WHERE "+where, args...).Scan(&total)
+	args = append(args, size, (page-1)*size)
+	rows, err := s.DB.Query(r.Context(), fmt.Sprintf(`SELECT e.id,e.type,e.owner_id,e.status,e.allow_comments,e.search_visible,e.moderation_reason,e.revision,e.deleted_at,e.created_at,e.updated_at,o.entity_id,o.title,o.body_masked,o.body_raw,o.respondent_id,o.response,o.response_at,o.admin_note FROM content_entities e JOIN observe_posts o ON o.entity_id=e.id WHERE %s ORDER BY e.created_at DESC LIMIT $%d OFFSET $%d`, where, len(args)-1, len(args)), args...)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	items := []any{}
+	for rows.Next() {
+		e, o, err := scanEntityObserve(rows)
+		if err != nil {
+			return err
+		}
+		p, err := s.observePayload(r.Context(), s.DB, e, o, userOrNil(viewer))
+		if err != nil {
+			return err
+		}
+		items = append(items, p)
+	}
+	writeJSON(w, 200, pagePayload(items, page, size, total))
+	return rows.Err()
+}
+func (s *Server) createObserve(w http.ResponseWriter, r *http.Request) error {
+	user, _, err := s.participatingUser(w, r)
+	if err != nil {
+		return err
+	}
+	var body struct {
+		Title, Body   string
+		AttachmentIDs []int64 `json:"attachment_ids"`
+	}
+	if err := decodeBody(r, &body); err != nil {
+		return err
+	}
+	if runeLen(strings.TrimSpace(body.Title)) < 4 || len(body.Title) > 160 {
+		return validation("title", "String should have at least 4 characters")
+	}
+	if runeLen(strings.TrimSpace(body.Body)) < 10 || len(body.Body) > 10000 {
+		return validation("body", "String should have at least 10 characters")
+	}
+	tx, err := s.DB.Begin(r.Context())
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(r.Context())
+	if err := s.requireCredit(r.Context(), tx, user, "threshold.observe_publish", "发布观察帖"); err != nil {
+		return err
+	}
+	e, _, err := s.createEntity(r.Context(), tx, user.ID, "observe", body.Title+"\n"+body.Body, true, false, true)
+	if err != nil {
+		return err
+	}
+	o := Observe{ID: e.ID, Title: strings.TrimSpace(body.Title), Raw: strings.TrimSpace(body.Body), Masked: maskObserve(strings.TrimSpace(body.Body))}
+	if _, err := tx.Exec(r.Context(), "INSERT INTO observe_posts(entity_id,title,body_masked,body_raw,response,admin_note) VALUES($1,$2,$3,$4,'','')", o.ID, o.Title, o.Masked, o.Raw); err != nil {
+		return err
+	}
+	if err := s.attachUploads(r.Context(), tx, user.ID, e.ID, body.AttachmentIDs); err != nil {
+		return err
+	}
+	actor := user.ID
+	_ = auditSQL(r.Context(), tx, &actor, "observe.create", "observe", e.ID, "", nil, nil, requestID(r.Context()))
+	p, err := s.observePayload(r.Context(), tx, e, o, &user)
+	if err != nil {
+		return err
+	}
+	if err := tx.Commit(r.Context()); err != nil {
+		return err
+	}
+	writeJSON(w, 201, p)
+	return nil
+}
+func (s *Server) respondObserve(w http.ResponseWriter, r *http.Request) error {
+	id, _ := pathID(r, "observeID")
+	user, _, err := s.participatingUser(w, r)
+	if err != nil {
+		return err
+	}
+	var body struct {
+		Body          string  `json:"body"`
+		AttachmentIDs []int64 `json:"attachment_ids"`
+	}
+	if err := decodeBody(r, &body); err != nil {
+		return err
+	}
+	if runeLen(strings.TrimSpace(body.Body)) < 2 || len(body.Body) > 5000 {
+		return validation("body", "String should have at least 2 characters")
+	}
+	tx, err := s.DB.Begin(r.Context())
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(r.Context())
+	e, err := getEntity(r.Context(), tx, id)
+	if err != nil {
+		return apiError(404, "OBSERVE_NOT_FOUND", "观察帖不存在")
+	}
+	o, err := scanObserve(tx.QueryRow(r.Context(), observeSelect+" WHERE entity_id=$1", id))
+	if err != nil {
+		return apiError(404, "OBSERVE_NOT_FOUND", "观察帖不存在")
+	}
+	if o.Respondent == nil || *o.Respondent != user.ID {
+		return apiError(403, "RESPONDENT_REQUIRED", "只有审核员指定的回应方可以回应")
+	}
+	o.Response = strings.TrimSpace(body.Body)
+	now := time.Now().UTC()
+	o.ResponseAt = &now
+	if _, err := tx.Exec(r.Context(), "UPDATE observe_posts SET response=$1,response_at=$2 WHERE entity_id=$3", o.Response, now, id); err != nil {
+		return err
+	}
+	if err := s.attachUploads(r.Context(), tx, user.ID, id, body.AttachmentIDs); err != nil {
+		return err
+	}
+	_, _ = tx.Exec(r.Context(), "UPDATE content_entities SET updated_at=now() WHERE id=$1", id)
+	actor := user.ID
+	_ = auditSQL(r.Context(), tx, &actor, "observe.respond", "observe", id, "", nil, nil, requestID(r.Context()))
+	_ = notifySQL(r.Context(), tx, e.OwnerID, "观察帖收到回应", o.Title, fmt.Sprintf("/observe/%d", id), "system")
+	if err := tx.Commit(r.Context()); err != nil {
+		return err
+	}
+	writeJSON(w, 200, map[string]any{"ok": true, "response": o.Response})
+	return nil
+}
+func (s *Server) listPenalties(w http.ResponseWriter, r *http.Request) error {
+	page, size, err := pagination(r, 20, 100)
+	if err != nil {
+		return err
+	}
+	var total int
+	_ = s.DB.QueryRow(r.Context(), "SELECT count(*) FROM penalties").Scan(&total)
+	rows, err := s.DB.Query(r.Context(), "SELECT id,public_mask,violation_type,result,rule,created_at FROM penalties ORDER BY created_at DESC LIMIT $1 OFFSET $2", size, (page-1)*size)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	items := []any{}
+	for rows.Next() {
+		var id int64
+		var user, kind, result, rule string
+		var created time.Time
+		if err := rows.Scan(&id, &user, &kind, &result, &rule, &created); err != nil {
+			return err
+		}
+		items = append(items, map[string]any{"id": id, "user": user, "violation_type": kind, "result": result, "rule": rule, "created_at": created})
+	}
+	writeJSON(w, 200, pagePayload(items, page, size, total))
+	return rows.Err()
+}
+func (s *Server) appealPenalty(w http.ResponseWriter, r *http.Request) error {
+	id, _ := pathID(r, "penaltyID")
+	user, _, err := s.currentUser(w, r, true)
+	if err != nil {
+		return err
+	}
+	var body struct {
+		Reason string `json:"reason"`
+	}
+	if err := decodeBody(r, &body); err != nil {
+		return err
+	}
+	if runeLen(strings.TrimSpace(body.Reason)) < 10 || len(body.Reason) > 5000 {
+		return validation("reason", "String should have at least 10 characters")
+	}
+	tx, err := s.DB.Begin(r.Context())
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(r.Context())
+	var owner int64
+	if err := tx.QueryRow(r.Context(), "SELECT user_id FROM penalties WHERE id=$1", id).Scan(&owner); err == pgx.ErrNoRows {
+		return apiError(404, "PENALTY_NOT_FOUND", "处罚记录不存在")
+	} else if err != nil {
+		return err
+	}
+	if owner != user.ID {
+		return apiError(403, "PENALTY_OWNER_REQUIRED", "只能申诉自己的处罚记录")
+	}
+	var appealID int64
+	var status string
+	err = tx.QueryRow(r.Context(), "SELECT id,status FROM appeals WHERE penalty_id=$1 AND user_id=$2", id, user.ID).Scan(&appealID, &status)
+	if err == pgx.ErrNoRows {
+		err = tx.QueryRow(r.Context(), "INSERT INTO appeals(penalty_id,user_id,reason,status,admin_note,created_at) VALUES($1,$2,$3,'pending','',now()) RETURNING id,status", id, user.ID, strings.TrimSpace(body.Reason)).Scan(&appealID, &status)
+	}
+	if err != nil {
+		return err
+	}
+	if err := tx.Commit(r.Context()); err != nil {
+		return err
+	}
+	writeJSON(w, 201, map[string]any{"id": appealID, "status": status})
+	return nil
+}
+func scanEntityObserve(row pgx.Row) (Entity, Observe, error) {
+	var e Entity
+	var o Observe
+	args := append(entityScan(&e), &o.ID, &o.Title, &o.Masked, &o.Raw, &o.Respondent, &o.Response, &o.ResponseAt, &o.AdminNote)
+	err := row.Scan(args...)
+	return e, o, err
+}
+func (s *Server) observePayload(ctx context.Context, q queryer, e Entity, o Observe, viewer *User) (map[string]any, error) {
+	body := o.Masked
+	if viewer != nil && (viewer.Role == "moderator" || viewer.Role == "admin") {
+		body = o.Raw
+	}
+	files, err := attachmentsPayload(ctx, q, e.ID)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"id": e.ID, "title": o.Title, "body": body, "status": e.Status, "response": o.Response, "admin_note": o.AdminNote, "mine": viewer != nil && viewer.ID == e.OwnerID, "respondent": viewer != nil && o.Respondent != nil && viewer.ID == *o.Respondent, "created_at": e.CreatedAt, "updated_at": e.UpdatedAt, "attachments": files}, nil
+}
+
+var digitMask = regexp.MustCompile(`\b\d{6,18}\b`)
+var phoneMask = regexp.MustCompile(`1[3-9]\d{9}`)
+
+func maskObserve(v string) string {
+	v = digitMask.ReplaceAllString(v, "▓▓▓▓▓▓")
+	return phoneMask.ReplaceAllString(v, "1**********")
+}
+
+// Private messaging.
+func (s *Server) listConversations(w http.ResponseWriter, r *http.Request) error {
+	user, _, err := s.currentUser(w, r, true)
+	if err != nil {
+		return err
+	}
+	page, size, err := pagination(r, 30, 100)
+	if err != nil {
+		return err
+	}
+	var total int
+	_ = s.DB.QueryRow(r.Context(), "SELECT count(*) FROM conversation_members WHERE user_id=$1", user.ID).Scan(&total)
+	rows, err := s.DB.Query(r.Context(), `SELECT c.id,c.context_type,c.context_id,c.created_at FROM conversations c JOIN conversation_members m ON m.conversation_id=c.id WHERE m.user_id=$1 ORDER BY c.id DESC LIMIT $2 OFFSET $3`, user.ID, size, (page-1)*size)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	items := []any{}
+	for rows.Next() {
+		var id int64
+		var kind string
+		var contextID *int64
+		var created time.Time
+		if err := rows.Scan(&id, &kind, &contextID, &created); err != nil {
+			return err
+		}
+		p, err := s.conversationPayload(r.Context(), s.DB, id, kind, contextID, created, user.ID)
+		if err != nil {
+			return err
+		}
+		items = append(items, p)
+	}
+	writeJSON(w, 200, pagePayload(items, page, size, total))
+	return rows.Err()
+}
+func (s *Server) createConversation(w http.ResponseWriter, r *http.Request) error {
+	user, _, err := s.participatingUser(w, r)
+	if err != nil {
+		return err
+	}
+	var body struct {
+		Recipient    int64  `json:"recipient_id"`
+		ContextType  string `json:"context_type"`
+		ContextID    *int64 `json:"context_id"`
+		FirstMessage string `json:"first_message"`
+	}
+	if err := decodeBody(r, &body); err != nil {
+		return err
+	}
+	if body.ContextType == "" {
+		body.ContextType = "direct"
+	}
+	valid := map[string]bool{"direct": true, "listing": true, "team": true, "activity": true}
+	if !valid[body.ContextType] {
+		return validation("context_type", "Value error, 会话上下文无效")
+	}
+	if strings.TrimSpace(body.FirstMessage) == "" || len(body.FirstMessage) > 2000 {
+		return validation("first_message", "String should have at least 1 character")
+	}
+	tx, err := s.DB.Begin(r.Context())
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(r.Context())
+	var recipient User
+	recipient, err = scanUser(tx.QueryRow(r.Context(), `SELECT id,email,password_hash,nickname,alias,campus_identity,role,status,credit,xp,avatar_path,dm_stranger_off,hide_online,verified_at,created_at FROM users WHERE id=$1`, body.Recipient))
+	if err != nil || recipient.Status != "active" {
+		return apiError(404, "RECIPIENT_NOT_FOUND", "收件人不存在")
+	}
+	if recipient.ID == user.ID {
+		return apiError(400, "SELF_MESSAGE", "不能给自己发私信")
+	}
+	if blocked, err := isBlocked(r.Context(), tx, user.ID, recipient.ID); err != nil {
+		return err
+	} else if blocked {
+		return apiError(403, "MESSAGE_BLOCKED", "无法向该用户发送私信")
+	}
+	allowed, err := s.contextContactAllowed(r.Context(), tx, user.ID, recipient.ID, body.ContextType, body.ContextID)
+	if err != nil {
+		return err
+	}
+	if body.ContextType == "direct" && body.ContextID != nil {
+		return apiError(400, "INVALID_MESSAGE_CONTEXT", "普通私信不能携带业务上下文")
+	}
+	if body.ContextType != "direct" && !allowed {
+		return apiError(403, "INVALID_MESSAGE_CONTEXT", "你们不在该商品、车队或活动上下文中")
+	}
+	if recipient.DMStrangerOff && !allowed {
+		return apiError(403, "STRANGER_MESSAGES_OFF", "对方已关闭陌生人私信")
+	}
+	conversationID, created, err := findConversation(r.Context(), tx, user.ID, recipient.ID, body.ContextType, body.ContextID)
+	if err != nil {
+		return err
+	}
+	if conversationID == 0 {
+		err = tx.QueryRow(r.Context(), "INSERT INTO conversations(context_type,context_id,created_at) VALUES($1,$2,now()) RETURNING id,created_at", body.ContextType, body.ContextID).Scan(&conversationID, &created)
+		if err != nil {
+			return err
+		}
+		_, err = tx.Exec(r.Context(), "INSERT INTO conversation_members(conversation_id,user_id,last_read_at) VALUES($1,$2,now()),($1,$3,NULL)", conversationID, user.ID, recipient.ID)
+		if err != nil {
+			return err
+		}
+	}
+	messageID, _, err := s.addMessage(r.Context(), tx, conversationID, user, body.FirstMessage)
+	if err != nil {
+		return err
+	}
+	_ = notifySQL(r.Context(), tx, recipient.ID, "收到新私信", "来自 "+user.Nickname+" 的消息", fmt.Sprintf("/messages/%d", conversationID), "message")
+	payload, err := s.conversationPayload(r.Context(), tx, conversationID, body.ContextType, body.ContextID, created, user.ID)
+	if err != nil {
+		return err
+	}
+	if err := tx.Commit(r.Context()); err != nil {
+		return err
+	}
+	writeJSON(w, 201, map[string]any{"conversation": payload, "message_id": messageID})
+	return nil
+}
+func (s *Server) listMessages(w http.ResponseWriter, r *http.Request) error {
+	id, _ := pathID(r, "conversationID")
+	user, _, err := s.currentUser(w, r, true)
+	if err != nil {
+		return err
+	}
+	page, size, err := pagination(r, 50, 200)
+	if err != nil {
+		return err
+	}
+	tx, err := s.DB.Begin(r.Context())
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(r.Context())
+	var membership int64
+	if err := tx.QueryRow(r.Context(), "SELECT id FROM conversation_members WHERE conversation_id=$1 AND user_id=$2", id, user.ID).Scan(&membership); err != nil {
+		return apiError(403, "CONVERSATION_MEMBER_REQUIRED", "无权查看该会话")
+	}
+	var total int
+	_ = tx.QueryRow(r.Context(), `SELECT count(*) FROM messages m JOIN content_entities e ON e.id=m.entity_id WHERE m.conversation_id=$1 AND e.status='published'`, id).Scan(&total)
+	rows, err := tx.Query(r.Context(), `SELECT e.id,m.body,e.owner_id,e.created_at FROM content_entities e JOIN messages m ON m.entity_id=e.id WHERE m.conversation_id=$1 AND e.status='published' ORDER BY e.created_at LIMIT $2 OFFSET $3`, id, size, (page-1)*size)
+	if err != nil {
+		return err
+	}
+	items := []any{}
+	for rows.Next() {
+		var mid, sender int64
+		var body string
+		var created time.Time
+		if err := rows.Scan(&mid, &body, &sender, &created); err != nil {
+			return err
+		}
+		items = append(items, map[string]any{"id": mid, "body": body, "sender_id": sender, "mine": sender == user.ID, "created_at": created})
+	}
+	rows.Close()
+	_, _ = tx.Exec(r.Context(), "UPDATE conversation_members SET last_read_at=now() WHERE id=$1", membership)
+	if err := tx.Commit(r.Context()); err != nil {
+		return err
+	}
+	writeJSON(w, 200, pagePayload(items, page, size, total))
+	return nil
+}
+func (s *Server) sendMessage(w http.ResponseWriter, r *http.Request) error {
+	id, _ := pathID(r, "conversationID")
+	user, _, err := s.participatingUser(w, r)
+	if err != nil {
+		return err
+	}
+	var body struct {
+		Body string `json:"body"`
+	}
+	if err := decodeBody(r, &body); err != nil {
+		return err
+	}
+	if strings.TrimSpace(body.Body) == "" || len(body.Body) > 2000 {
+		return validation("body", "String should have at least 1 character")
+	}
+	tx, err := s.DB.Begin(r.Context())
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(r.Context())
+	members, err := int64Rows(r.Context(), tx, "SELECT user_id FROM conversation_members WHERE conversation_id=$1", id)
+	if err != nil {
+		return err
+	}
+	if len(members) != 2 || members[0] != user.ID && members[1] != user.ID {
+		return apiError(403, "CONVERSATION_MEMBER_REQUIRED", "无权向该会话发送消息")
+	}
+	recipient := members[0]
+	if recipient == user.ID {
+		recipient = members[1]
+	}
+	if blocked, err := isBlocked(r.Context(), tx, user.ID, recipient); err != nil {
+		return err
+	} else if blocked {
+		return apiError(403, "MESSAGE_BLOCKED", "无法向该用户发送私信")
+	}
+	messageID, created, err := s.addMessage(r.Context(), tx, id, user, body.Body)
+	if err != nil {
+		return err
+	}
+	_ = notifySQL(r.Context(), tx, recipient, "收到新私信", "来自 "+user.Nickname+" 的消息", fmt.Sprintf("/messages/%d", id), "message")
+	if err := tx.Commit(r.Context()); err != nil {
+		return err
+	}
+	writeJSON(w, 201, map[string]any{"id": messageID, "body": strings.TrimSpace(body.Body), "mine": true, "created_at": created})
+	return nil
+}
+func (s *Server) blockUser(w http.ResponseWriter, r *http.Request) error {
+	id, _ := pathID(r, "blockedID")
+	user, _, err := s.currentUser(w, r, true)
+	if err != nil {
+		return err
+	}
+	var exists bool
+	_ = s.DB.QueryRow(r.Context(), "SELECT EXISTS(SELECT 1 FROM users WHERE id=$1)", id).Scan(&exists)
+	if id == user.ID || !exists {
+		return apiError(400, "INVALID_BLOCK_TARGET", "拉黑对象无效")
+	}
+	_, err = s.DB.Exec(r.Context(), "INSERT INTO blocks(user_id,blocked_id,created_at) VALUES($1,$2,now()) ON CONFLICT(user_id,blocked_id) DO NOTHING", user.ID, id)
+	if err != nil {
+		return err
+	}
+	writeJSON(w, 200, map[string]any{"active": true})
+	return nil
+}
+func (s *Server) unblockUser(w http.ResponseWriter, r *http.Request) error {
+	id, _ := pathID(r, "blockedID")
+	user, _, err := s.currentUser(w, r, true)
+	if err != nil {
+		return err
+	}
+	_, err = s.DB.Exec(r.Context(), "DELETE FROM blocks WHERE user_id=$1 AND blocked_id=$2", user.ID, id)
+	if err != nil {
+		return err
+	}
+	writeJSON(w, 200, map[string]any{"active": false})
+	return nil
+}
+func isBlocked(ctx context.Context, q interface {
+	QueryRow(context.Context, string, ...any) pgx.Row
+}, a, b int64) (bool, error) {
+	var result bool
+	err := q.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM blocks WHERE (user_id=$1 AND blocked_id=$2) OR (user_id=$2 AND blocked_id=$1))", a, b).Scan(&result)
+	return result, err
+}
+func (s *Server) contextContactAllowed(ctx context.Context, q queryer, sender, recipient int64, kind string, id *int64) (bool, error) {
+	if id == nil {
+		return false, nil
+	}
+	switch kind {
+	case "listing":
+		var owner int64
+		var status string
+		err := q.QueryRow(ctx, "SELECT e.owner_id,l.trade_status FROM content_entities e JOIN listings l ON l.entity_id=e.id WHERE e.id=$1", *id).Scan(&owner, &status)
+		return err == nil && owner == recipient && (status == "available" || status == "reserved"), nil
+	case "team":
+		var count int
+		err := q.QueryRow(ctx, "SELECT count(*) FROM team_memberships WHERE team_id=$1 AND user_id=ANY($2) AND status='active'", *id, []int64{sender, recipient}).Scan(&count)
+		return count == 2, err
+	case "activity":
+		var owner int64
+		var entityStatus, activityStatus string
+		err := q.QueryRow(ctx, "SELECT e.owner_id,e.status,a.status FROM content_entities e JOIN activities a ON a.entity_id=e.id WHERE e.id=$1", *id).Scan(&owner, &entityStatus, &activityStatus)
+		if err != nil {
+			return false, nil
+		}
+		var count int
+		_ = q.QueryRow(ctx, "SELECT count(*) FROM activity_members WHERE activity_id=$1 AND user_id=ANY($2) AND status='joined'", *id, []int64{sender, recipient}).Scan(&count)
+		participants := count
+		if owner == sender || owner == recipient {
+			participants++
+		}
+		return entityStatus == "published" && activityStatus == "open" && participants >= 2, nil
+	}
+	return false, nil
+}
+func findConversation(ctx context.Context, q queryer, a, b int64, kind string, contextID *int64) (int64, time.Time, error) {
+	rows, err := q.Query(ctx, "SELECT id,created_at FROM conversations WHERE context_type=$1 AND context_id IS NOT DISTINCT FROM $2", kind, contextID)
+	if err != nil {
+		return 0, time.Time{}, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id int64
+		var created time.Time
+		if err := rows.Scan(&id, &created); err != nil {
+			return 0, time.Time{}, err
+		}
+		ids, err := int64Rows(ctx, q, "SELECT user_id FROM conversation_members WHERE conversation_id=$1 ORDER BY user_id", id)
+		if err != nil {
+			return 0, time.Time{}, err
+		}
+		if len(ids) == 2 && ((ids[0] == a && ids[1] == b) || (ids[0] == b && ids[1] == a)) {
+			return id, created, nil
+		}
+	}
+	return 0, time.Time{}, rows.Err()
+}
+func (s *Server) addMessage(ctx context.Context, tx pgx.Tx, conversationID int64, sender User, body string) (int64, time.Time, error) {
+	if err := checkRateLimitSQL(ctx, tx, "message_send_minute", strconv.FormatInt(sender.ID, 10), 30, 1); err != nil {
+		return 0, time.Time{}, err
+	}
+	if err := checkRateLimitSQL(ctx, tx, "message_send_day", strconv.FormatInt(sender.ID, 10), 300, 24*60); err != nil {
+		return 0, time.Time{}, err
+	}
+	threshold := creditDefault("threshold.dm_unlimited")
+	_ = tx.QueryRow(ctx, "SELECT value FROM credit_rules WHERE key='threshold.dm_unlimited'").Scan(&threshold)
+	if sender.Credit < threshold {
+		var sent int
+		_ = tx.QueryRow(ctx, "SELECT count(*) FROM content_entities WHERE type='message' AND owner_id=$1 AND created_at>=date_trunc('day',now())", sender.ID).Scan(&sent)
+		limit := 20
+		if sender.CreatedAt.After(time.Now().UTC().Add(-7 * 24 * time.Hour)) {
+			limit = 5
+		}
+		if sent >= limit {
+			return 0, time.Time{}, apiError(429, "MESSAGE_LIMIT_REACHED", fmt.Sprintf("已达到今日私信上限（%d 条）", limit))
+		}
+	}
+	e, _, err := s.createEntity(ctx, tx, sender.ID, "message", body, false, false, false)
+	if err != nil {
+		return 0, time.Time{}, err
+	}
+	if _, err := tx.Exec(ctx, "INSERT INTO messages(entity_id,conversation_id,body) VALUES($1,$2,$3)", e.ID, conversationID, strings.TrimSpace(body)); err != nil {
+		return 0, time.Time{}, err
+	}
+	return e.ID, e.CreatedAt, nil
+}
+func (s *Server) conversationPayload(ctx context.Context, q queryer, id int64, kind string, contextID *int64, created time.Time, viewer int64) (map[string]any, error) {
+	var otherID *int64
+	var otherName *string
+	_ = q.QueryRow(ctx, `SELECT u.id,u.nickname FROM conversation_members m JOIN users u ON u.id=m.user_id WHERE m.conversation_id=$1 AND m.user_id<>$2 LIMIT 1`, id, viewer).Scan(&otherID, &otherName)
+	var lastBody string
+	var lastAt time.Time
+	err := q.QueryRow(ctx, `SELECT m.body,e.created_at FROM messages m JOIN content_entities e ON e.id=m.entity_id WHERE m.conversation_id=$1 AND e.status='published' ORDER BY e.created_at DESC LIMIT 1`, id).Scan(&lastBody, &lastAt)
+	if err == pgx.ErrNoRows {
+		lastAt = created
+	} else if err != nil {
+		return nil, err
+	}
+	var readAt *time.Time
+	_ = q.QueryRow(ctx, "SELECT last_read_at FROM conversation_members WHERE conversation_id=$1 AND user_id=$2", id, viewer).Scan(&readAt)
+	since := created
+	if readAt != nil {
+		since = *readAt
+	}
+	var unread int
+	_ = q.QueryRow(ctx, `SELECT count(*) FROM messages m JOIN content_entities e ON e.id=m.entity_id WHERE m.conversation_id=$1 AND e.owner_id<>$2 AND e.status='published' AND e.created_at>$3`, id, viewer, since).Scan(&unread)
+	var other any
+	if otherID != nil {
+		other = map[string]any{"id": *otherID, "nickname": *otherName}
+	}
+	return map[string]any{"id": id, "context_type": kind, "context_id": contextID, "other_user": other, "last_message": truncateRunes(lastBody, 100), "last_message_at": lastAt, "unread": unread}, nil
+}
+
+// Notifications, announcements and feedback.
+func (s *Server) listNotifications(w http.ResponseWriter, r *http.Request) error {
+	user, _, err := s.currentUser(w, r, true)
+	if err != nil {
+		return err
+	}
+	page, size, err := pagination(r, 30, 100)
+	if err != nil {
+		return err
+	}
+	var total int
+	_ = s.DB.QueryRow(r.Context(), "SELECT count(*) FROM notifications WHERE user_id=$1", user.ID).Scan(&total)
+	rows, err := s.DB.Query(r.Context(), "SELECT id,type,title,body,link,read_at,created_at FROM notifications WHERE user_id=$1 ORDER BY created_at DESC LIMIT $2 OFFSET $3", user.ID, size, (page-1)*size)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	items := []any{}
+	for rows.Next() {
+		var id int64
+		var kind, title, body, link string
+		var read *time.Time
+		var created time.Time
+		if err := rows.Scan(&id, &kind, &title, &body, &link, &read, &created); err != nil {
+			return err
+		}
+		items = append(items, map[string]any{"id": id, "type": kind, "title": title, "body": body, "link": link, "read_at": read, "created_at": created})
+	}
+	writeJSON(w, 200, pagePayload(items, page, size, total))
+	return rows.Err()
+}
+func (s *Server) notificationStream(w http.ResponseWriter, r *http.Request) error {
+	user, session, err := s.currentUser(w, r, true)
+	if err != nil {
+		return err
+	}
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		return fmt.Errorf("streaming unsupported")
+	}
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	ticker := time.NewTicker(15 * time.Second)
+	defer ticker.Stop()
+	last := -1
+	for {
+		var active bool
+		if err := s.DB.QueryRow(r.Context(), "SELECT EXISTS(SELECT 1 FROM sessions WHERE id=$1 AND revoked_at IS NULL AND expires_at>now() AND absolute_expires_at>now())", session.ID).Scan(&active); err != nil || !active {
+			return nil
+		}
+		var count int
+		if err := s.DB.QueryRow(r.Context(), "SELECT count(*) FROM notifications WHERE user_id=$1 AND read_at IS NULL", user.ID).Scan(&count); err != nil {
+			return err
+		}
+		if count != last {
+			fmt.Fprintf(w, "event: unread\ndata: {\"count\":%d}\n\n", count)
+			last = count
+		} else {
+			fmt.Fprint(w, ": keepalive\n\n")
+		}
+		flusher.Flush()
+		select {
+		case <-r.Context().Done():
+			return nil
+		case <-ticker.C:
+		}
+	}
+}
+func (s *Server) readNotification(w http.ResponseWriter, r *http.Request) error {
+	id, _ := pathID(r, "notificationID")
+	user, _, err := s.currentUser(w, r, true)
+	if err != nil {
+		return err
+	}
+	tag, err := s.DB.Exec(r.Context(), "UPDATE notifications SET read_at=COALESCE(read_at,now()) WHERE id=$1 AND user_id=$2", id, user.ID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return apiError(404, "NOTIFICATION_NOT_FOUND", "通知不存在")
+	}
+	writeJSON(w, 200, map[string]any{"ok": true})
+	return nil
+}
+func (s *Server) readAllNotifications(w http.ResponseWriter, r *http.Request) error {
+	user, _, err := s.currentUser(w, r, true)
+	if err != nil {
+		return err
+	}
+	_, err = s.DB.Exec(r.Context(), "UPDATE notifications SET read_at=now() WHERE user_id=$1 AND read_at IS NULL", user.ID)
+	if err != nil {
+		return err
+	}
+	writeJSON(w, 200, map[string]any{"ok": true})
+	return nil
+}
+func (s *Server) listAnnouncements(w http.ResponseWriter, r *http.Request) error {
+	viewer, _, err := s.currentUser(w, r, false)
+	if err != nil {
+		return err
+	}
+	page, size, err := pagination(r, 20, 100)
+	if err != nil {
+		return err
+	}
+	where := "audience='all'"
+	args := []any{}
+	if viewer.ID != 0 {
+		where = "audience='all' OR audience=$1"
+		args = append(args, viewer.CampusIdentity)
+	}
+	var total int
+	_ = s.DB.QueryRow(r.Context(), "SELECT count(*) FROM announcements WHERE "+where, args...).Scan(&total)
+	args = append(args, size, (page-1)*size)
+	rows, err := s.DB.Query(r.Context(), fmt.Sprintf("SELECT id,title,body,level,audience,published_at FROM announcements WHERE %s ORDER BY published_at DESC LIMIT $%d OFFSET $%d", where, len(args)-1, len(args)), args...)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	items := []any{}
+	for rows.Next() {
+		var id int64
+		var title, body, level, audience string
+		var published time.Time
+		if err := rows.Scan(&id, &title, &body, &level, &audience, &published); err != nil {
+			return err
+		}
+		read := false
+		if viewer.ID != 0 {
+			_ = s.DB.QueryRow(r.Context(), "SELECT EXISTS(SELECT 1 FROM announcement_reads WHERE announcement_id=$1 AND user_id=$2)", id, viewer.ID).Scan(&read)
+		}
+		var count int
+		_ = s.DB.QueryRow(r.Context(), "SELECT count(*) FROM announcement_reads WHERE announcement_id=$1", id).Scan(&count)
+		items = append(items, map[string]any{"id": id, "title": title, "body": body, "level": level, "audience": audience, "read": read, "read_count": count, "published_at": published})
+	}
+	writeJSON(w, 200, pagePayload(items, page, size, total))
+	return rows.Err()
+}
+func (s *Server) readAnnouncement(w http.ResponseWriter, r *http.Request) error {
+	id, _ := pathID(r, "announcementID")
+	user, _, err := s.currentUser(w, r, true)
+	if err != nil {
+		return err
+	}
+	var audience string
+	if err := s.DB.QueryRow(r.Context(), "SELECT audience FROM announcements WHERE id=$1", id).Scan(&audience); err != nil || audience != "all" && audience != user.CampusIdentity {
+		return apiError(404, "ANNOUNCEMENT_NOT_FOUND", "公告不存在")
+	}
+	_, err = s.DB.Exec(r.Context(), "INSERT INTO announcement_reads(announcement_id,user_id,read_at) VALUES($1,$2,now()) ON CONFLICT(announcement_id,user_id) DO NOTHING", id, user.ID)
+	if err != nil {
+		return err
+	}
+	writeJSON(w, 200, map[string]any{"active": true})
+	return nil
+}
+func (s *Server) createFeedback(w http.ResponseWriter, r *http.Request) error {
+	user, _, err := s.participatingUser(w, r)
+	if err != nil {
+		return err
+	}
+	var body struct{ Type, Title, Body string }
+	if err := decodeBody(r, &body); err != nil {
+		return err
+	}
+	if body.Type == "" {
+		body.Type = "suggestion"
+	}
+	if runeLen(strings.TrimSpace(body.Title)) < 3 || runeLen(strings.TrimSpace(body.Body)) < 10 {
+		return validation("request", "反馈内容不符合要求")
+	}
+	tx, err := s.DB.Begin(r.Context())
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(r.Context())
+	e, _, err := s.createEntity(r.Context(), tx, user.ID, "feedback", body.Title+"\n"+body.Body, true, false, false)
+	if err != nil {
+		return err
+	}
+	var status string
+	if err := tx.QueryRow(r.Context(), "INSERT INTO feedback(entity_id,type,title,body,status,admin_note) VALUES($1,$2,$3,$4,'pending','') RETURNING status", e.ID, body.Type, strings.TrimSpace(body.Title), strings.TrimSpace(body.Body)).Scan(&status); err != nil {
+		return err
+	}
+	if err := tx.Commit(r.Context()); err != nil {
+		return err
+	}
+	writeJSON(w, 201, map[string]any{"id": e.ID, "status": status})
+	return nil
+}
+
+// Campus services.
+type CampusService struct {
+	ID               int64
+	Name, Category   string
+	Manager          *int64
+	Active           bool
+	Created, Updated time.Time
+}
+
+func (s *Server) listCampusServices(w http.ResponseWriter, r *http.Request) error {
+	viewer, _, err := s.currentUser(w, r, false)
+	if err != nil {
+		return err
+	}
+	where := "active=true"
+	args := []any{}
+	if category := r.URL.Query().Get("category"); category != "" {
+		args = append(args, category)
+		where += " AND category=$1"
+	}
+	rows, err := s.DB.Query(r.Context(), "SELECT id,name,category,manager_user_id,active,created_at,updated_at FROM campus_services WHERE "+where+" ORDER BY name", args...)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	items := []any{}
+	for rows.Next() {
+		service, err := scanCampusService(rows)
+		if err != nil {
+			return err
+		}
+		p, err := s.campusServicePayload(r.Context(), s.DB, service, userOrNil(viewer), false)
+		if err != nil {
+			return err
+		}
+		items = append(items, p)
+	}
+	writeJSON(w, 200, map[string]any{"items": items, "total": len(items)})
+	return rows.Err()
+}
+func (s *Server) getCampusService(w http.ResponseWriter, r *http.Request) error {
+	id, _ := pathID(r, "serviceID")
+	viewer, _, err := s.currentUser(w, r, false)
+	if err != nil {
+		return err
+	}
+	service, err := scanCampusService(s.DB.QueryRow(r.Context(), "SELECT id,name,category,manager_user_id,active,created_at,updated_at FROM campus_services WHERE id=$1", id))
+	if err != nil || !service.Active {
+		return apiError(404, "CAMPUS_SERVICE_NOT_FOUND", "校园服务不存在")
+	}
+	p, err := s.campusServicePayload(r.Context(), s.DB, service, userOrNil(viewer), true)
+	if err != nil {
+		return err
+	}
+	writeJSON(w, 200, p)
+	return nil
+}
+func (s *Server) rateCampusService(w http.ResponseWriter, r *http.Request) error {
+	id, _ := pathID(r, "serviceID")
+	user, _, err := s.participatingUser(w, r)
+	if err != nil {
+		return err
+	}
+	var body struct {
+		Rating int    `json:"rating"`
+		Body   string `json:"body"`
+	}
+	if err := decodeBody(r, &body); err != nil {
+		return err
+	}
+	body.Body = strings.TrimSpace(body.Body)
+	if body.Rating < 1 || body.Rating > 5 {
+		return validation("rating", "Input should be between 1 and 5")
+	}
+	if body.Rating <= 2 && runeLen(body.Body) < 10 {
+		return apiError(400, "LOW_RATING_REASON_REQUIRED", "低分评价请填写至少 10 个字的具体事由")
+	}
+	tx, err := s.DB.Begin(r.Context())
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(r.Context())
+	service, err := scanCampusService(tx.QueryRow(r.Context(), "SELECT id,name,category,manager_user_id,active,created_at,updated_at FROM campus_services WHERE id=$1", id))
+	if err != nil || !service.Active {
+		return apiError(404, "CAMPUS_SERVICE_NOT_FOUND", "校园服务不存在")
+	}
+	var latest *time.Time
+	_ = tx.QueryRow(r.Context(), "SELECT max(created_at) FROM campus_service_ratings WHERE service_id=$1 AND user_id=$2", id, user.ID).Scan(&latest)
+	if latest != nil && latest.After(time.Now().UTC().Add(-30*24*time.Hour)) {
+		return apiError(409, "SERVICE_RATING_COOLDOWN", "同一服务 30 天内只能评价一次")
+	}
+	var ratingID int64
+	if err := tx.QueryRow(r.Context(), "INSERT INTO campus_service_ratings(service_id,user_id,rating,body,response,created_at,updated_at) VALUES($1,$2,$3,$4,'',now(),now()) RETURNING id", id, user.ID, body.Rating, body.Body).Scan(&ratingID); err != nil {
+		return err
+	}
+	actor := user.ID
+	_ = auditSQL(r.Context(), tx, &actor, "campus_service.rate", "campus_service", id, "", nil, map[string]any{"rating": body.Rating}, requestID(r.Context()))
+	p, err := s.campusRatingPayload(r.Context(), tx, ratingID)
+	if err != nil {
+		return err
+	}
+	if err := tx.Commit(r.Context()); err != nil {
+		return err
+	}
+	writeJSON(w, 201, p)
+	return nil
+}
+func (s *Server) respondCampusServiceRating(w http.ResponseWriter, r *http.Request) error {
+	id, _ := pathID(r, "ratingID")
+	user, _, err := s.currentUser(w, r, true)
+	if err != nil {
+		return err
+	}
+	var body struct {
+		Body string `json:"body"`
+	}
+	if err := decodeBody(r, &body); err != nil {
+		return err
+	}
+	if runeLen(strings.TrimSpace(body.Body)) < 2 || len(body.Body) > 2000 {
+		return validation("body", "String should have at least 2 characters")
+	}
+	tx, err := s.DB.Begin(r.Context())
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(r.Context())
+	var serviceID, author int64
+	var response, serviceName string
+	var manager *int64
+	if err := tx.QueryRow(r.Context(), `SELECT r.service_id,r.user_id,r.response,s.name,s.manager_user_id FROM campus_service_ratings r JOIN campus_services s ON s.id=r.service_id WHERE r.id=$1`, id).Scan(&serviceID, &author, &response, &serviceName, &manager); err != nil {
+		return apiError(404, "SERVICE_RATING_NOT_FOUND", "服务评价不存在")
+	}
+	if (manager == nil || *manager != user.ID) && user.Role != "moderator" && user.Role != "admin" {
+		return apiError(403, "SERVICE_MANAGER_REQUIRED", "只有服务管理者或管理员可以回应")
+	}
+	if response != "" {
+		return apiError(409, "SERVICE_RATING_RESPONDED", "该评价已经回应")
+	}
+	_, err = tx.Exec(r.Context(), "UPDATE campus_service_ratings SET response=$1,responder_id=$2,responded_at=now(),updated_at=now() WHERE id=$3", strings.TrimSpace(body.Body), user.ID, id)
+	if err != nil {
+		return err
+	}
+	_ = notifySQL(r.Context(), tx, author, "校园服务评价收到回应", "“"+serviceName+"”回应了你的评价", fmt.Sprintf("/explore/handbook?service=%d", serviceID), "system")
+	actor := user.ID
+	_ = auditSQL(r.Context(), tx, &actor, "campus_service.respond", "campus_service_rating", id, "", nil, nil, requestID(r.Context()))
+	p, err := s.campusRatingPayload(r.Context(), tx, id)
+	if err != nil {
+		return err
+	}
+	if err := tx.Commit(r.Context()); err != nil {
+		return err
+	}
+	writeJSON(w, 200, p)
+	return nil
+}
+func (s *Server) adminCreateCampusService(w http.ResponseWriter, r *http.Request) error {
+	admin, err := s.adminUser(w, r)
+	if err != nil {
+		return err
+	}
+	var body struct {
+		Name, Category string
+		Manager        *int64 `json:"manager_user_id"`
+	}
+	if err := decodeBody(r, &body); err != nil {
+		return err
+	}
+	if body.Category == "" {
+		body.Category = "校园服务"
+	}
+	tx, err := s.DB.Begin(r.Context())
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(r.Context())
+	var exists bool
+	_ = tx.QueryRow(r.Context(), "SELECT EXISTS(SELECT 1 FROM campus_services WHERE name=$1)", strings.TrimSpace(body.Name)).Scan(&exists)
+	if exists {
+		return apiError(409, "CAMPUS_SERVICE_EXISTS", "该校园服务已存在")
+	}
+	if body.Manager != nil {
+		_ = tx.QueryRow(r.Context(), "SELECT EXISTS(SELECT 1 FROM users WHERE id=$1)", *body.Manager).Scan(&exists)
+		if !exists {
+			return apiError(404, "USER_NOT_FOUND", "服务管理者不存在")
+		}
+	}
+	var service CampusService
+	err = tx.QueryRow(r.Context(), "INSERT INTO campus_services(name,category,manager_user_id,active,created_at,updated_at) VALUES($1,$2,$3,true,now(),now()) RETURNING id,name,category,manager_user_id,active,created_at,updated_at", strings.TrimSpace(body.Name), strings.TrimSpace(body.Category), body.Manager).Scan(&service.ID, &service.Name, &service.Category, &service.Manager, &service.Active, &service.Created, &service.Updated)
+	if err != nil {
+		return err
+	}
+	actor := admin.ID
+	_ = auditSQL(r.Context(), tx, &actor, "campus_service.create", "campus_service", service.ID, "", nil, nil, requestID(r.Context()))
+	p, err := s.campusServicePayload(r.Context(), tx, service, &admin, false)
+	if err != nil {
+		return err
+	}
+	if err := tx.Commit(r.Context()); err != nil {
+		return err
+	}
+	writeJSON(w, 201, p)
+	return nil
+}
+func (s *Server) adminUpdateCampusService(w http.ResponseWriter, r *http.Request) error {
+	admin, err := s.adminUser(w, r)
+	if err != nil {
+		return err
+	}
+	id, _ := pathID(r, "serviceID")
+	var raw map[string]json.RawMessage
+	if err := decodeBody(r, &raw); err != nil {
+		return err
+	}
+	tx, err := s.DB.Begin(r.Context())
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(r.Context())
+	service, err := scanCampusService(tx.QueryRow(r.Context(), "SELECT id,name,category,manager_user_id,active,created_at,updated_at FROM campus_services WHERE id=$1", id))
+	if err != nil {
+		return apiError(404, "CAMPUS_SERVICE_NOT_FOUND", "校园服务不存在")
+	}
+	for key, dest := range map[string]*string{"name": &service.Name, "category": &service.Category} {
+		if v, ok := raw[key]; ok {
+			var x string
+			if json.Unmarshal(v, &x) != nil {
+				return validation(key, "Input should be a valid string")
+			}
+			*dest = strings.TrimSpace(x)
+		}
+	}
+	if v, ok := raw["manager_user_id"]; ok {
+		if string(v) == "null" {
+			service.Manager = nil
+		} else {
+			var x int64
+			if json.Unmarshal(v, &x) != nil {
+				return validation("manager_user_id", "Input should be a valid integer")
+			}
+			var exists bool
+			_ = tx.QueryRow(r.Context(), "SELECT EXISTS(SELECT 1 FROM users WHERE id=$1)", x).Scan(&exists)
+			if !exists {
+				return apiError(404, "USER_NOT_FOUND", "服务管理者不存在")
+			}
+			service.Manager = &x
+		}
+	}
+	if v, ok := raw["active"]; ok {
+		if json.Unmarshal(v, &service.Active) != nil {
+			return validation("active", "Input should be a valid boolean")
+		}
+	}
+	_, err = tx.Exec(r.Context(), "UPDATE campus_services SET name=$1,category=$2,manager_user_id=$3,active=$4,updated_at=now() WHERE id=$5", service.Name, service.Category, service.Manager, service.Active, id)
+	if err != nil {
+		return err
+	}
+	actor := admin.ID
+	_ = auditSQL(r.Context(), tx, &actor, "campus_service.update", "campus_service", id, "", nil, raw, requestID(r.Context()))
+	p, err := s.campusServicePayload(r.Context(), tx, service, &admin, false)
+	if err != nil {
+		return err
+	}
+	if err := tx.Commit(r.Context()); err != nil {
+		return err
+	}
+	writeJSON(w, 200, p)
+	return nil
+}
+func scanCampusService(row pgx.Row) (CampusService, error) {
+	var s CampusService
+	err := row.Scan(&s.ID, &s.Name, &s.Category, &s.Manager, &s.Active, &s.Created, &s.Updated)
+	return s, err
+}
+func (s *Server) campusServicePayload(ctx context.Context, q queryer, service CampusService, viewer *User, include bool) (map[string]any, error) {
+	var count int
+	var average *float64
+	if err := q.QueryRow(ctx, "SELECT count(*),avg(rating)::float8 FROM campus_service_ratings WHERE service_id=$1", service.ID).Scan(&count, &average); err != nil {
+		return nil, err
+	}
+	var next any
+	if viewer != nil {
+		var latest *time.Time
+		_ = q.QueryRow(ctx, "SELECT max(created_at) FROM campus_service_ratings WHERE service_id=$1 AND user_id=$2", service.ID, viewer.ID).Scan(&latest)
+		if latest != nil {
+			next = latest.Add(30 * 24 * time.Hour)
+		}
+	}
+	var score any
+	if average != nil {
+		score = mathRound(*average*10) / 10
+	}
+	p := map[string]any{"id": service.ID, "name": service.Name, "category": service.Category, "score": score, "rating_count": count, "managed_by_me": viewer != nil && ((service.Manager != nil && *service.Manager == viewer.ID) || viewer.Role == "moderator" || viewer.Role == "admin"), "next_rating_at": next}
+	if include {
+		rows, err := q.Query(ctx, "SELECT id FROM campus_service_ratings WHERE service_id=$1 ORDER BY created_at DESC LIMIT 50", service.ID)
+		if err != nil {
+			return nil, err
+		}
+		ratings := []any{}
+		for rows.Next() {
+			var id int64
+			if err := rows.Scan(&id); err != nil {
+				return nil, err
+			}
+			x, err := s.campusRatingPayload(ctx, q, id)
+			if err != nil {
+				return nil, err
+			}
+			ratings = append(ratings, x)
+		}
+		rows.Close()
+		p["ratings"] = ratings
+	}
+	return p, nil
+}
+func (s *Server) campusRatingPayload(ctx context.Context, q queryer, id int64) (map[string]any, error) {
+	var rating int
+	var body, response string
+	var userID int64
+	var responder *int64
+	var created time.Time
+	var responded *time.Time
+	if err := q.QueryRow(ctx, "SELECT rating,body,user_id,response,responder_id,created_at,responded_at FROM campus_service_ratings WHERE id=$1", id).Scan(&rating, &body, &userID, &response, &responder, &created, &responded); err != nil {
+		return nil, err
+	}
+	var author string
+	_ = q.QueryRow(ctx, "SELECT nickname FROM users WHERE id=$1", userID).Scan(&author)
+	if author == "" {
+		author = "已注销用户"
+	}
+	responderName := ""
+	if responder != nil {
+		_ = q.QueryRow(ctx, "SELECT nickname FROM users WHERE id=$1", *responder).Scan(&responderName)
+	}
+	return map[string]any{"id": id, "rating": rating, "body": body, "author": author, "response": response, "responder": responderName, "created_at": created, "responded_at": responded}, nil
+}
+
+// Credit rules.
+func (s *Server) publicCreditRules(w http.ResponseWriter, r *http.Request) error {
+	p, err := s.creditRulesPayload(r.Context(), s.DB)
+	if err != nil {
+		return err
+	}
+	writeJSON(w, 200, p)
+	return nil
+}
+func (s *Server) adminCreditRules(w http.ResponseWriter, r *http.Request) error {
+	if _, err := s.adminUser(w, r); err != nil {
+		return err
+	}
+	return s.publicCreditRules(w, r)
+}
+func (s *Server) updateCreditRules(w http.ResponseWriter, r *http.Request) error {
+	admin, err := s.adminUser(w, r)
+	if err != nil {
+		return err
+	}
+	var body struct {
+		Rules []struct {
+			Key   string `json:"key"`
+			Value int    `json:"value"`
+		} `json:"rules"`
+	}
+	if err := decodeBody(r, &body); err != nil {
+		return err
+	}
+	if len(body.Rules) < 1 || len(body.Rules) > 50 {
+		return validation("rules", "List should have at least 1 item")
+	}
+	tx, err := s.DB.Begin(r.Context())
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(r.Context())
+	if err := ensureCreditRulesSQL(r.Context(), tx); err != nil {
+		return err
+	}
+	seen := map[string]bool{}
+	before := map[string]int{}
+	after := map[string]int{}
+	for _, item := range body.Rules {
+		if seen[item.Key] {
+			return validation("rules", "Value error, 信用规则键不能重复")
+		}
+		seen[item.Key] = true
+		def, ok := creditRuleDefs[item.Key]
+		if !ok {
+			return apiError(400, "CREDIT_RULE_UNKNOWN", "不支持的信用规则："+item.Key)
+		}
+		if item.Value < -1000 || item.Value > 1000 {
+			return validation("value", "Input should be between -1000 and 1000")
+		}
+		if def.Kind != "penalty" && item.Value < 0 {
+			return apiError(400, "CREDIT_RULE_SIGN", def.Label+"不能设置为负数")
+		}
+		if def.Kind == "penalty" && item.Value > 0 {
+			return apiError(400, "CREDIT_RULE_SIGN", def.Label+"不能设置为正数")
+		}
+		var old int
+		if err := tx.QueryRow(r.Context(), "SELECT value FROM credit_rules WHERE key=$1 FOR UPDATE", item.Key).Scan(&old); err != nil {
+			return apiError(500, "CREDIT_RULE_MISSING", "信用规则初始化失败")
+		}
+		if _, err := tx.Exec(r.Context(), "UPDATE credit_rules SET value=$1,updated_by=$2,updated_at=now() WHERE key=$3", item.Value, admin.ID, item.Key); err != nil {
+			return err
+		}
+		before[item.Key] = old
+		after[item.Key] = item.Value
+	}
+	actor := admin.ID
+	_ = auditSQLText(r.Context(), tx, &actor, "credit_rules.update", "credit_rules", "global", "", before, after, requestID(r.Context()))
+	p, err := s.creditRulesPayload(r.Context(), tx)
+	if err != nil {
+		return err
+	}
+	if err := tx.Commit(r.Context()); err != nil {
+		return err
+	}
+	writeJSON(w, 200, p)
+	return nil
+}
+
+type creditRuleDef struct {
+	Label, Kind string
+	Value       int
+	Description string
+}
+
+var creditRuleDefs = map[string]creditRuleDef{"baseline.initial_credit": {"新用户初始信用", "baseline", 800, "仅影响新注册用户"}, "threshold.anonymous_post": {"完全匿名发帖", "threshold", 600, "树洞完全匿名发帖门槛"}, "threshold.team_create": {"创建游戏车队", "threshold", 600, "发布开车门槛"}, "threshold.course_review": {"评价课程", "threshold", 600, "提交课程评价门槛"}, "threshold.listing_publish": {"发布交易帖", "threshold", 700, "二手集市发布门槛"}, "threshold.contact_publish": {"发布联系方式", "threshold", 700, "公开联系方式门槛"}, "threshold.observe_publish": {"观察台发帖", "threshold", 750, "校园文明观察台发帖门槛"}, "threshold.high_credit": {"高信用用户", "threshold", 800, "高信用身份标签门槛"}, "threshold.dm_unlimited": {"私信不限量", "threshold", 850, "解除新用户私信频率限制"}, "reward.team_check_in": {"车队准时签到", "reward", 2, "每场车队首次有效签到奖励"}, "reward.lost_claim": {"失物成功认领", "reward", 5, "失主确认认领完成奖励"}, "reward.feedback_accepted": {"反馈被采纳", "reward", 5, "管理员采纳有效反馈奖励"}, "penalty.team_late_leave": {"临近发车退出", "penalty", -20, "发车前半小时内未请假退出扣分"}}
+
+func ensureCreditRulesSQL(ctx context.Context, tx pgx.Tx) error {
+	for key, def := range creditRuleDefs {
+		_, err := tx.Exec(ctx, `INSERT INTO credit_rules(key,label,kind,value,description,updated_at) VALUES($1,$2,$3,$4,$5,now()) ON CONFLICT(key) DO NOTHING`, key, def.Label, def.Kind, def.Value, def.Description)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+func (s *Server) creditRulesPayload(ctx context.Context, q queryer) (map[string]any, error) {
+	rows, err := q.Query(ctx, "SELECT key,label,kind,value,description,updated_at FROM credit_rules ORDER BY kind,key")
+	if err != nil {
+		return nil, err
+	}
+	items := []any{}
+	values := map[string]int{}
+	for rows.Next() {
+		var key, label, kind, description string
+		var value int
+		var updated time.Time
+		if err := rows.Scan(&key, &label, &kind, &value, &description, &updated); err != nil {
+			return nil, err
+		}
+		values[key] = value
+		items = append(items, map[string]any{"key": key, "label": label, "kind": kind, "value": value, "description": description, "updated_at": updated})
+	}
+	rows.Close()
+	initial := 800
+	if value, ok := values["baseline.initial_credit"]; ok {
+		initial = value
+	}
+	return map[string]any{"max_score": 1000, "initial_score": initial, "values": values, "rules": items}, rows.Err()
+}
+func auditSQLText(ctx context.Context, tx pgx.Tx, actor *int64, action, targetType, targetID, reason string, before, after any, requestID string) error {
+	encode := func(v any) string {
+		if v == nil {
+			return ""
+		}
+		data, _ := json.Marshal(v)
+		return string(data)
+	}
+	_, err := tx.Exec(ctx, "INSERT INTO audit_logs(actor_id,action,target_type,target_id,reason,before_json,after_json,request_id,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,now())", actor, action, targetType, targetID, reason, encode(before), encode(after), requestID)
+	return err
+}

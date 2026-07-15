@@ -20,3 +20,6 @@ backend/uploads/
 backend/backups/
 postgres-data/
 certbot/
+.tools/
+backend/bin/
+backend/coverage.out

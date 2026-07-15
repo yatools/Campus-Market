@@ -1,26 +1,25 @@
-FROM python:3.12-slim AS runtime
+FROM golang:1.26-bookworm AS build
 
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/wutong ./cmd/wutong
 
+FROM debian:bookworm-slim AS runtime
+
+ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends libpq5 postgresql-client curl \
+    && apt-get install -y --no-install-recommends ca-certificates curl postgresql-client libvips-tools \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-COPY requirements.txt ./
-RUN pip install --upgrade pip && pip install -r requirements.txt
-
-COPY alembic.ini ./
-COPY alembic ./alembic
-COPY app ./app
-
+COPY --from=build /out/wutong /app/wutong
 RUN useradd --create-home --uid 10001 wutong \
     && mkdir -p /data/uploads /data/backups \
     && chown -R wutong:wutong /app /data
 USER wutong
 
 EXPOSE 8000
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2", "--proxy-headers", "--forwarded-allow-ips", "*"]
-
+ENTRYPOINT ["/app/wutong"]
+CMD ["serve", "--addr", "0.0.0.0:8000"]
