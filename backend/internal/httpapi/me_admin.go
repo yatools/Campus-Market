@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -32,6 +31,7 @@ func (s *Server) registerMeAdminRoutes(r chi.Router) {
 	r.Get("/me/appeals", s.handle(s.myAppeals))
 	r.Post("/me/deactivate", s.handle(s.deactivateAccount))
 	r.Get("/admin/overview", s.handle(s.adminOverview))
+	r.Get("/admin/system-health", s.handle(s.adminSystemHealth))
 	r.Get("/admin/users", s.handle(s.adminUsers))
 	r.Patch("/admin/users/{userID}", s.handle(s.adminUpdateUser))
 	r.Get("/admin/moderation-cases", s.handle(s.adminModerationCases))
@@ -347,7 +347,7 @@ func (s *Server) myFavorites(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	where := "f.user_id=$1 AND e.status='published'"
+	where := "f.user_id=$1 AND e.publication_status='published'"
 	args := []any{user.ID}
 	if kind := r.URL.Query().Get("type"); kind != "" {
 		args = append(args, kind)
@@ -471,7 +471,7 @@ func (s *Server) adminOverview(w http.ResponseWriter, r *http.Request) error {
 	if _, err := s.moderatorUser(w, r); err != nil {
 		return err
 	}
-	queries := map[string]string{"users": "SELECT count(*) FROM users", "published_content": "SELECT count(*) FROM content_entities WHERE status='published'", "pending_moderation": "SELECT count(*) FROM moderation_cases WHERE status='pending'", "pending_reports": "SELECT count(*) FROM reports WHERE status='pending'", "pending_appeals": "SELECT count(*) FROM appeals WHERE status='pending'", "unread_feedback": "SELECT count(*) FROM feedback WHERE status='pending'", "pending_email": "SELECT count(*) FROM email_outbox WHERE status='pending'", "failed_email": "SELECT count(*) FROM email_outbox WHERE status='failed'"}
+	queries := map[string]string{"users": "SELECT count(*) FROM users", "published_content": "SELECT count(*) FROM content_entities WHERE publication_status='published'", "pending_moderation": "SELECT count(*) FROM moderation_cases WHERE status='pending'", "pending_reports": "SELECT count(*) FROM reports WHERE status='pending'", "pending_appeals": "SELECT count(*) FROM appeals WHERE status='pending'", "unread_feedback": "SELECT count(*) FROM feedback WHERE status='pending'", "pending_email": "SELECT count(*) FROM email_outbox WHERE status='pending'", "failed_email": "SELECT count(*) FROM email_outbox WHERE status='failed'"}
 	p := map[string]any{}
 	for key, query := range queries {
 		var count int
@@ -481,6 +481,44 @@ func (s *Server) adminOverview(w http.ResponseWriter, r *http.Request) error {
 		p[key] = count
 	}
 	writeJSON(w, 200, p)
+	return nil
+}
+
+func (s *Server) adminSystemHealth(w http.ResponseWriter, r *http.Request) error {
+	if _, err := s.moderatorUser(w, r); err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+	defer cancel()
+	result := map[string]any{}
+	var lastSeen, lastSuccess *time.Time
+	var workerError string
+	_ = s.DB.QueryRow(ctx, `SELECT max(last_seen_at),max(last_success_at),COALESCE((array_agg(last_error ORDER BY last_seen_at DESC))[1],'') FROM worker_heartbeats`).Scan(&lastSeen, &lastSuccess, &workerError)
+	result["worker"] = map[string]any{"last_seen_at": lastSeen, "last_success_at": lastSuccess, "last_error": workerError, "stale": lastSeen == nil || time.Since(*lastSeen) > 3*s.Config.WorkerPoll}
+	var pendingEmail, failedEmail int
+	if err := s.DB.QueryRow(ctx, `SELECT count(*) FILTER(WHERE status='pending'),count(*) FILTER(WHERE status='failed') FROM email_outbox`).Scan(&pendingEmail, &failedEmail); err != nil {
+		return err
+	}
+	result["email"] = map[string]any{"pending": pendingEmail, "failed": failedEmail}
+	var backupStatus, backupPath string
+	var backupFinished *time.Time
+	if err := s.DB.QueryRow(ctx, `SELECT status,file_path,finished_at FROM backup_jobs ORDER BY created_at DESC LIMIT 1`).Scan(&backupStatus, &backupPath, &backupFinished); err != nil && err != pgx.ErrNoRows {
+		return err
+	}
+	result["backup"] = map[string]any{"status": backupStatus, "object_key": backupPath, "finished_at": backupFinished}
+	var databaseBytes int64
+	if err := s.DB.QueryRow(ctx, "SELECT pg_database_size(current_database())").Scan(&databaseBytes); err != nil {
+		return err
+	}
+	result["database"] = map[string]any{"size_bytes": databaseBytes}
+	free, diskErr := diskFreeBytes(os.TempDir())
+	result["disk"] = map[string]any{"temp_free_bytes": free, "ok": diskErr == nil}
+	if diskErr != nil {
+		result["disk"].(map[string]any)["error"] = diskErr.Error()
+	}
+	storageErr := s.Storage.Probe(ctx)
+	result["object_storage"] = componentStatus(storageErr)
+	writeJSON(w, 200, result)
 	return nil
 }
 func (s *Server) adminUsers(w http.ResponseWriter, r *http.Request) error {
@@ -729,21 +767,20 @@ func (s *Server) adminDecideModeration(w http.ResponseWriter, r *http.Request) e
 		return err
 	}
 	entityStatus := "hidden"
+	moderationStatus := "rejected"
 	if body.Decision == "approve" {
 		entityStatus = "published"
+		moderationStatus = "approved"
 	}
 	_, err = tx.Exec(r.Context(), "UPDATE moderation_cases SET status='resolved',assignee_id=$1,decision=$2,notes=$3,decided_at=now() WHERE id=$4", moderator.ID, body.Decision, body.Note, id)
 	if err != nil {
 		return err
 	}
-	_, _ = tx.Exec(r.Context(), "UPDATE content_entities SET status=$1,updated_at=now() WHERE id=$2", entityStatus, entityID)
+	_, _ = tx.Exec(r.Context(), "UPDATE content_entities SET publication_status=$1,moderation_status=$2,updated_at=now() WHERE id=$3", entityStatus, moderationStatus, entityID)
 	if body.Decision != "approve" {
 		var bounty int
-		var settled bool
-		var accepted *int64
-		if tx.QueryRow(r.Context(), "SELECT bounty_xp,bounty_settled,accepted_answer_id FROM questions WHERE entity_id=$1", entityID).Scan(&bounty, &settled, &accepted) == nil && !settled && accepted == nil {
+		if tx.QueryRow(r.Context(), `UPDATE questions SET bounty_settled=true WHERE entity_id=$1 AND bounty_settled=false AND accepted_answer_id IS NULL RETURNING bounty_xp`, entityID).Scan(&bounty) == nil {
 			_, _ = tx.Exec(r.Context(), "UPDATE users SET xp=xp+$1 WHERE id=$2", bounty, e.OwnerID)
-			_, _ = tx.Exec(r.Context(), "UPDATE questions SET bounty_settled=true WHERE entity_id=$1", entityID)
 		}
 	}
 	var observeTitle string
@@ -1177,19 +1214,12 @@ func (s *Server) adminDownloadBackup(w http.ResponseWriter, r *http.Request) err
 	if err := s.DB.QueryRow(r.Context(), "SELECT status,file_path,download_token FROM backup_jobs WHERE id=$1", id).Scan(&status, &path, &stored); err != nil || status != "ready" || subtle.ConstantTimeCompare([]byte(token), []byte(stored)) != 1 {
 		return apiError(404, "BACKUP_NOT_FOUND", "备份不存在或尚未完成")
 	}
-	base, _ := filepath.Abs(s.Config.BackupDir)
-	target, _ := filepath.Abs(path)
-	relative, relErr := filepath.Rel(base, target)
-	if relErr != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+	signed, err := s.Storage.PresignedGet(r.Context(), "backup", path, 5*time.Minute, `attachment; filename="wutong-backup.zip"`)
+	if err != nil {
 		return apiError(404, "BACKUP_FILE_MISSING", "备份文件不存在")
 	}
-	info, err := os.Stat(target)
-	if err != nil || info.IsDir() {
-		return apiError(404, "BACKUP_FILE_MISSING", "备份文件不存在")
-	}
-	w.Header().Set("Content-Type", "application/zip")
-	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filepath.Base(target)))
-	http.ServeFile(w, r, target)
+	w.Header().Set("Cache-Control", "private, no-store")
+	http.Redirect(w, r, signed.String(), http.StatusTemporaryRedirect)
 	return nil
 }
 func (s *Server) adminAuditLogs(w http.ResponseWriter, r *http.Request) error {

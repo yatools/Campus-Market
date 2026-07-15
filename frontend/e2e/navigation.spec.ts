@@ -13,9 +13,11 @@ const creditRuleSet = {
 }
 
 test.beforeEach(async ({ page }) => {
+  await page.route('**/app-config.json', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ api_prefix: '/api/v1', csrf_cookie_name: 'wutong_csrf' }) }))
   await page.route('**/api/v1/credit-rules', (route) => route.fulfill({
     status: 200, contentType: 'application/json', body: JSON.stringify(creditRuleSet),
   }))
+  await page.route('**/api/v1/market/options', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ categories: [{ id: 1, name: '数码', slug: 'digital' }], locations: [{ id: 1, name: '校内面交', slug: 'campus' }], conditions: [{ code: 'excellent', name: '九成新' }] }) }))
 })
 
 test('public navigation remains usable without a session', async ({ page }) => {
@@ -320,4 +322,138 @@ test('all remaining campus modules render their dedicated V4 structures', async 
   await expect(page.locator('table.gov th').first()).toHaveText('匿名化账号')
   await page.goto('/explore/announcements')
   await expect(page.locator('.announcement-card-v4.strong')).toBeVisible()
+})
+
+test('buyer request, seller acceptance, bilateral confirmation and double-blind reviews form one market workflow', async ({ page }) => {
+  const seller = { id: 10, email: 'seller@test.edu.cn', nickname: '卖家', alias: '梧桐#10', campus_identity: 'student', role: 'user', status: 'active', credit: 900, xp: 0, avatar_url: null, dm_stranger_off: false, hide_online: false, unread_notifications: 0 }
+  const buyer = { ...seller, id: 20, email: 'buyer@test.edu.cn', nickname: '买家', alias: '梧桐#20' }
+  let currentUser = buyer
+  let status: 'requested' | 'reserved' | 'completed' = 'requested'
+  let requested = false
+  let buyerConfirmed = false
+  let sellerConfirmed = false
+  let reviews = 0
+  const transaction = () => ({ id: 1, listing: { id: 5, title: '九成新显示器', price_cents: 50000 }, seller: { id: seller.id, nickname: seller.nickname }, buyer: { id: buyer.id, nickname: buyer.nickname }, status, message: '希望明天下午面交', reserved_until: status === 'reserved' ? new Date(Date.now() + 86400000).toISOString() : null, buyer_confirmed_at: buyerConfirmed ? new Date().toISOString() : null, seller_confirmed_at: sellerConfirmed ? new Date().toISOString() : null, completed_at: status === 'completed' ? new Date().toISOString() : null, dispute: null, created_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+  const listing = () => ({ id: 5, category: { id: 1, name: '数码', slug: 'digital' }, location: { id: 1, name: '校内面交', slug: 'campus' }, title: '九成新显示器', description: '功能正常，仅支持校内当面验货。', price_cents: 50000, condition: 'excellent', condition_label: '九成新', negotiable: true, purchased_at: null, trade_status: status === 'completed' ? 'completed' : status === 'reserved' ? 'reserved' : 'available', publication_status: 'published', moderation_status: 'approved', seller: { id: seller.id, nickname: seller.nickname, credit: 900, verified: true, completed_sales: status === 'completed' ? 1 : 0, rating_average: reviews === 2 ? 5 : 0, rating_count: reviews === 2 ? 2 : 0 }, mine: currentUser.id === seller.id, favorite_count: 0, attachments: [], created_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+
+  await page.route('**/api/v1/me', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(currentUser) }))
+  await page.route('**/api/v1/notifications/stream', (route) => route.abort())
+  for (const path of ['announcements**', 'teams**']) await page.route(`**/api/v1/${path}`, (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ items: [], page: 1, page_size: 20, total: 0 }) }))
+  await page.route('**/api/v1/listings**', async (route) => {
+    if (route.request().method() === 'POST' && route.request().url().endsWith('/transactions')) {
+      requested = true
+      status = 'requested'
+      await route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify(transaction()) })
+      return
+    }
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ items: [listing()], page: 1, page_size: 20, total: 1 }) })
+  })
+  await page.route('**/api/v1/me/market-transactions**', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ items: requested ? [transaction()] : [], page: 1, page_size: 20, total: requested ? 1 : 0 }) }))
+  await page.route('**/api/v1/market-transactions/1/**', async (route) => {
+    const url = route.request().url()
+    if (url.endsWith('/accept')) status = 'reserved'
+    if (url.endsWith('/confirm')) {
+      if (currentUser.id === buyer.id) buyerConfirmed = true
+      if (currentUser.id === seller.id) sellerConfirmed = true
+      if (buyerConfirmed && sellerConfirmed) status = 'completed'
+    }
+    if (url.endsWith('/reviews')) reviews++
+    await route.fulfill({ status: url.endsWith('/reviews') ? 201 : 200, contentType: 'application/json', body: JSON.stringify(transaction()) })
+  })
+
+  await page.goto('/explore/listings')
+  page.once('dialog', (dialog) => dialog.accept('希望明天下午面交'))
+  await page.locator('.market-card-v4').getByRole('button', { name: '申请预订' }).click()
+  await expect(page.getByRole('dialog', { name: '我的买卖记录' })).toContainText('requested')
+
+  currentUser = seller
+  await page.reload()
+  await page.getByRole('button', { name: '我的买卖' }).click()
+  await page.getByRole('button', { name: '接受申请' }).click()
+  await expect(page.getByRole('dialog', { name: '我的买卖记录' })).toContainText('reserved')
+  await page.getByRole('button', { name: '我已完成面交' }).click()
+  expect(sellerConfirmed).toBe(true)
+  expect(status).toBe('reserved')
+
+  currentUser = buyer
+  await page.reload()
+  await page.getByRole('button', { name: '我的买卖' }).click()
+  await page.getByRole('button', { name: '我已完成面交' }).click()
+  await expect(page.getByRole('dialog', { name: '我的买卖记录' })).toContainText('completed')
+  let reviewAnswers = ['5', '物品与描述一致']
+  const answerBuyerReview = (dialog: import('@playwright/test').Dialog) => dialog.accept(reviewAnswers.shift() || '')
+  page.on('dialog', answerBuyerReview)
+  await page.getByRole('button', { name: '提交双盲评价' }).click()
+  page.off('dialog', answerBuyerReview)
+
+  currentUser = seller
+  await page.reload()
+  await page.getByRole('button', { name: '我的买卖' }).click()
+  reviewAnswers = ['5', '买家准时到场']
+  const answerSellerReview = (dialog: import('@playwright/test').Dialog) => dialog.accept(reviewAnswers.shift() || '')
+  page.on('dialog', answerSellerReview)
+  await page.getByRole('button', { name: '提交双盲评价' }).click()
+  page.off('dialog', answerSellerReview)
+  expect(reviews).toBe(2)
+})
+
+test('private dispute evidence freezes a transaction until an administrator decides it', async ({ page }) => {
+  const buyer = { id: 20, email: 'buyer@test.edu.cn', nickname: '买家', alias: '梧桐#20', campus_identity: 'student', role: 'user', status: 'active', credit: 900, xp: 0, avatar_url: null, dm_stranger_off: false, hide_online: false, unread_notifications: 0 }
+  const admin = { ...buyer, id: 99, email: 'admin@test.edu.cn', nickname: '管理员', alias: '梧桐#99', role: 'admin' }
+  const seller = { id: 10, nickname: '卖家' }
+  let currentUser = buyer
+  let transactionStatus = 'reserved'
+  let evidenceUploaded = false
+  let disputePending = false
+  const transaction = () => ({ id: 1, listing: { id: 5, title: '九成新显示器', price_cents: 50000 }, seller, buyer: { id: buyer.id, nickname: buyer.nickname }, status: transactionStatus, message: '', reserved_until: new Date(Date.now() + 86400000).toISOString(), buyer_confirmed_at: null, seller_confirmed_at: null, completed_at: null, dispute: disputePending ? { id: 7, status: 'pending' } : null, created_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+  const emptyPage = { items: [], page: 1, page_size: 20, total: 0 }
+
+  await page.route('**/api/v1/me', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(currentUser) }))
+  await page.route('**/api/v1/notifications/stream', (route) => route.abort())
+  for (const path of ['announcements**', 'teams**', 'listings**']) await page.route(`**/api/v1/${path}`, (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(path.startsWith('listings') ? { ...emptyPage, items: [] } : emptyPage) }))
+  await page.route('**/api/v1/me/market-transactions**', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ...emptyPage, items: [transaction()], total: 1 }) }))
+  await page.route('**/api/v1/uploads/images', async (route) => {
+    evidenceUploaded = (await route.request().postDataBuffer()) !== null
+    await route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify({ id: 31, content_url: '/api/v1/attachments/31/content' }) })
+  })
+  await page.route('**/api/v1/market-transactions/1/disputes', async (route) => {
+    const body = route.request().postDataJSON()
+    expect(body.attachment_ids).toEqual([31])
+    disputePending = true
+    transactionStatus = 'disputed'
+    await route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify({ id: 7, transaction_id: 1, status: 'pending' }) })
+  })
+  await page.route('**/api/v1/admin/**', (route) => {
+    const url = route.request().url()
+    if (url.endsWith('/overview') || url.endsWith('/settings') || url.endsWith('/system-health')) return route.fulfill({ status: 200, contentType: 'application/json', body: '{}' })
+    if (url.endsWith('/credit-rules')) return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(creditRuleSet) })
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(emptyPage) })
+  })
+  await page.route('**/api/v1/admin/market/disputes**', async (route) => {
+    if (route.request().method() === 'POST') {
+      disputePending = false
+      transactionStatus = 'cancelled'
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ id: 7, transaction_id: 1, status: 'resolved', decision: 'cancelled' }) })
+      return
+    }
+    const items = disputePending ? [{ id: 7, transaction_id: 1, opened_by: { id: buyer.id, nickname: buyer.nickname }, reason: '商品现场情况与描述明显不符', status: 'pending', evidence: [{ id: 31, content_url: '/api/v1/attachments/31/content' }], created_at: new Date().toISOString() }] : []
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ...emptyPage, items, total: items.length }) })
+  })
+  for (const path of ['team-games', 'campus-services']) await page.route(`**/api/v1/${path}`, (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ items: [] }) }))
+
+  await page.goto('/explore/listings')
+  await page.getByRole('button', { name: '我的买卖' }).click()
+  await page.locator('#market-evidence').setInputFiles({ name: 'evidence.png', mimeType: 'image/png', buffer: Buffer.from('89504e470d0a1a0a', 'hex') })
+  page.once('dialog', (dialog) => dialog.accept('商品现场情况与描述明显不符'))
+  await page.getByRole('button', { name: '发起纠纷' }).click()
+  await expect.poll(() => evidenceUploaded).toBe(true)
+  await expect.poll(() => transactionStatus).toBe('disputed')
+
+  currentUser = admin
+  await page.goto('/admin')
+  await expect(page.getByText('交易 #1')).toBeVisible()
+  page.once('dialog', (dialog) => dialog.accept('证据成立，取消本次交易'))
+  await page.getByRole('button', { name: '裁定取消' }).click()
+  await expect(page.getByText('交易纠纷已裁决并写入审计日志')).toBeVisible()
+  await expect.poll(() => transactionStatus).toBe('cancelled')
 })

@@ -2,7 +2,7 @@ package api
 
 import _ "embed"
 
-// OpenAPI is the compatibility baseline exported from the final FastAPI implementation.
+// OpenAPI is the canonical contract for the Go/PostgreSQL implementation.
 //
-//go:embed openapi.json
+//go:embed openapi.yaml
 var OpenAPI []byte

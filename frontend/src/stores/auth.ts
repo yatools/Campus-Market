@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { api, json } from '../api'
 import type { AuthMode, CreditRuleSet, User } from '../types'
+import { appConfig } from '../config'
 
 const defaultCreditRules: CreditRuleSet = {
   max_score: 1000,
@@ -38,7 +39,7 @@ export const useAuthStore = defineStore('auth', () => {
     notificationStream?.close()
     notificationStream = null
     if (!user.value || typeof EventSource === 'undefined') return
-    notificationStream = new EventSource('/api/v1/notifications/stream', { withCredentials: true })
+    notificationStream = new EventSource(`${appConfig().api_prefix}/notifications/stream`, { withCredentials: true })
     notificationStream.addEventListener('unread', (event) => {
       try {
         const value = JSON.parse((event as MessageEvent).data) as { count?: number }

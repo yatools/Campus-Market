@@ -16,7 +16,6 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -31,6 +30,19 @@ func TestPostgresAuthAndTreeholeWorkflow(t *testing.T) {
 		t.Skip("TEST_DATABASE_URL is not configured")
 	}
 	cfg := config.Config{Environment: "test", APIPrefix: "/api/v1", PublicOrigin: "http://localhost:5173", SecretKey: "test-secret-key-that-is-long-enough-for-ci", DatabaseURL: dsn, DBPoolSize: 5, AllowedCampusEmailDomains: map[string]struct{}{"test.edu.cn": {}}, SessionCookieName: "wutong_session", CSRFCookieName: "wutong_csrf", SessionSliding: 7 * 24 * time.Hour, SessionAbsolute: 30 * 24 * time.Hour, SessionRotation: 24 * time.Hour, UploadDir: t.TempDir(), BackupDir: t.TempDir(), MaxUploadBytes: 8 << 20, DocsEnabled: true, TrustedHosts: map[string]struct{}{"127.0.0.1": {}, "localhost": {}}}
+	if endpoint := os.Getenv("TEST_S3_ENDPOINT"); endpoint != "" {
+		cfg.S3Endpoint = endpoint
+		cfg.S3Region = "us-east-1"
+		cfg.S3AccessKeyID = os.Getenv("S3_ACCESS_KEY_ID")
+		cfg.S3SecretAccessKey = os.Getenv("S3_SECRET_ACCESS_KEY")
+		cfg.S3PublicBucket = "wutong-test-public"
+		cfg.S3PrivateBucket = "wutong-test-private"
+		cfg.S3BackupBucket = "wutong-test-backups"
+		cfg.S3PublicBaseURL = endpoint + "/wutong-test-public"
+		if err := EnsureStorage(context.Background(), cfg); err != nil {
+			t.Fatal(err)
+		}
+	}
 	sqlDB, err := database.OpenSQL(cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -73,7 +85,7 @@ func TestPostgresAuthAndTreeholeWorkflow(t *testing.T) {
 	if csrf == "" {
 		t.Fatal("missing CSRF cookie")
 	}
-	if _, err := exec.LookPath("vipsthumbnail"); err == nil {
+	if _, err := exec.LookPath("vipsthumbnail"); err == nil && cfg.S3Endpoint != "" {
 		upload := uploadTestPNG(t, client, server.URL+"/api/v1/uploads/images", csrf, "image/png")
 		if upload.StatusCode != http.StatusCreated {
 			t.Fatalf("upload image: %d %s", upload.StatusCode, readResponse(upload))
@@ -92,18 +104,14 @@ func TestPostgresAuthAndTreeholeWorkflow(t *testing.T) {
 			t.Fatalf("unexpected upload dimensions: %#v", uploaded)
 		}
 		for _, path := range []string{uploaded.URL, uploaded.ThumbnailURL} {
-			file := filepath.Join(cfg.UploadDir, filepath.FromSlash(path[len("/uploads/"):]))
-			if info, err := os.Stat(file); err != nil || info.Size() == 0 {
-				t.Fatalf("generated WebP missing: %s (%v)", file, err)
-			}
-			handle, err := os.Open(file)
+			response, err := client.Get(server.URL + path)
 			if err != nil {
 				t.Fatal(err)
 			}
-			generated, format, err := image.DecodeConfig(handle)
-			handle.Close()
+			generated, format, err := image.DecodeConfig(response.Body)
+			response.Body.Close()
 			if err != nil || format != "webp" || generated.Width != 20 || generated.Height != 20 {
-				t.Fatalf("generated image changed dimensions or format: %s %#v %s %v", file, generated, format, err)
+				t.Fatalf("generated image changed dimensions or format: %s %#v %s %v", path, generated, format, err)
 			}
 		}
 		mismatch := uploadTestPNG(t, client, server.URL+"/api/v1/uploads/images", csrf, "image/jpeg")

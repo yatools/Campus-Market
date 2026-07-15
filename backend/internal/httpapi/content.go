@@ -78,10 +78,47 @@ func (s *Server) registerContentRoutes(r chi.Router) {
 	r.Delete("/entities/{entityID}/favorite", s.handle(s.unfavorite))
 	r.Post("/entities/{entityID}/reports", s.handle(s.reportEntity))
 	r.Post("/uploads/images", s.handle(s.uploadImage))
+	r.Get("/attachments/{attachmentID}/content", s.handle(s.downloadPrivateAttachment))
 	r.Get("/search", s.handle(s.search))
 	r.Get("/hot", s.handle(s.hot))
 	r.Get("/feed", s.handle(s.listFeed))
 	r.Get("/feed/changes", s.handle(s.feedChanges))
+}
+
+func (s *Server) downloadPrivateAttachment(w http.ResponseWriter, r *http.Request) error {
+	id, err := pathID(r, "attachmentID")
+	if err != nil {
+		return err
+	}
+	user, _, err := s.currentUser(w, r, true)
+	if err != nil {
+		return err
+	}
+	var path, thumb, scope string
+	var buyerID, sellerID int64
+	err = s.DB.QueryRow(r.Context(), `SELECT a.path,a.thumbnail_path,a.access_scope,mt.buyer_id,mt.seller_id FROM attachments a JOIN market_dispute_evidence e ON e.attachment_id=a.id JOIN market_disputes d ON d.id=e.dispute_id JOIN market_transactions mt ON mt.id=d.transaction_id WHERE a.id=$1 AND a.status='attached'`, id).Scan(&path, &thumb, &scope, &buyerID, &sellerID)
+	if err == pgx.ErrNoRows {
+		return apiError(404, "ATTACHMENT_NOT_FOUND", "附件不存在")
+	}
+	if err != nil {
+		return err
+	}
+	if scope != "market_dispute" {
+		return apiError(404, "ATTACHMENT_NOT_FOUND", "附件不存在")
+	}
+	if user.ID != buyerID && user.ID != sellerID && user.Role != "moderator" && user.Role != "admin" {
+		return apiError(403, "ATTACHMENT_FORBIDDEN", "无权查看该证据")
+	}
+	if r.URL.Query().Get("thumbnail") == "true" {
+		path = thumb
+	}
+	signed, err := s.Storage.PresignedGet(r.Context(), scope, path, 5*time.Minute, `attachment; filename="evidence.webp"`)
+	if err != nil {
+		return err
+	}
+	w.Header().Set("Cache-Control", "private, no-store")
+	http.Redirect(w, r, signed.String(), http.StatusTemporaryRedirect)
+	return nil
 }
 
 func (s *Server) listPosts(w http.ResponseWriter, r *http.Request) error {
@@ -97,7 +134,7 @@ func (s *Server) listPosts(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	where := `e.type='post' AND e.status='published' AND p.board='treehole' AND (p.expires_at IS NULL OR p.expires_at>now())`
+	where := `e.type='post' AND e.publication_status='published' AND e.moderation_status='approved' AND p.board='treehole' AND (p.expires_at IS NULL OR p.expires_at>now())`
 	args := []any{}
 	if q != "" {
 		where += ` AND e.search_visible=true AND (p.title ILIKE $1 OR p.body ILIKE $1)`
@@ -107,23 +144,42 @@ func (s *Server) listPosts(w http.ResponseWriter, r *http.Request) error {
 	if err := s.DB.QueryRow(r.Context(), "SELECT count(*) FROM content_entities e JOIN posts p ON p.entity_id=e.id WHERE "+where, args...).Scan(&total); err != nil {
 		return err
 	}
+	args = append(args, viewer.ID)
+	viewerArg := len(args)
 	args = append(args, size, (page-1)*size)
-	rows, err := s.DB.Query(r.Context(), fmt.Sprintf(`SELECT e.id,e.type,e.owner_id,e.status,e.allow_comments,e.search_visible,e.moderation_reason,e.revision,e.deleted_at,e.created_at,e.updated_at,p.entity_id,p.board,p.title,p.body,p.identity_mode,p.expires_at,p.views FROM content_entities e JOIN posts p ON p.entity_id=e.id WHERE %s ORDER BY e.created_at DESC LIMIT $%d OFFSET $%d`, where, len(args)-1, len(args)), args...)
+	rows, err := s.DB.Query(r.Context(), fmt.Sprintf(`SELECT e.id,e.owner_id,e.publication_status,e.allow_comments,e.created_at,e.updated_at,p.board,p.title,p.body,p.identity_mode,p.expires_at,p.views,
+		CASE WHEN u.status='deleted' THEN '已注销用户' WHEN p.identity_mode='alias' THEN u.alias WHEN p.identity_mode='anonymous' THEN COALESCE(tai.display_name,'匿名同学') ELSE u.nickname END author,
+		(SELECT count(*) FROM reactions WHERE entity_id=e.id AND type='like') likes,(SELECT count(*) FROM favorites WHERE entity_id=e.id) favorites,
+		(SELECT count(*) FROM comments c JOIN content_entities ce ON ce.id=c.entity_id WHERE c.target_entity_id=e.id AND ce.publication_status='published' AND ce.moderation_status='approved') comments,
+		COALESCE((SELECT jsonb_agg(jsonb_build_object('id',a.id,'path',a.path,'thumbnail_path',a.thumbnail_path,'width',a.width,'height',a.height) ORDER BY a.id) FROM attachments a WHERE a.entity_id=e.id AND a.status='attached' AND a.access_scope='public'),'[]'::jsonb),
+		EXISTS(SELECT 1 FROM reactions WHERE entity_id=e.id AND user_id=$%d AND type='like'),EXISTS(SELECT 1 FROM favorites WHERE entity_id=e.id AND user_id=$%d)
+		FROM content_entities e JOIN posts p ON p.entity_id=e.id JOIN users u ON u.id=e.owner_id LEFT JOIN thread_anonymous_identities tai ON tai.thread_id=e.id AND tai.user_id=e.owner_id WHERE %s ORDER BY e.created_at DESC LIMIT $%d OFFSET $%d`, viewerArg, viewerArg, where, len(args)-1, len(args)), args...)
 	if err != nil {
 		return err
 	}
 	defer rows.Close()
 	items := []any{}
 	for rows.Next() {
-		e, p, err := scanEntityPost(rows)
-		if err != nil {
+		var id, ownerID int64
+		var status, board, title, body, identity, author string
+		var allow bool
+		var created, updated time.Time
+		var expires *time.Time
+		var views, likes, favorites, comments int
+		var raw json.RawMessage
+		var liked, favorited bool
+		if err := rows.Scan(&id, &ownerID, &status, &allow, &created, &updated, &board, &title, &body, &identity, &expires, &views, &author, &likes, &favorites, &comments, &raw, &liked, &favorited); err != nil {
 			return err
 		}
-		payload, err := s.postPayload(r.Context(), e, p, userOrNil(viewer))
-		if err != nil {
-			return err
+		var attachments []map[string]any
+		_ = json.Unmarshal(raw, &attachments)
+		for _, attachment := range attachments {
+			attachment["url"] = "/uploads/" + fmt.Sprint(attachment["path"])
+			attachment["thumbnail_url"] = "/uploads/" + fmt.Sprint(attachment["thumbnail_path"])
+			delete(attachment, "path")
+			delete(attachment, "thumbnail_path")
 		}
-		items = append(items, payload)
+		items = append(items, map[string]any{"id": id, "type": "post", "status": status, "title": title, "body": body, "board": board, "author": author, "identity_mode": identity, "allow_comments": allow, "expires_at": expires, "views": views, "created_at": created, "updated_at": updated, "mine": viewer.ID != 0 && viewer.ID == ownerID, "attachments": attachments, "likes": likes, "favorites": favorites, "comments": comments, "liked": liked, "favorited": favorited})
 	}
 	writeJSON(w, 200, pagePayload(items, page, size, total))
 	return rows.Err()
@@ -401,20 +457,15 @@ func (s *Server) deleteEntity(w http.ResponseWriter, r *http.Request) error {
 		return apiError(400, "DELETION_REASON_REQUIRED", "审核人员删除内容时必须填写理由")
 	}
 	var bounty int
-	var settled bool
-	var accepted *int64
-	if err := tx.QueryRow(r.Context(), "SELECT bounty_xp,bounty_settled,accepted_answer_id FROM questions WHERE entity_id=$1", id).Scan(&bounty, &settled, &accepted); err == nil && !settled && accepted == nil {
+	if err := tx.QueryRow(r.Context(), `UPDATE questions SET bounty_settled=true WHERE entity_id=$1 AND bounty_settled=false AND accepted_answer_id IS NULL RETURNING bounty_xp`, id).Scan(&bounty); err == nil {
 		if _, err := tx.Exec(r.Context(), "UPDATE users SET xp=xp+$1,updated_at=now() WHERE id=$2", bounty, e.OwnerID); err != nil {
-			return err
-		}
-		if _, err := tx.Exec(r.Context(), "UPDATE questions SET bounty_settled=true WHERE entity_id=$1", id); err != nil {
 			return err
 		}
 	} else if err != nil && err != pgx.ErrNoRows {
 		return err
 	}
 	now := time.Now().UTC()
-	if _, err := tx.Exec(r.Context(), "UPDATE content_entities SET status='deleted',deleted_at=$1,search_visible=false,updated_at=$1 WHERE id=$2", now, id); err != nil {
+	if _, err := tx.Exec(r.Context(), "UPDATE content_entities SET publication_status='deleted',deleted_at=$1,search_visible=false,updated_at=$1 WHERE id=$2", now, id); err != nil {
 		return err
 	}
 	actor := user.ID
@@ -597,7 +648,7 @@ func (s *Server) createComment(w http.ResponseWriter, r *http.Request) error {
 		var c Comment
 		var owner int64
 		var status string
-		err := tx.QueryRow(r.Context(), `SELECT c.entity_id,c.target_entity_id,c.parent_id,c.reply_to_user_id,c.body,c.identity_mode,e.owner_id,e.status FROM comments c JOIN content_entities e ON e.id=c.entity_id WHERE c.entity_id=$1`, *body.ParentID).Scan(&c.EntityID, &c.TargetID, &c.ParentID, &c.ReplyToUserID, &c.Body, &c.IdentityMode, &owner, &status)
+		err := tx.QueryRow(r.Context(), `SELECT c.entity_id,c.target_entity_id,c.parent_id,c.reply_to_user_id,c.body,c.identity_mode,e.owner_id,e.publication_status FROM comments c JOIN content_entities e ON e.id=c.entity_id WHERE c.entity_id=$1`, *body.ParentID).Scan(&c.EntityID, &c.TargetID, &c.ParentID, &c.ReplyToUserID, &c.Body, &c.IdentityMode, &owner, &status)
 		if err != nil || status != "published" || c.TargetID != targetID {
 			return apiError(404, "PARENT_NOT_FOUND", "被回复的内容不存在")
 		}
@@ -755,7 +806,7 @@ func (s *Server) reportEntity(w http.ResponseWriter, r *http.Request) error {
 	defer tx.Rollback(r.Context())
 	var owner int64
 	var status string
-	if err := tx.QueryRow(r.Context(), "SELECT owner_id,status FROM content_entities WHERE id=$1", id).Scan(&owner, &status); err == pgx.ErrNoRows || status != "published" {
+	if err := tx.QueryRow(r.Context(), "SELECT owner_id,publication_status FROM content_entities WHERE id=$1", id).Scan(&owner, &status); err == pgx.ErrNoRows || status != "published" {
 		return apiError(404, "CONTENT_NOT_FOUND", "内容不存在")
 	} else if err != nil {
 		return err
@@ -793,6 +844,13 @@ func (s *Server) uploadImage(w http.ResponseWriter, r *http.Request) error {
 	if err := r.ParseMultipartForm(s.Config.MaxUploadBytes + 1<<20); err != nil {
 		return apiError(413, "IMAGE_TOO_LARGE", fmt.Sprintf("图片不能超过 %dMB", s.Config.MaxUploadBytes/1024/1024))
 	}
+	scope := strings.TrimSpace(r.FormValue("scope"))
+	if scope == "" {
+		scope = "public"
+	}
+	if scope != "public" && scope != "market_dispute" {
+		return validation("scope", "上传范围无效")
+	}
 	file, header, err := r.FormFile("file")
 	if err != nil {
 		return validation("file", "Field required")
@@ -822,10 +880,11 @@ func (s *Server) uploadImage(w http.ResponseWriter, r *http.Request) error {
 		return apiError(400, "IMAGE_DIMENSIONS_TOO_LARGE", "图片像素尺寸过大")
 	}
 	day := time.Now().UTC().Format("2006/01/02")
-	dir := filepath.Join(s.Config.UploadDir, filepath.FromSlash(day))
-	if err := os.MkdirAll(dir, 0o750); err != nil {
+	dir, err := os.MkdirTemp("", "wutong-image-")
+	if err != nil {
 		return err
 	}
+	defer os.RemoveAll(dir)
 	token := make([]byte, 20)
 	if _, err := rand.Read(token); err != nil {
 		return err
@@ -851,14 +910,46 @@ func (s *Server) uploadImage(w http.ResponseWriter, r *http.Request) error {
 	}
 	relative := filepath.ToSlash(filepath.Join(day, key+".webp"))
 	thumbRelative := filepath.ToSlash(filepath.Join(day, key+"-thumb.webp"))
-	var id int64
-	err = s.DB.QueryRow(r.Context(), `INSERT INTO attachments(owner_id,path,thumbnail_path,mime_type,size_bytes,width,height,status,created_at) VALUES($1,$2,$3,'image/webp',$4,$5,$6,'pending',now()) RETURNING id`, user.ID, relative, thumbRelative, info.Size(), cfg.Width, cfg.Height).Scan(&id)
+	fullReader, err := os.Open(full)
 	if err != nil {
-		os.Remove(full)
-		os.Remove(thumb)
 		return err
 	}
-	writeJSON(w, 201, map[string]any{"id": id, "url": "/uploads/" + relative, "thumbnail_url": "/uploads/" + thumbRelative, "width": cfg.Width, "height": cfg.Height})
+	if err := s.Storage.Put(r.Context(), scope, relative, "image/webp", map[bool]string{true: "public, max-age=300", false: "private, no-store"}[scope == "public"], fullReader, info.Size()); err != nil {
+		fullReader.Close()
+		return err
+	}
+	fullReader.Close()
+	thumbInfo, err := os.Stat(thumb)
+	if err != nil {
+		_ = s.Storage.Remove(r.Context(), scope, relative)
+		return err
+	}
+	thumbReader, err := os.Open(thumb)
+	if err != nil {
+		_ = s.Storage.Remove(r.Context(), scope, relative)
+		return err
+	}
+	if err := s.Storage.Put(r.Context(), scope, thumbRelative, "image/webp", map[bool]string{true: "public, max-age=300", false: "private, no-store"}[scope == "public"], thumbReader, thumbInfo.Size()); err != nil {
+		thumbReader.Close()
+		_ = s.Storage.Remove(r.Context(), scope, relative)
+		return err
+	}
+	thumbReader.Close()
+	var id int64
+	err = s.DB.QueryRow(r.Context(), `INSERT INTO attachments(owner_id,path,thumbnail_path,storage_bucket,access_scope,mime_type,size_bytes,width,height,status,created_at) VALUES($1,$2,$3,$4,$5,'image/webp',$6,$7,$8,'pending',now()) RETURNING id`, user.ID, relative, thumbRelative, s.Storage.BucketName(scope), scope, info.Size(), cfg.Width, cfg.Height).Scan(&id)
+	if err != nil {
+		_ = s.Storage.Remove(r.Context(), scope, relative)
+		_ = s.Storage.Remove(r.Context(), scope, thumbRelative)
+		return err
+	}
+	result := map[string]any{"id": id, "scope": scope, "width": cfg.Width, "height": cfg.Height}
+	if scope == "public" {
+		result["url"] = "/uploads/" + relative
+		result["thumbnail_url"] = "/uploads/" + thumbRelative
+	} else {
+		result["content_url"] = fmt.Sprintf("%s/attachments/%d/content", s.Config.APIPrefix, id)
+	}
+	writeJSON(w, 201, result)
 	return nil
 }
 
@@ -872,12 +963,12 @@ func (s *Server) search(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	pattern := "%" + q + "%"
-	union := `SELECT e.id,'post' type,COALESCE(NULLIF(p.title,''),substr(p.body,1,40)) title,substr(p.body,1,120) summary,e.created_at FROM content_entities e JOIN posts p ON p.entity_id=e.id WHERE e.status='published' AND e.search_visible=true AND (p.title ILIKE $1 OR p.body ILIKE $1)
-	UNION ALL SELECT e.id,'question',q.title,substr(q.body,1,120),e.created_at FROM content_entities e JOIN questions q ON q.entity_id=e.id WHERE e.status='published' AND e.search_visible=true AND (q.title ILIKE $1 OR q.body ILIKE $1)
-	UNION ALL SELECT e.id,'handbook',h.title,substr(h.body,1,120),e.created_at FROM content_entities e JOIN handbook_articles h ON h.entity_id=e.id WHERE e.status='published' AND e.search_visible=true AND (h.title ILIKE $1 OR h.body ILIKE $1)
-	UNION ALL SELECT e.id,'listing',l.title,substr(l.description,1,120),e.created_at FROM content_entities e JOIN listings l ON l.entity_id=e.id WHERE e.status='published' AND e.search_visible=true AND (l.title ILIKE $1 OR l.description ILIKE $1)
-	UNION ALL SELECT e.id,'activity',a.title,substr(a.body,1,120),e.created_at FROM content_entities e JOIN activities a ON a.entity_id=e.id WHERE e.status='published' AND e.search_visible=true AND (a.title ILIKE $1 OR a.body ILIKE $1)
-	UNION ALL SELECT e.id,'lost',l.item_name,substr(l.description,1,120),e.created_at FROM content_entities e JOIN lost_items l ON l.entity_id=e.id WHERE e.status='published' AND e.search_visible=true AND (l.item_name ILIKE $1 OR l.description ILIKE $1)`
+	union := `SELECT e.id,'post' type,COALESCE(NULLIF(p.title,''),substr(p.body,1,40)) title,substr(p.body,1,120) summary,e.created_at FROM content_entities e JOIN posts p ON p.entity_id=e.id WHERE e.publication_status='published' AND e.search_visible=true AND (p.title ILIKE $1 OR p.body ILIKE $1)
+	UNION ALL SELECT e.id,'question',q.title,substr(q.body,1,120),e.created_at FROM content_entities e JOIN questions q ON q.entity_id=e.id WHERE e.publication_status='published' AND e.search_visible=true AND (q.title ILIKE $1 OR q.body ILIKE $1)
+	UNION ALL SELECT e.id,'handbook',h.title,substr(h.body,1,120),e.created_at FROM content_entities e JOIN handbook_articles h ON h.entity_id=e.id WHERE e.publication_status='published' AND e.search_visible=true AND (h.title ILIKE $1 OR h.body ILIKE $1)
+	UNION ALL SELECT e.id,'listing',l.title,substr(l.description,1,120),e.created_at FROM content_entities e JOIN listings l ON l.entity_id=e.id WHERE e.publication_status='published' AND e.search_visible=true AND (l.title ILIKE $1 OR l.description ILIKE $1)
+	UNION ALL SELECT e.id,'activity',a.title,substr(a.body,1,120),e.created_at FROM content_entities e JOIN activities a ON a.entity_id=e.id WHERE e.publication_status='published' AND e.search_visible=true AND (a.title ILIKE $1 OR a.body ILIKE $1)
+	UNION ALL SELECT e.id,'lost',l.item_name,substr(l.description,1,120),e.created_at FROM content_entities e JOIN lost_items l ON l.entity_id=e.id WHERE e.publication_status='published' AND e.search_visible=true AND (l.item_name ILIKE $1 OR l.description ILIKE $1)`
 	var total int
 	if err := s.DB.QueryRow(r.Context(), "SELECT count(*) FROM ("+union+") x", pattern).Scan(&total); err != nil {
 		return err
@@ -901,7 +992,7 @@ func (s *Server) search(w http.ResponseWriter, r *http.Request) error {
 }
 
 func (s *Server) hot(w http.ResponseWriter, r *http.Request) error {
-	rows, err := s.DB.Query(r.Context(), `SELECT e.id,e.type,e.created_at,COALESCE(rc.likes,0),COALESCE(fc.favorites,0),COALESCE(cc.comments,0),COALESCE(p.title,NULL),COALESCE(p.body,NULL),COALESCE(q.title,NULL),COALESCE(l.title,NULL),COALESCE(a.title,NULL) FROM content_entities e LEFT JOIN (SELECT entity_id,count(*) likes FROM reactions WHERE type='like' GROUP BY entity_id) rc ON rc.entity_id=e.id LEFT JOIN (SELECT entity_id,count(*) favorites FROM favorites GROUP BY entity_id) fc ON fc.entity_id=e.id LEFT JOIN (SELECT c.target_entity_id entity_id,count(*) comments FROM comments c JOIN content_entities ce ON ce.id=c.entity_id WHERE ce.status='published' GROUP BY c.target_entity_id) cc ON cc.entity_id=e.id LEFT JOIN posts p ON p.entity_id=e.id LEFT JOIN questions q ON q.entity_id=e.id LEFT JOIN listings l ON l.entity_id=e.id LEFT JOIN activities a ON a.entity_id=e.id WHERE e.status='published' AND e.created_at>=now()-interval '14 days' ORDER BY e.created_at DESC LIMIT 200`)
+	rows, err := s.DB.Query(r.Context(), `SELECT e.id,e.type,e.created_at,COALESCE(rc.likes,0),COALESCE(fc.favorites,0),COALESCE(cc.comments,0),COALESCE(p.title,NULL),COALESCE(p.body,NULL),COALESCE(q.title,NULL),COALESCE(l.title,NULL),COALESCE(a.title,NULL) FROM content_entities e LEFT JOIN (SELECT entity_id,count(*) likes FROM reactions WHERE type='like' GROUP BY entity_id) rc ON rc.entity_id=e.id LEFT JOIN (SELECT entity_id,count(*) favorites FROM favorites GROUP BY entity_id) fc ON fc.entity_id=e.id LEFT JOIN (SELECT c.target_entity_id entity_id,count(*) comments FROM comments c JOIN content_entities ce ON ce.id=c.entity_id WHERE ce.publication_status='published' GROUP BY c.target_entity_id) cc ON cc.entity_id=e.id LEFT JOIN posts p ON p.entity_id=e.id LEFT JOIN questions q ON q.entity_id=e.id LEFT JOIN listings l ON l.entity_id=e.id LEFT JOIN activities a ON a.entity_id=e.id WHERE e.publication_status='published' AND e.created_at>=now()-interval '14 days' ORDER BY e.created_at DESC LIMIT 200`)
 	if err != nil {
 		return err
 	}
@@ -951,7 +1042,7 @@ func (s *Server) listFeed(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	rows, err := s.DB.Query(r.Context(), `SELECT e.id,e.type,e.owner_id,e.status,e.allow_comments,e.search_visible,e.moderation_reason,e.revision,e.deleted_at,e.created_at,e.updated_at FROM content_entities e WHERE e.status='published' AND e.type IN ('post','team','question','handbook','course_review','listing','activity','lost_item','observe') ORDER BY e.updated_at DESC,e.id DESC LIMIT $1 OFFSET $2`, size, (page-1)*size)
+	rows, err := s.DB.Query(r.Context(), `SELECT e.id,e.type,e.owner_id,e.publication_status,e.allow_comments,e.search_visible,e.moderation_reason,e.revision,e.deleted_at,e.created_at,e.updated_at FROM content_entities e WHERE e.publication_status='published' AND e.type IN ('post','team','question','handbook','course_review','listing','activity','lost_item','observe') ORDER BY e.updated_at DESC,e.id DESC LIMIT $1 OFFSET $2`, size, (page-1)*size)
 	if err != nil {
 		return err
 	}
@@ -971,7 +1062,7 @@ func (s *Server) listFeed(w http.ResponseWriter, r *http.Request) error {
 		}
 	}
 	var total int
-	_ = s.DB.QueryRow(r.Context(), "SELECT count(*) FROM content_entities WHERE status='published' AND type=ANY($1)", []string{"post", "team", "question", "handbook", "course_review", "listing", "activity", "lost_item", "observe"}).Scan(&total)
+	_ = s.DB.QueryRow(r.Context(), "SELECT count(*) FROM content_entities WHERE publication_status='published' AND type=ANY($1)", []string{"post", "team", "question", "handbook", "course_review", "listing", "activity", "lost_item", "observe"}).Scan(&total)
 	writeJSON(w, 200, map[string]any{"items": items, "page": page, "page_size": size, "total": total, "watermark": time.Now().UTC()})
 	return rows.Err()
 }
@@ -983,7 +1074,7 @@ func (s *Server) feedChanges(w http.ResponseWriter, r *http.Request) error {
 	}
 	var count int
 	watermark := time.Now().UTC()
-	if err := s.DB.QueryRow(r.Context(), "SELECT count(*) FROM content_entities WHERE status='published' AND updated_at>$1 AND updated_at<=$2 AND type=ANY($3)", after, watermark, []string{"post", "team", "question", "handbook", "course_review", "listing", "activity", "lost_item", "observe"}).Scan(&count); err != nil {
+	if err := s.DB.QueryRow(r.Context(), "SELECT count(*) FROM content_entities WHERE publication_status='published' AND updated_at>$1 AND updated_at<=$2 AND type=ANY($3)", after, watermark, []string{"post", "team", "question", "handbook", "course_review", "listing", "activity", "lost_item", "observe"}).Scan(&count); err != nil {
 		return err
 	}
 	writeJSON(w, 200, map[string]any{"count": count, "watermark": watermark})
@@ -991,9 +1082,9 @@ func (s *Server) feedChanges(w http.ResponseWriter, r *http.Request) error {
 }
 
 // Shared content helpers.
-const entitySelect = `SELECT id,type,owner_id,status,allow_comments,search_visible,moderation_reason,revision,deleted_at,created_at,updated_at FROM content_entities`
-const entityPostSelect = `SELECT e.id,e.type,e.owner_id,e.status,e.allow_comments,e.search_visible,e.moderation_reason,e.revision,e.deleted_at,e.created_at,e.updated_at,p.entity_id,p.board,p.title,p.body,p.identity_mode,p.expires_at,p.views FROM content_entities e JOIN posts p ON p.entity_id=e.id`
-const commentSelect = `SELECT e.id,e.type,e.owner_id,e.status,e.allow_comments,e.search_visible,e.moderation_reason,e.revision,e.deleted_at,e.created_at,e.updated_at,c.entity_id,c.target_entity_id,c.parent_id,c.reply_to_user_id,c.body,c.identity_mode FROM content_entities e JOIN comments c ON c.entity_id=e.id`
+const entitySelect = `SELECT id,type,owner_id,publication_status,allow_comments,search_visible,moderation_reason,revision,deleted_at,created_at,updated_at FROM content_entities`
+const entityPostSelect = `SELECT e.id,e.type,e.owner_id,e.publication_status,e.allow_comments,e.search_visible,e.moderation_reason,e.revision,e.deleted_at,e.created_at,e.updated_at,p.entity_id,p.board,p.title,p.body,p.identity_mode,p.expires_at,p.views FROM content_entities e JOIN posts p ON p.entity_id=e.id`
+const commentSelect = `SELECT e.id,e.type,e.owner_id,e.publication_status,e.allow_comments,e.search_visible,e.moderation_reason,e.revision,e.deleted_at,e.created_at,e.updated_at,c.entity_id,c.target_entity_id,c.parent_id,c.reply_to_user_id,c.body,c.identity_mode FROM content_entities e JOIN comments c ON c.entity_id=e.id`
 
 func entityScan(e *Entity) []any {
 	return []any{&e.ID, &e.Type, &e.OwnerID, &e.Status, &e.AllowComments, &e.SearchVisible, &e.ModerationReason, &e.Revision, &e.DeletedAt, &e.CreatedAt, &e.UpdatedAt}
@@ -1058,16 +1149,22 @@ func userOrNil(u User) *User {
 }
 
 func (s *Server) createEntity(ctx context.Context, tx pgx.Tx, owner int64, kind, text string, allow, searchVisible, forceReview bool) (Entity, bool, error) {
-	status, reason, care, err := s.moderate(ctx, tx, text, forceReview)
+	moderationStatus, reason, care, err := s.moderate(ctx, tx, text, forceReview)
 	if err != nil {
 		return Entity{}, false, err
+	}
+	publicationStatus := "published"
+	storedModerationStatus := "approved"
+	if moderationStatus == "pending" {
+		publicationStatus = "hidden"
+		storedModerationStatus = "pending"
 	}
 	var e Entity
-	err = tx.QueryRow(ctx, `INSERT INTO content_entities(type,owner_id,status,allow_comments,search_visible,moderation_reason,revision,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,1,now(),now()) RETURNING id,type,owner_id,status,allow_comments,search_visible,moderation_reason,revision,deleted_at,created_at,updated_at`, kind, owner, status, allow, searchVisible, reason).Scan(entityScan(&e)...)
+	err = tx.QueryRow(ctx, `INSERT INTO content_entities(type,owner_id,publication_status,moderation_status,allow_comments,search_visible,moderation_reason,revision,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,1,now(),now()) RETURNING id,type,owner_id,publication_status,allow_comments,search_visible,moderation_reason,revision,deleted_at,created_at,updated_at`, kind, owner, publicationStatus, storedModerationStatus, allow, searchVisible, reason).Scan(entityScan(&e)...)
 	if err != nil {
 		return Entity{}, false, err
 	}
-	if status == "pending" {
+	if moderationStatus == "pending" {
 		_, err = tx.Exec(ctx, "INSERT INTO moderation_cases(entity_id,source,status,decision,notes,created_at) VALUES($1,'risk_rule','pending','','',now())", e.ID)
 		if err != nil {
 			return Entity{}, false, err
@@ -1127,9 +1224,9 @@ func (s *Server) remoderate(ctx context.Context, tx pgx.Tx, e *Entity, text stri
 	if status != "pending" {
 		return nil
 	}
-	e.Status = "pending"
+	e.Status = "hidden"
 	e.ModerationReason = reason
-	if _, err := tx.Exec(ctx, "UPDATE content_entities SET status='pending',moderation_reason=$1 WHERE id=$2", reason, e.ID); err != nil {
+	if _, err := tx.Exec(ctx, "UPDATE content_entities SET publication_status='hidden',moderation_status='pending',moderation_reason=$1 WHERE id=$2", reason, e.ID); err != nil {
 		return err
 	}
 	_, err = tx.Exec(ctx, `INSERT INTO moderation_cases(entity_id,source,status,decision,notes,created_at) VALUES($1,'edit_risk','pending','','',now()) ON CONFLICT(entity_id) DO UPDATE SET status='pending',source='edit_risk',assignee_id=NULL,decision='',notes='',decided_at=NULL`, e.ID)
@@ -1166,7 +1263,7 @@ func (s *Server) attachUploads(ctx context.Context, tx pgx.Tx, userID, entityID 
 	if len(ids) == 0 {
 		return nil
 	}
-	rows, err := tx.Query(ctx, "SELECT id,status FROM attachments WHERE id=ANY($1) AND owner_id=$2 FOR UPDATE", ids, userID)
+	rows, err := tx.Query(ctx, "SELECT id,status FROM attachments WHERE id=ANY($1) AND owner_id=$2 AND access_scope='public' FOR UPDATE", ids, userID)
 	if err != nil {
 		return err
 	}
@@ -1203,9 +1300,6 @@ type queryer interface {
 	QueryRow(context.Context, string, ...any) pgx.Row
 }
 
-func (s *Server) postPayload(ctx context.Context, e Entity, p Post, viewer *User) (map[string]any, error) {
-	return s.postPayloadQ(ctx, s.DB, e, p, viewer)
-}
 func (s *Server) postPayloadTx(ctx context.Context, tx pgx.Tx, e Entity, p Post, viewer *User) (map[string]any, error) {
 	return s.postPayloadQ(ctx, tx, e, p, viewer)
 }
@@ -1254,7 +1348,7 @@ func attachmentsPayload(ctx context.Context, q queryer, entityID int64) ([]any, 
 }
 func metrics(ctx context.Context, q queryer, id int64) (int, int, int, error) {
 	var likes, favorites, comments int
-	err := q.QueryRow(ctx, `SELECT (SELECT count(*) FROM reactions WHERE entity_id=$1 AND type='like'),(SELECT count(*) FROM favorites WHERE entity_id=$1),(SELECT count(*) FROM comments c JOIN content_entities e ON e.id=c.entity_id WHERE c.target_entity_id=$1 AND e.status='published')`, id).Scan(&likes, &favorites, &comments)
+	err := q.QueryRow(ctx, `SELECT (SELECT count(*) FROM reactions WHERE entity_id=$1 AND type='like'),(SELECT count(*) FROM favorites WHERE entity_id=$1),(SELECT count(*) FROM comments c JOIN content_entities e ON e.id=c.entity_id WHERE c.target_entity_id=$1 AND e.publication_status='published')`, id).Scan(&likes, &favorites, &comments)
 	return likes, favorites, comments, err
 }
 
@@ -1388,7 +1482,7 @@ func publicEntity(ctx context.Context, q interface {
 	QueryRow(context.Context, string, ...any) pgx.Row
 }, id int64) error {
 	var exists bool
-	if err := q.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM content_entities WHERE id=$1 AND status='published')", id).Scan(&exists); err != nil {
+	if err := q.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM content_entities WHERE id=$1 AND publication_status='published' AND moderation_status='approved')", id).Scan(&exists); err != nil {
 		return err
 	}
 	if !exists {
@@ -1498,16 +1592,16 @@ func (s *Server) feedPayload(ctx context.Context, e Entity, viewer *User) (map[s
 		base["meta"] = map[string]any{"rating": rating, "semester": semester, "tags": splitCSV(tags)}
 	case "listing":
 		var status, category, condition, location string
-		var price float64
+		var priceCents int64
 		var negotiable bool
-		if err := s.DB.QueryRow(ctx, "SELECT title,description,trade_status,category,price,condition,location,negotiable FROM listings WHERE entity_id=$1", e.ID).Scan(&title, &body, &status, &category, &price, &condition, &location, &negotiable); err != nil {
+		if err := s.DB.QueryRow(ctx, `SELECT l.title,l.description,l.trade_status,c.name,l.price_cents,l.condition,loc.name,l.negotiable FROM listings l JOIN market_categories c ON c.id=l.category_id JOIN market_locations loc ON loc.id=l.location_id WHERE l.entity_id=$1`, e.ID).Scan(&title, &body, &status, &category, &priceCents, &condition, &location, &negotiable); err != nil {
 			return nil, err
 		}
 		if status != "available" && status != "reserved" {
 			return nil, nil
 		}
 		base["route"] = "/explore/listings"
-		base["meta"] = map[string]any{"category": category, "price": price, "condition": condition, "location": location, "negotiable": negotiable}
+		base["meta"] = map[string]any{"category": category, "price_cents": priceCents, "condition": condition, "location": location, "negotiable": negotiable}
 	case "activity":
 		var status, category, location string
 		var starts time.Time

@@ -42,12 +42,14 @@ CREATE TABLE email_outbox (
 	PRIMARY KEY (id)
 );
 
-CREATE TABLE rate_limit_events (
-	id BIGSERIAL NOT NULL, 
+CREATE TABLE rate_limit_counters (
 	action VARCHAR(40) NOT NULL, 
 	subject VARCHAR(320) NOT NULL, 
-	created_at TIMESTAMP WITH TIME ZONE NOT NULL, 
-	PRIMARY KEY (id)
+	window_start TIMESTAMP WITH TIME ZONE NOT NULL,
+	count INTEGER NOT NULL,
+	expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+	PRIMARY KEY (action, subject, window_start),
+	CONSTRAINT ck_rate_limit_count CHECK (count > 0)
 );
 
 CREATE TABLE team_games (
@@ -79,6 +81,7 @@ CREATE TABLE users (
 	updated_at TIMESTAMP WITH TIME ZONE NOT NULL, 
 	PRIMARY KEY (id), 
 	CONSTRAINT ck_user_credit CHECK (credit >= 0 AND credit <= 1000), 
+	CONSTRAINT ck_user_xp CHECK (xp >= 0),
 	UNIQUE (alias)
 );
 
@@ -161,7 +164,8 @@ CREATE TABLE content_entities (
 	id BIGSERIAL NOT NULL, 
 	type VARCHAR(30) NOT NULL, 
 	owner_id BIGINT NOT NULL, 
-	status VARCHAR(20) NOT NULL, 
+	publication_status VARCHAR(20) NOT NULL,
+	moderation_status VARCHAR(20) NOT NULL,
 	allow_comments BOOLEAN NOT NULL, 
 	search_visible BOOLEAN NOT NULL, 
 	moderation_reason TEXT NOT NULL, 
@@ -170,6 +174,8 @@ CREATE TABLE content_entities (
 	created_at TIMESTAMP WITH TIME ZONE NOT NULL, 
 	updated_at TIMESTAMP WITH TIME ZONE NOT NULL, 
 	PRIMARY KEY (id), 
+	CONSTRAINT ck_content_publication_status CHECK (publication_status IN ('draft', 'published', 'hidden', 'expired', 'deleted')),
+	CONSTRAINT ck_content_moderation_status CHECK (moderation_status IN ('pending', 'approved', 'hidden', 'rejected')),
 	FOREIGN KEY(owner_id) REFERENCES users (id) ON DELETE RESTRICT
 );
 
@@ -275,6 +281,15 @@ CREATE TABLE settings (
 	FOREIGN KEY(updated_by) REFERENCES users (id) ON DELETE SET NULL
 );
 
+CREATE TABLE worker_heartbeats (
+	worker_name VARCHAR(80) NOT NULL,
+	instance_id VARCHAR(120) NOT NULL,
+	last_seen_at TIMESTAMP WITH TIME ZONE NOT NULL,
+	last_success_at TIMESTAMP WITH TIME ZONE,
+	last_error TEXT NOT NULL,
+	PRIMARY KEY (worker_name, instance_id)
+);
+
 CREATE TABLE team_game_aliases (
 	id BIGSERIAL NOT NULL, 
 	game_id BIGINT NOT NULL, 
@@ -318,6 +333,8 @@ CREATE TABLE attachments (
 	entity_id BIGINT, 
 	path VARCHAR(500) NOT NULL, 
 	thumbnail_path VARCHAR(500) NOT NULL, 
+	storage_bucket VARCHAR(120) NOT NULL DEFAULT 'wutong-public',
+	access_scope VARCHAR(30) NOT NULL DEFAULT 'public',
 	mime_type VARCHAR(100) NOT NULL, 
 	size_bytes INTEGER NOT NULL, 
 	width INTEGER NOT NULL, 
@@ -325,6 +342,7 @@ CREATE TABLE attachments (
 	status VARCHAR(20) NOT NULL, 
 	created_at TIMESTAMP WITH TIME ZONE NOT NULL, 
 	PRIMARY KEY (id), 
+	CONSTRAINT ck_attachment_scope CHECK (access_scope IN ('public', 'market_dispute')),
 	FOREIGN KEY(owner_id) REFERENCES users (id) ON DELETE CASCADE, 
 	FOREIGN KEY(entity_id) REFERENCES content_entities (id) ON DELETE CASCADE, 
 	UNIQUE (path)
@@ -425,20 +443,125 @@ CREATE TABLE handbook_articles (
 	FOREIGN KEY(entity_id) REFERENCES content_entities (id) ON DELETE CASCADE
 );
 
+CREATE TABLE market_categories (
+	id BIGSERIAL NOT NULL,
+	name VARCHAR(60) NOT NULL,
+	slug VARCHAR(60) NOT NULL,
+	active BOOLEAN NOT NULL,
+	sort_order INTEGER NOT NULL,
+	created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+	updated_at TIMESTAMP WITH TIME ZONE NOT NULL,
+	PRIMARY KEY (id),
+	UNIQUE (name),
+	UNIQUE (slug),
+	CONSTRAINT ck_market_category_name CHECK (char_length(btrim(name)) BETWEEN 1 AND 60)
+);
+
+CREATE TABLE market_locations (
+	id BIGSERIAL NOT NULL,
+	name VARCHAR(120) NOT NULL,
+	slug VARCHAR(80) NOT NULL,
+	active BOOLEAN NOT NULL,
+	sort_order INTEGER NOT NULL,
+	created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+	updated_at TIMESTAMP WITH TIME ZONE NOT NULL,
+	PRIMARY KEY (id),
+	UNIQUE (name),
+	UNIQUE (slug),
+	CONSTRAINT ck_market_location_name CHECK (char_length(btrim(name)) BETWEEN 1 AND 120)
+);
+
 CREATE TABLE listings (
 	entity_id BIGINT NOT NULL, 
-	category VARCHAR(60) NOT NULL, 
+	category_id BIGINT NOT NULL,
 	title VARCHAR(160) NOT NULL, 
 	description TEXT NOT NULL, 
-	price FLOAT NOT NULL, 
-	condition VARCHAR(80) NOT NULL, 
+	price_cents BIGINT NOT NULL,
+	condition VARCHAR(30) NOT NULL,
 	negotiable BOOLEAN NOT NULL, 
 	purchased_at DATE, 
-	location VARCHAR(120) NOT NULL, 
+	location_id BIGINT NOT NULL,
 	trade_status VARCHAR(20) NOT NULL, 
 	PRIMARY KEY (entity_id), 
-	CONSTRAINT ck_listing_price CHECK (price >= 0), 
-	FOREIGN KEY(entity_id) REFERENCES content_entities (id) ON DELETE CASCADE
+	CONSTRAINT ck_listing_title CHECK (char_length(btrim(title)) BETWEEN 3 AND 160),
+	CONSTRAINT ck_listing_description CHECK (char_length(btrim(description)) BETWEEN 5 AND 10000),
+	CONSTRAINT ck_listing_price CHECK (price_cents BETWEEN 0 AND 100000000),
+	CONSTRAINT ck_listing_condition CHECK (condition IN ('new', 'like_new', 'excellent', 'good', 'fair')),
+	CONSTRAINT ck_listing_trade_status CHECK (trade_status IN ('available', 'reserved', 'completed', 'cancelled')),
+	FOREIGN KEY(entity_id) REFERENCES content_entities (id) ON DELETE CASCADE,
+	FOREIGN KEY(category_id) REFERENCES market_categories (id) ON DELETE RESTRICT,
+	FOREIGN KEY(location_id) REFERENCES market_locations (id) ON DELETE RESTRICT
+);
+
+CREATE TABLE market_transactions (
+	id BIGSERIAL NOT NULL,
+	listing_id BIGINT NOT NULL,
+	seller_id BIGINT NOT NULL,
+	buyer_id BIGINT NOT NULL,
+	status VARCHAR(20) NOT NULL,
+	message VARCHAR(1000) NOT NULL,
+	reserved_until TIMESTAMP WITH TIME ZONE,
+	buyer_confirmed_at TIMESTAMP WITH TIME ZONE,
+	seller_confirmed_at TIMESTAMP WITH TIME ZONE,
+	completed_at TIMESTAMP WITH TIME ZONE,
+	cancelled_at TIMESTAMP WITH TIME ZONE,
+	cancelled_by BIGINT,
+	cancel_reason VARCHAR(1000) NOT NULL,
+	created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+	updated_at TIMESTAMP WITH TIME ZONE NOT NULL,
+	PRIMARY KEY (id),
+	CONSTRAINT ck_market_transaction_status CHECK (status IN ('requested', 'reserved', 'rejected', 'cancelled', 'expired', 'disputed', 'completed')),
+	CONSTRAINT ck_market_transaction_parties CHECK (seller_id <> buyer_id),
+	FOREIGN KEY(listing_id) REFERENCES listings (entity_id) ON DELETE CASCADE,
+	FOREIGN KEY(seller_id) REFERENCES users (id) ON DELETE RESTRICT,
+	FOREIGN KEY(buyer_id) REFERENCES users (id) ON DELETE RESTRICT,
+	FOREIGN KEY(cancelled_by) REFERENCES users (id) ON DELETE SET NULL
+);
+
+CREATE TABLE market_disputes (
+	id BIGSERIAL NOT NULL,
+	transaction_id BIGINT NOT NULL,
+	opened_by BIGINT NOT NULL,
+	reason TEXT NOT NULL,
+	status VARCHAR(20) NOT NULL,
+	decision VARCHAR(20) NOT NULL,
+	admin_note TEXT NOT NULL,
+	decided_by BIGINT,
+	created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+	decided_at TIMESTAMP WITH TIME ZONE,
+	PRIMARY KEY (id),
+	CONSTRAINT uq_market_dispute UNIQUE (transaction_id),
+	CONSTRAINT ck_market_dispute_status CHECK (status IN ('pending', 'resolved')),
+	CONSTRAINT ck_market_dispute_decision CHECK (decision IN ('', 'completed', 'cancelled')),
+	FOREIGN KEY(transaction_id) REFERENCES market_transactions (id) ON DELETE CASCADE,
+	FOREIGN KEY(opened_by) REFERENCES users (id) ON DELETE RESTRICT,
+	FOREIGN KEY(decided_by) REFERENCES users (id) ON DELETE SET NULL
+);
+
+CREATE TABLE market_dispute_evidence (
+	dispute_id BIGINT NOT NULL,
+	attachment_id BIGINT NOT NULL,
+	PRIMARY KEY (dispute_id, attachment_id),
+	FOREIGN KEY(dispute_id) REFERENCES market_disputes (id) ON DELETE CASCADE,
+	FOREIGN KEY(attachment_id) REFERENCES attachments (id) ON DELETE CASCADE
+);
+
+CREATE TABLE market_reviews (
+	id BIGSERIAL NOT NULL,
+	transaction_id BIGINT NOT NULL,
+	reviewer_id BIGINT NOT NULL,
+	reviewee_id BIGINT NOT NULL,
+	rating INTEGER NOT NULL,
+	body VARCHAR(2000) NOT NULL,
+	visible_at TIMESTAMP WITH TIME ZONE,
+	created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+	PRIMARY KEY (id),
+	CONSTRAINT uq_market_review UNIQUE (transaction_id, reviewer_id),
+	CONSTRAINT ck_market_review_rating CHECK (rating BETWEEN 1 AND 5),
+	CONSTRAINT ck_market_review_parties CHECK (reviewer_id <> reviewee_id),
+	FOREIGN KEY(transaction_id) REFERENCES market_transactions (id) ON DELETE CASCADE,
+	FOREIGN KEY(reviewer_id) REFERENCES users (id) ON DELETE RESTRICT,
+	FOREIGN KEY(reviewee_id) REFERENCES users (id) ON DELETE RESTRICT
 );
 
 CREATE TABLE lost_items (
@@ -677,9 +800,7 @@ CREATE INDEX ix_courses_teacher ON courses (teacher);
 CREATE INDEX ix_courses_name ON courses (name);
 CREATE INDEX ix_email_outbox_status ON email_outbox (status);
 CREATE INDEX ix_email_outbox_to_email ON email_outbox (to_email);
-CREATE INDEX ix_rate_limit_events_action ON rate_limit_events (action);
-CREATE INDEX ix_rate_limit_events_created_at ON rate_limit_events (created_at);
-CREATE INDEX ix_rate_limit_events_subject ON rate_limit_events (subject);
+CREATE INDEX ix_rate_limit_counters_expires_at ON rate_limit_counters (expires_at);
 CREATE INDEX ix_team_games_active ON team_games (active);
 CREATE UNIQUE INDEX ix_team_games_name ON team_games (name);
 CREATE INDEX ix_users_nickname ON users (nickname);
@@ -704,7 +825,8 @@ CREATE INDEX ix_campus_services_category ON campus_services (category);
 CREATE INDEX ix_content_entities_created_at ON content_entities (created_at);
 CREATE INDEX ix_content_entities_owner_id ON content_entities (owner_id);
 CREATE INDEX ix_content_entities_type ON content_entities (type);
-CREATE INDEX ix_content_entities_status ON content_entities (status);
+CREATE INDEX ix_content_entities_publication_status ON content_entities (publication_status);
+CREATE INDEX ix_content_entities_moderation_status ON content_entities (moderation_status);
 CREATE INDEX ix_conversation_members_user_id ON conversation_members (user_id);
 CREATE INDEX ix_conversation_members_conversation_id ON conversation_members (conversation_id);
 CREATE INDEX ix_course_offerings_semester ON course_offerings (semester);
@@ -746,7 +868,17 @@ CREATE INDEX ix_handbook_articles_title ON handbook_articles (title);
 CREATE INDEX ix_handbook_articles_category ON handbook_articles (category);
 CREATE INDEX ix_listings_title ON listings (title);
 CREATE INDEX ix_listings_trade_status ON listings (trade_status);
-CREATE INDEX ix_listings_category ON listings (category);
+CREATE INDEX ix_listings_category ON listings (category_id);
+CREATE INDEX ix_listings_location ON listings (location_id);
+CREATE INDEX ix_listings_price ON listings (price_cents);
+CREATE INDEX ix_market_transactions_listing ON market_transactions (listing_id, created_at DESC);
+CREATE INDEX ix_market_transactions_buyer ON market_transactions (buyer_id, created_at DESC);
+CREATE INDEX ix_market_transactions_seller ON market_transactions (seller_id, created_at DESC);
+CREATE INDEX ix_market_transactions_status ON market_transactions (status, reserved_until);
+CREATE UNIQUE INDEX uq_market_transaction_buyer_active ON market_transactions(listing_id,buyer_id) WHERE status IN ('requested','reserved','disputed');
+CREATE UNIQUE INDEX uq_market_transaction_listing_reserved ON market_transactions(listing_id) WHERE status IN ('reserved','disputed');
+CREATE INDEX ix_market_reviews_reviewee_visible ON market_reviews (reviewee_id, visible_at) WHERE visible_at IS NOT NULL;
+CREATE INDEX ix_market_disputes_status ON market_disputes (status, created_at);
 CREATE INDEX ix_lost_items_status ON lost_items (status);
 CREATE INDEX ix_lost_items_item_name ON lost_items (item_name);
 CREATE INDEX ix_messages_conversation_id ON messages (conversation_id);
@@ -788,7 +920,22 @@ CREATE INDEX IF NOT EXISTS ix_posts_title_trgm ON posts USING gin (title gin_trg
 CREATE INDEX IF NOT EXISTS ix_questions_title_trgm ON questions USING gin (title gin_trgm_ops);
 CREATE INDEX IF NOT EXISTS ix_listings_title_trgm ON listings USING gin (title gin_trgm_ops);
 
+INSERT INTO market_categories(name,slug,active,sort_order,created_at,updated_at) VALUES
+	('数码','digital',true,10,now(),now()),
+	('图书教材','books',true,20,now(),now()),
+	('生活用品','daily',true,30,now(),now()),
+	('服饰鞋包','fashion',true,40,now(),now()),
+	('运动户外','sports',true,50,now(),now()),
+	('票券卡券','tickets',true,60,now(),now()),
+	('其他','other',true,70,now(),now());
+INSERT INTO market_locations(name,slug,active,sort_order,created_at,updated_at) VALUES
+	('校内面交','campus',true,10,now(),now());
+
 -- +goose Down
+DROP TABLE IF EXISTS market_dispute_evidence CASCADE;
+DROP TABLE IF EXISTS market_reviews CASCADE;
+DROP TABLE IF EXISTS market_disputes CASCADE;
+DROP TABLE IF EXISTS market_transactions CASCADE;
 DROP TABLE IF EXISTS team_run_members CASCADE;
 DROP TABLE IF EXISTS team_ratings CASCADE;
 DROP TABLE IF EXISTS team_runs CASCADE;
@@ -807,6 +954,8 @@ DROP TABLE IF EXISTS moderation_cases CASCADE;
 DROP TABLE IF EXISTS messages CASCADE;
 DROP TABLE IF EXISTS lost_items CASCADE;
 DROP TABLE IF EXISTS listings CASCADE;
+DROP TABLE IF EXISTS market_locations CASCADE;
+DROP TABLE IF EXISTS market_categories CASCADE;
 DROP TABLE IF EXISTS handbook_articles CASCADE;
 DROP TABLE IF EXISTS feedback CASCADE;
 DROP TABLE IF EXISTS favorites CASCADE;
@@ -819,6 +968,7 @@ DROP TABLE IF EXISTS appeals CASCADE;
 DROP TABLE IF EXISTS activities CASCADE;
 DROP TABLE IF EXISTS team_game_aliases CASCADE;
 DROP TABLE IF EXISTS settings CASCADE;
+DROP TABLE IF EXISTS worker_heartbeats CASCADE;
 DROP TABLE IF EXISTS sessions CASCADE;
 DROP TABLE IF EXISTS penalties CASCADE;
 DROP TABLE IF EXISTS notifications CASCADE;
@@ -835,7 +985,7 @@ DROP TABLE IF EXISTS announcement_reads CASCADE;
 DROP TABLE IF EXISTS verification_codes CASCADE;
 DROP TABLE IF EXISTS users CASCADE;
 DROP TABLE IF EXISTS team_games CASCADE;
-DROP TABLE IF EXISTS rate_limit_events CASCADE;
+DROP TABLE IF EXISTS rate_limit_counters CASCADE;
 DROP TABLE IF EXISTS email_outbox CASCADE;
 DROP TABLE IF EXISTS courses CASCADE;
 DROP TABLE IF EXISTS conversations CASCADE;

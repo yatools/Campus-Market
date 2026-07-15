@@ -1,88 +1,124 @@
-# 梧桐墙 · 单校校园社区
+# 梧桐墙
 
-梧桐墙是可部署的单校校园社区：Vue 3 + TypeScript 前端、Go 1.26 后端、PostgreSQL 16、独立后台任务和 Nginx HTTPS 入口。用户端继续使用 V4 公告栏视觉，Go 后端保持原 `/api/v1` 契约、Cookie 会话、CSRF 和全部业务能力。
+梧桐墙是面向单校部署的校园社区。当前工程只有一套架构：Vue 3 + TypeScript 前端、Go API/Worker、PostgreSQL 16、S3 兼容对象存储和 Nginx HTTPS 入口。`/api/v1` 是唯一业务 API 前缀，`backend/api/openapi.yaml` 是唯一接口契约。
 
-## 功能
+工程不包含旧版应用、Python 服务、SQLite 导入器或旧接口兼容链。数据库从 Goose 基线全新创建，不迁移历史业务数据。
 
-- 校邮验证码注册、Argon2id 密码、服务端会话、CSRF、会话轮换与注销
-- 首页混合动态、树洞、两级回帖、匿名昵称、点赞、收藏、举报、搜索与热榜
-- 游戏目录审核、车票式车队、场次、提醒、请假、签到、转让、评价和日历订阅
-- 问答、经验悬赏、生存手册、课程评价、校园服务评分
-- 仅限校内线下面交的二手集市、校园活动、失物认领
-- 观察台、治理公示、申诉、私信、通知、公告、反馈和完整管理后台
-- SMTP outbox、车队生命周期、数据清理、PostgreSQL/上传文件备份
+## 主要能力
 
-历史静态原型只保存在 `legacy/`，不进入构建或部署。
+- 校园邮箱验证码注册、Argon2id 密码、服务端会话、CSRF、可信代理与原子限流。
+- 动态、树洞、问答悬赏、手册、课程、活动、失物、观察台、车队、私信、通知和治理后台。
+- 二手市场完整交易流程：申请、卖家接受、24 小时预留、双方确认、纠纷裁决和双盲评价。
+- 商品价格使用整数分；交易状态与审核状态独立；成交数只统计真实完成的交易。
+- public/private/backup 三类 S3 bucket。纠纷证据为私有对象，只能通过鉴权后的短期签名地址访问。
+- Worker heartbeat、邮件积压、依赖健康、对象存储探测、备份保留与安全恢复。
 
 ## 本地开发
 
-前置条件：Go 1.26、Node.js 22、PostgreSQL 16、`vipsthumbnail`（libvips）。
-
-创建数据库并准备环境变量：
+推荐使用 Docker Compose 启动 PostgreSQL、MinIO、API、Worker 和 Web：
 
 ```powershell
 Copy-Item .env.example .env
-$env:ENVIRONMENT = 'development'
-$env:DATABASE_URL = 'postgresql://wutong:password@127.0.0.1:5432/wutong'
-$env:ALLOWED_CAMPUS_EMAIL_DOMAINS = 'test.edu.cn'
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
 ```
 
-启动后端：
+开发环境应把 `.env` 中的示例生产值改为本地值，至少设置数据库密码、`SECRET_KEY`、健康检查令牌和 MinIO 凭据。MinIO API 默认监听 `9000`，管理控制台默认监听 `9001`。
+
+也可以只用 Compose 启动 PostgreSQL/MinIO，再分别运行进程：
 
 ```powershell
 cd backend
 go run ./cmd/wutong migrate up
 go run ./cmd/wutong serve --addr 127.0.0.1:8000
-```
 
-另开终端启动 worker 和前端：
-
-```powershell
-cd backend
+# 另一个终端
 go run ./cmd/wutong worker
 
+# 另一个终端
 cd ..\frontend
-npm install
+npm ci
 npm run dev
 ```
 
-本地注册仍经过真实 SMTP；验证码不会写入响应或日志。
+前端挂载前会读取 `/app-config.json`，因此 API 前缀和 CSRF Cookie 名以服务端实际配置为准。
 
-## 从旧 SQLite 开发库导入
+## 配置
 
-目标 PostgreSQL 必须是空业务库。命令先校验 Alembic 版本 `0005_credit_anonymous_team_lifecycle`、表结构与逐表行数，再迁移全部数据并复制上传和备份文件：
+复制 `.env.example` 后按环境修改。配置解析是严格的：非法布尔值、非法整数、越界连接池或时长、错误 Cookie 名、无效 CIDR、不一致的 HTTPS/Cookie 设置以及缺失的 S3/SMTP 生产配置都会阻止进程启动，并指出对应配置键。
 
-```powershell
-cd backend
-go run ./cmd/wutong import-sqlite --sqlite campus.db --uploads-source uploads --backups-source backups --dry-run
-go run ./cmd/wutong import-sqlite --sqlite campus.db --uploads-source uploads --backups-source backups --report import-report.json
+生产前先执行：
+
+```bash
+docker compose run --rm api /app/wutong verify-config
 ```
 
-导入保留主键、密码哈希、匿名身份、审核记录和关联，并重置 PostgreSQL sequence。`--dry-run` 不创建表或写入目标库；重复导入或目标非空会被拒绝。
+反向代理必须覆盖客户端提交的转发头：
 
-## 测试与生成代码
+```nginx
+proxy_set_header X-Forwarded-For $remote_addr;
+proxy_set_header X-Real-IP $remote_addr;
+```
+
+API 仅当连接源地址属于 `TRUSTED_PROXY_CIDRS` 时才接受格式合法的 `X-Real-IP`。
+
+## 数据库和代码生成
+
+Goose 基线位于 `backend/internal/database/migrations/00001_baseline.sql`。全新环境执行：
 
 ```powershell
 cd backend
-gofmt -w cmd internal api tools.go
-go vet ./...
-go test -race ./...
-go build ./cmd/wutong
-go run github.com/sqlc-dev/sqlc/cmd/sqlc generate
-go run github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen --config oapi-codegen.yaml api/openapi-3.0.json
+go run ./cmd/wutong migrate up
+go run ./cmd/wutong migrate status
+```
+
+验证迁移可逆性：
+
+```powershell
+go run ./cmd/wutong migrate up
+go run ./cmd/wutong migrate down
+go run ./cmd/wutong migrate up
+```
+
+更新 `backend/api/openapi.yaml` 或 SQL 后重新生成并检查无差异：
+
+```powershell
+cd backend
+go run github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1 generate
+go run github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@v2.7.2 --config oapi-codegen.yaml api/openapi.yaml
 
 cd ..\frontend
+npm run generate:api
+```
+
+## 测试
+
+```powershell
+cd backend
+gofmt -w cmd internal api
+go vet ./...
+go test -race -coverprofile=coverage.out ./...
+go build ./cmd/wutong
+
+cd ..\frontend
+npm run lint
 npm run typecheck
-npm test
+npm run test:coverage
 npm run build
 npx playwright test
 ```
 
-`api/openapi.json` 是最终 FastAPI 版本导出的不可变兼容基线；`api/openapi-3.0.json` 仅用于 oapi-codegen。Go 路由测试会检查基线中的 134 个操作全部存在。
+需要 PostgreSQL 的并发、交易和迁移集成测试使用 `TEST_DATABASE_URL`；MinIO 集成测试使用 `TEST_S3_ENDPOINT`。CI 会启动隔离的 PostgreSQL 和 MinIO，并执行 Goose `up → down → up`、生成物一致性、依赖审计和镜像漏洞扫描；独立恢复演练还会验证临时数据库切换成功，以及就绪检查失败时自动换回原数据库。
 
-## Docker 与部署
+## 健康检查
 
-生产只支持 PostgreSQL。首次启动由 `migrate` 服务运行 Goose；已有数据库若处于 Alembic 0005，会先校验 51 张表再登记 Go 基线，不会重复建表或删除 `alembic_version`。
+- `GET /health/live`：只表示 API 进程存活。
+- `GET /health/ready`：检查数据库、Goose 当前版本和对象存储，失败返回 503。
+- `GET /health/dependencies`：使用 `Authorization: Bearer <HEALTH_CHECK_TOKEN>`，返回依赖明细。
+- `GET /api/v1/admin/system-health`：管理员查看 Worker heartbeat、邮件积压/失败、最近备份、磁盘和 S3 状态。
+
+## 部署
+
+生产对象存储必须位于独立故障域；Web/API/Worker 不挂载 uploads 或 backup volume。构建和启动示例：
 
 ```bash
 cp .env.example .env
@@ -92,20 +128,20 @@ sh deploy/bootstrap-tls.sh
 sh deploy/deploy.sh
 ```
 
-创建管理员：
+创建首位管理员：
 
 ```bash
 docker compose exec api /app/wutong create-admin --email admin@example.edu.cn --nickname 站点管理员
 ```
 
-检查状态：
+检查部署：
 
 ```bash
 docker compose ps
 curl -fsS https://你的域名/health/ready
 ```
 
-Staging 使用独立 Compose project、PostgreSQL volume、上传和备份 volume，只监听 `127.0.0.1:8080`：
+Staging 使用独立 Compose project、数据库和对象命名空间：
 
 ```bash
 cp .env.staging.example .env.staging
@@ -113,55 +149,30 @@ chmod 600 .env.staging
 sh deploy/staging.sh
 ```
 
-通过 SSH 隧道访问 Staging：
+## 备份与恢复
 
-```bash
-ssh -L 8080:127.0.0.1:8080 your-server
-```
+Worker 将 PostgreSQL custom dump、表计数、对象清单和校验和写入独立 backup bucket，并按 7 个每日、4 个每周、12 个月度恢复点保留。生产 bucket 还应启用版本控制和跨故障域复制。
 
-Staging 恢复演练必须显式使用独立环境与 Compose project，避免接触生产卷：
+恢复命令：
 
 ```bash
 ENV_FILE=.env.staging \
 COMPOSE_PROJECT_NAME=wutong-staging \
 COMPOSE_FILE=docker-compose.yml:docker-compose.staging.yml \
-sh deploy/restore.sh /secure/path/to/staging-backup.zip
-```
-
-更新前先从管理后台下载备份，再执行 `git pull --ff-only && sh deploy/deploy.sh`。完整恢复继续使用：
-
-```bash
 sh deploy/restore.sh /secure/path/wutong-backup-YYYYMMDD-HHMMSS.zip
 ```
 
-恢复脚本会校验 ZIP 与 `SHA256SUMS`，重建 PostgreSQL、恢复 uploads，再运行 Go migrations。
-
-每天由系统 cron 执行 `sh deploy/renew-tls.sh` 检查证书续期。首次 Go 切换不修改业务表，应用回滚可切回上一个 Python 镜像；后续 Goose 迁移只能在已备份且确认兼容时回滚。
-
-## Staging 压测
-
-创建专用压测账号，并从浏览器开发者工具取得 Staging 会话 Cookie 和 CSRF Cookie：
-
-```bash
-BASE_URL=http://127.0.0.1:8080 \
-SESSION_COOKIE='仅用于 staging 的会话值' \
-CSRF_TOKEN='对应的 CSRF Cookie 值' \
-k6 run backend/tests/load/mixed_workload.js
-```
-
-脚本维持 80 个读取与 20 个写入虚拟用户，要求读取 P95 `<500 ms`、写入 P95 `<800 ms`、分类错误率 `<1%`。不得在生产执行压测。
+恢复脚本会拒绝不安全 ZIP 路径，校验 SHA-256 和 `pg_restore --list`，先恢复到临时数据库并验证迁移版本、关键表计数、外键与对象清单。验证成功后才短暂停写并重命名切换；切换后就绪检查失败会自动换回旧数据库。
 
 ## 运维命令
 
 单一 `wutong` 二进制提供：
 
-- `serve`：HTTP API、SSE、上传文件服务
-- `worker`：邮件、提醒、清理、生命周期和备份
-- `migrate up|status`：数据库迁移和状态
-- `create-admin`：创建首位管理员
-- `verify-config`：验证生产配置
-- `import-sqlite`：旧 SQLite 全量导入
+- `serve`：HTTP API、SSE、配置和健康端点。
+- `worker`：邮件、清理、预留超时、heartbeat 和备份。
+- `migrate up|down|status`：Goose 迁移。
+- `create-admin`：创建管理员。
+- `verify-config`：严格验证配置。
+- `verify-storage-manifest`：从标准输入校验对象清单。
 
-生产配置会拒绝示例域名、占位密钥、非 HTTPS 来源、缺失 SMTP 和非 PostgreSQL 数据库。
-
-正式开放注册前还需在目标服务器实测真实校园 SMTP、DNS/TLS、备份恢复和上述负载阈值；这些外部环境验收不能由本地自动测试替代。
+主分支只有在测试、覆盖率、OpenAPI/SQL 生成一致性、迁移、审计和 Trivy 闸门全部通过后，才向 GHCR 推送 `sha-<commit>` 不可变镜像。发布配置应引用镜像 digest，而不是可变 tag。

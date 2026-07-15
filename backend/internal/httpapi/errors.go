@@ -67,6 +67,9 @@ func (s *Server) writeError(w http.ResponseWriter, r *http.Request, err error) {
 		slog.Error("unhandled_error", "path", r.URL.Path, "request_id", requestID(r.Context()), "error", err)
 		api = apiError(http.StatusInternalServerError, "INTERNAL_ERROR", "服务器暂时无法处理该请求")
 	}
+	if api.Status == http.StatusTooManyRequests {
+		w.Header().Set("Retry-After", "60")
+	}
 	writeJSON(w, api.Status, map[string]any{
 		"code": api.Code, "message": api.Message, "field_errors": api.FieldErrors, "request_id": requestID(r.Context()),
 	})

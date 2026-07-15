@@ -22,8 +22,8 @@ import (
 	"github.com/yatools/wutong-campus-wall/backend/internal/config"
 	"github.com/yatools/wutong-campus-wall/backend/internal/database"
 	"github.com/yatools/wutong-campus-wall/backend/internal/httpapi"
-	"github.com/yatools/wutong-campus-wall/backend/internal/importer"
 	"github.com/yatools/wutong-campus-wall/backend/internal/security"
+	storagepkg "github.com/yatools/wutong-campus-wall/backend/internal/storage"
 	workerpkg "github.com/yatools/wutong-campus-wall/backend/internal/worker"
 )
 
@@ -64,14 +64,21 @@ func run() error {
 		if args[0] == "status" {
 			return database.MigrationStatus(ctx, cfg)
 		}
+		if args[0] == "down" {
+			return database.MigrationDown(ctx, cfg)
+		}
 		return fmt.Errorf("未知 migrate 子命令 %q", args[0])
 	case "create-admin":
 		return createAdmin(ctx, cfg, args)
 	case "verify-config":
 		fmt.Printf("environment=%s\norigin=%s\ndatabase=%s\ncampus_domains=%s\n配置校验通过\n", cfg.Environment, cfg.PublicOrigin, redactDatabase(cfg.DatabaseURL), strings.Join(sortedKeys(cfg.AllowedCampusEmailDomains), ","))
 		return nil
-	case "import-sqlite":
-		return importer.Command(ctx, cfg, args, os.Stdout)
+	case "verify-storage-manifest":
+		store, err := storagepkg.New(cfg)
+		if err != nil {
+			return err
+		}
+		return store.VerifyManifest(ctx, os.Stdin)
 	default:
 		return fmt.Errorf("未知命令 %q", command)
 	}
@@ -84,6 +91,9 @@ func serve(ctx context.Context, cfg config.Config, args []string) error {
 		return err
 	}
 	if err := httpapi.EnsureDirs(cfg); err != nil {
+		return err
+	}
+	if err := httpapi.EnsureStorage(ctx, cfg); err != nil {
 		return err
 	}
 	pool, err := database.Open(ctx, cfg)

@@ -38,9 +38,6 @@ services:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
-    volumes:
-      - uploads:/data/uploads
-      - backups:/data/backups
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/health/live"]
       interval: 20s
@@ -63,9 +60,6 @@ services:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
-    volumes:
-      - uploads:/data/uploads
-      - backups:/data/backups
     mem_limit: 384m
     cpus: 0.5
     networks: [internal]
@@ -85,7 +79,6 @@ services:
       - "80:80"
       - "443:443"
     volumes:
-      - uploads:/data/uploads:ro
       - letsencrypt:/etc/letsencrypt:ro
       - certbot_web:/var/www/certbot:ro
     mem_limit: 128m
@@ -103,8 +96,6 @@ services:
 
 volumes:
   postgres_data:
-  uploads:
-  backups:
   letsencrypt:
   certbot_web:
 

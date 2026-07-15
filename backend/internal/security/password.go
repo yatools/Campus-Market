@@ -48,11 +48,11 @@ func VerifyPassword(password, encoded string) bool {
 		params[kv[0]] = value
 	}
 	salt, err := base64.RawStdEncoding.DecodeString(parts[4])
-	if err != nil {
+	if err != nil || len(salt) != 16 || params["t"] != uint64(argonTime) || params["m"] != uint64(argonMemory) || params["p"] != uint64(argonThreads) {
 		return false
 	}
 	expected, err := base64.RawStdEncoding.DecodeString(parts[5])
-	if err != nil || len(expected) == 0 {
+	if err != nil || len(expected) != int(argonKeyLen) {
 		return false
 	}
 	actual := argon2.IDKey([]byte(password), salt, uint32(params["t"]), uint32(params["m"]), uint8(params["p"]), uint32(len(expected)))

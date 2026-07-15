@@ -92,37 +92,33 @@ func (s *Server) listTeamGames(w http.ResponseWriter, r *http.Request) error {
 	if err := s.ensureGames(r.Context(), tx); err != nil {
 		return err
 	}
-	rows, err := tx.Query(r.Context(), "SELECT id,name,active FROM team_games WHERE active=true ORDER BY id")
+	rows, err := tx.Query(r.Context(), `SELECT g.id,g.name,g.active,COALESCE(jsonb_agg(a.alias ORDER BY a.id) FILTER(WHERE a.id IS NOT NULL),'[]'::jsonb)
+		FROM team_games g LEFT JOIN team_game_aliases a ON a.game_id=g.id WHERE g.active=true GROUP BY g.id,g.name,g.active ORDER BY g.id`)
 	if err != nil {
 		return err
 	}
-	type gameRow struct {
-		id     int64
-		name   string
-		active bool
-	}
-	games := []gameRow{}
+	items := []any{}
 	for rows.Next() {
-		var game gameRow
-		if err := rows.Scan(&game.id, &game.name, &game.active); err != nil {
+		var id int64
+		var name string
+		var active bool
+		var aliasesRaw json.RawMessage
+		if err := rows.Scan(&id, &name, &active, &aliasesRaw); err != nil {
 			rows.Close()
 			return err
 		}
-		games = append(games, game)
+		aliases := []string{}
+		if err := json.Unmarshal(aliasesRaw, &aliases); err != nil {
+			rows.Close()
+			return err
+		}
+		items = append(items, map[string]any{"id": id, "name": name, "aliases": aliases, "active": active})
 	}
 	if err := rows.Err(); err != nil {
 		rows.Close()
 		return err
 	}
 	rows.Close()
-	items := []any{}
-	for _, game := range games {
-		aliases, err := stringRows(r.Context(), tx, "SELECT alias FROM team_game_aliases WHERE game_id=$1 ORDER BY id", game.id)
-		if err != nil {
-			return err
-		}
-		items = append(items, map[string]any{"id": game.id, "name": game.name, "aliases": aliases, "active": game.active})
-	}
 	if err := tx.Commit(r.Context()); err != nil {
 		return err
 	}
@@ -371,10 +367,7 @@ func (s *Server) listTeams(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	if err := s.advanceTeams(r.Context(), nil); err != nil {
-		return err
-	}
-	where := "e.status='published' AND t.status='active'"
+	where := "e.publication_status='published' AND t.status='active'"
 	args := []any{}
 	if game := r.URL.Query().Get("game"); game != "" {
 		args = append(args, game)
@@ -392,23 +385,57 @@ func (s *Server) listTeams(w http.ResponseWriter, r *http.Request) error {
 	if err := s.DB.QueryRow(r.Context(), "SELECT count(*) FROM teams t JOIN content_entities e ON e.id=t.entity_id WHERE "+where, args...).Scan(&total); err != nil {
 		return err
 	}
+	args = append(args, viewer.ID)
+	viewerParam := len(args)
 	args = append(args, size, (page-1)*size)
-	rows, err := s.DB.Query(r.Context(), fmt.Sprintf(teamSelect+" JOIN content_entities e ON e.id=t.entity_id WHERE %s ORDER BY e.created_at DESC LIMIT $%d OFFSET $%d", where, len(args)-1, len(args)), args...)
+	rows, err := s.DB.Query(r.Context(), fmt.Sprintf(`SELECT t.entity_id,t.owner_id,t.game_id,t.game,t.mode,t.rank_requirement,t.capacity,t.voice_name,t.voice_link,t.notes,t.newbie_level,t.vibe,t.reminder_channels,t.recurrence,t.reminder_minutes,t.post_departure_retention_minutes,t.status,e.publication_status,e.created_at,
+		jsonb_build_object('id',owner.id,'nickname',owner.nickname,'credit',owner.credit,'verified',owner.verified_at IS NOT NULL),
+		COALESCE((SELECT jsonb_agg(jsonb_build_object('id',m.user_id,'nickname',u.nickname,'credit',u.credit) ORDER BY m.joined_at) FROM team_memberships m JOIN users u ON u.id=m.user_id WHERE m.team_id=t.entity_id AND m.status='active'),'[]'::jsonb),
+		COALESCE((SELECT jsonb_object_agg(rating.tag,rating.frequency) FROM (SELECT tr.tag,count(*) frequency FROM team_ratings tr WHERE tr.target_id=t.owner_id GROUP BY tr.tag) rating),'{}'::jsonb),
+		(SELECT CASE WHEN count(*)>0 THEN round(100.0*count(*) FILTER(WHERE run.status='completed')/count(*))::int END FROM team_runs run JOIN teams owned ON owned.entity_id=run.team_id WHERE owned.owner_id=t.owner_id AND run.starts_at<now() AND run.status IN ('completed','cancelled')),
+		(SELECT jsonb_build_object('id',run.id,'starts_at',run.starts_at,'expires_at',COALESCE(run.expires_at,run.starts_at+t.post_departure_retention_minutes*interval '1 minute'),'status',run.status) FROM team_runs run WHERE run.team_id=t.entity_id AND run.status='scheduled' AND (run.expires_at IS NULL OR run.expires_at>now()) ORDER BY run.starts_at LIMIT 1),
+		EXISTS(SELECT 1 FROM team_memberships mine WHERE mine.team_id=t.entity_id AND mine.user_id=$%d AND mine.status='active'),
+		COALESCE((SELECT mine.reminder_channels FROM team_memberships mine WHERE mine.team_id=t.entity_id AND mine.user_id=$%d AND mine.status='active'),'')
+		FROM teams t JOIN content_entities e ON e.id=t.entity_id JOIN users owner ON owner.id=t.owner_id WHERE %s ORDER BY e.created_at DESC LIMIT $%d OFFSET $%d`, viewerParam, viewerParam, where, len(args)-1, len(args)), args...)
 	if err != nil {
 		return err
 	}
 	defer rows.Close()
 	items := []any{}
 	for rows.Next() {
-		team, err := scanTeam(rows)
-		if err != nil {
+		var team Team
+		var contentStatus, myChannelCSV string
+		var created time.Time
+		var ownerRaw, membersRaw, ratingsRaw json.RawMessage
+		var completion *int
+		var nextRaw []byte
+		var joined bool
+		if err := rows.Scan(&team.ID, &team.OwnerID, &team.GameID, &team.Game, &team.Mode, &team.Rank, &team.Capacity, &team.VoiceName, &team.VoiceLink, &team.Notes, &team.Newbie, &team.Vibe, &team.Channels, &team.Recurrence, &team.Reminder, &team.Retention, &team.Status, &contentStatus, &created, &ownerRaw, &membersRaw, &ratingsRaw, &completion, &nextRaw, &joined, &myChannelCSV); err != nil {
 			return err
 		}
-		payload, err := s.teamPayload(r.Context(), team, userOrNil(viewer))
-		if err != nil {
+		var owner map[string]any
+		var members []map[string]any
+		var ratings map[string]int
+		if err := json.Unmarshal(ownerRaw, &owner); err != nil {
 			return err
 		}
-		items = append(items, payload)
+		if err := json.Unmarshal(membersRaw, &members); err != nil {
+			return err
+		}
+		if err := json.Unmarshal(ratingsRaw, &ratings); err != nil {
+			return err
+		}
+		var next any
+		if len(nextRaw) > 0 {
+			if err := json.Unmarshal(nextRaw, &next); err != nil {
+				return err
+			}
+		}
+		voiceLink := ""
+		if joined {
+			voiceLink = team.VoiceLink
+		}
+		items = append(items, map[string]any{"id": team.ID, "game": team.Game, "game_id": team.GameID, "mode": team.Mode, "rank_requirement": team.Rank, "capacity": team.Capacity, "owner": owner, "completion_rate": completion, "rating_tags": ratings, "voice_name": team.VoiceName, "voice_link": voiceLink, "notes": team.Notes, "newbie_level": team.Newbie, "vibe": team.Vibe, "reminder_channels": splitCSV(team.Channels), "my_reminder_channels": splitCSV(myChannelCSV), "recurrence": team.Recurrence, "reminder_minutes": team.Reminder, "post_departure_retention_minutes": team.Retention, "status": team.Status, "content_status": contentStatus, "next_run": next, "members": members, "member_count": len(members), "joined": joined, "mine": viewer.ID != 0 && team.OwnerID == viewer.ID, "created_at": created})
 	}
 	writeJSON(w, 200, pagePayload(items, page, size, total))
 	return rows.Err()
@@ -515,7 +542,6 @@ func (s *Server) listTeamRuns(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	_ = s.advanceTeams(r.Context(), &teamID)
 	team, err := s.loadTeam(r.Context(), s.DB, teamID)
 	if err == pgx.ErrNoRows {
 		return apiError(404, "TEAM_NOT_FOUND", "车队不存在")
@@ -524,7 +550,7 @@ func (s *Server) listTeamRuns(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	var entityStatus string
-	_ = s.DB.QueryRow(r.Context(), "SELECT status FROM content_entities WHERE id=$1", teamID).Scan(&entityStatus)
+	_ = s.DB.QueryRow(r.Context(), "SELECT publication_status FROM content_entities WHERE id=$1", teamID).Scan(&entityStatus)
 	var historical bool
 	if viewer.ID != 0 {
 		_ = s.DB.QueryRow(r.Context(), "SELECT EXISTS(SELECT 1 FROM team_memberships WHERE team_id=$1 AND user_id=$2)", teamID, viewer.ID).Scan(&historical)
@@ -535,20 +561,34 @@ func (s *Server) listTeamRuns(w http.ResponseWriter, r *http.Request) error {
 	}
 	var total int
 	_ = s.DB.QueryRow(r.Context(), "SELECT count(*) FROM team_runs WHERE team_id=$1", teamID).Scan(&total)
-	rows, err := s.DB.Query(r.Context(), runSelect+" WHERE team_id=$1 ORDER BY starts_at DESC LIMIT $2 OFFSET $3", teamID, size, (page-1)*size)
+	rows, err := s.DB.Query(r.Context(), `SELECT run.id,run.team_id,run.starts_at,run.expires_at,run.status,run.reminder_sent_at,run.created_at,
+		(SELECT count(*) FROM team_run_members member WHERE member.run_id=run.id AND member.status NOT IN ('left','removed')),
+		(SELECT member.status FROM team_run_members member WHERE member.run_id=run.id AND member.user_id=$4),
+		EXISTS(SELECT 1 FROM team_run_members member WHERE member.run_id=run.id AND member.user_id=$4 AND member.checked_in_at IS NOT NULL),
+		EXISTS(SELECT 1 FROM team_run_members member WHERE member.run_id=run.id AND member.user_id=$4 AND member.excused_at IS NOT NULL),
+		CASE WHEN $5 THEN COALESCE((SELECT jsonb_agg(jsonb_build_object('user_id',member.user_id,'nickname',COALESCE(u.nickname,'已注销用户'),'status',member.status,'checked_in_at',member.checked_in_at,'excused_at',member.excused_at,'credit_awarded',member.credit_awarded) ORDER BY member.id) FROM team_run_members member LEFT JOIN users u ON u.id=member.user_id WHERE member.run_id=run.id),'[]'::jsonb) ELSE '[]'::jsonb END
+		FROM team_runs run WHERE run.team_id=$1 ORDER BY run.starts_at DESC LIMIT $2 OFFSET $3`, teamID, size, (page-1)*size, viewer.ID, priv)
 	if err != nil {
 		return err
 	}
 	defer rows.Close()
 	items := []any{}
 	for rows.Next() {
-		run, err := scanRun(rows)
-		if err != nil {
+		var run TeamRun
+		var memberCount int
+		var myStatus *string
+		var checked, excused bool
+		var membersRaw json.RawMessage
+		if err := rows.Scan(&run.ID, &run.TeamID, &run.Starts, &run.Expires, &run.Status, &run.ReminderSent, &run.Created, &memberCount, &myStatus, &checked, &excused, &membersRaw); err != nil {
 			return err
 		}
-		payload, err := s.runPayload(r.Context(), run, userOrNil(viewer), priv)
-		if err != nil {
-			return err
+		payload := map[string]any{"id": run.ID, "team_id": run.TeamID, "starts_at": run.Starts, "expires_at": run.Expires, "status": run.Status, "member_count": memberCount, "my_status": myStatus, "checked_in": checked, "excused": excused, "created_at": run.Created}
+		if priv {
+			members := []map[string]any{}
+			if err := json.Unmarshal(membersRaw, &members); err != nil {
+				return err
+			}
+			payload["members"] = members
 		}
 		items = append(items, payload)
 	}
@@ -774,7 +814,7 @@ func (s *Server) getTeam(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	var status string
-	_ = s.DB.QueryRow(r.Context(), "SELECT status FROM content_entities WHERE id=$1", teamID).Scan(&status)
+	_ = s.DB.QueryRow(r.Context(), "SELECT publication_status FROM content_entities WHERE id=$1", teamID).Scan(&status)
 	var historical bool
 	if viewer.ID != 0 {
 		_ = s.DB.QueryRow(r.Context(), "SELECT EXISTS(SELECT 1 FROM team_memberships WHERE team_id=$1 AND user_id=$2)", teamID, viewer.ID).Scan(&historical)
@@ -928,7 +968,7 @@ func (s *Server) joinTeam(w http.ResponseWriter, r *http.Request) error {
 		return apiError(404, "TEAM_NOT_FOUND", "车队不存在或已关闭")
 	}
 	var contentStatus string
-	_ = tx.QueryRow(r.Context(), "SELECT status FROM content_entities WHERE id=$1", teamID).Scan(&contentStatus)
+	_ = tx.QueryRow(r.Context(), "SELECT publication_status FROM content_entities WHERE id=$1", teamID).Scan(&contentStatus)
 	if contentStatus != "published" || team.Status != "active" {
 		return apiError(404, "TEAM_NOT_FOUND", "车队不存在或已关闭")
 	}
@@ -1258,7 +1298,7 @@ func (s *Server) cancelTeam(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	_, _ = tx.Exec(r.Context(), "UPDATE content_entities SET status='hidden',updated_at=now() WHERE id=$1", teamID)
+	_, _ = tx.Exec(r.Context(), "UPDATE content_entities SET publication_status='hidden',updated_at=now() WHERE id=$1", teamID)
 	_, _ = tx.Exec(r.Context(), "UPDATE team_runs SET status='cancelled' WHERE team_id=$1 AND status='scheduled'", teamID)
 	_, _ = tx.Exec(r.Context(), "UPDATE team_memberships SET status='cancelled',left_at=now() WHERE team_id=$1 AND status='active'", teamID)
 	for _, id := range members {
@@ -1378,7 +1418,7 @@ func (s *Server) teamPayloadQ(ctx context.Context, q queryer, t Team, viewer *Us
 	}
 	var contentStatus string
 	var created time.Time
-	if err := q.QueryRow(ctx, "SELECT status,created_at FROM content_entities WHERE id=$1", t.ID).Scan(&contentStatus, &created); err != nil {
+	if err := q.QueryRow(ctx, "SELECT publication_status,created_at FROM content_entities WHERE id=$1", t.ID).Scan(&contentStatus, &created); err != nil {
 		return nil, err
 	}
 	rows, err := q.Query(ctx, `SELECT m.user_id,u.nickname,u.credit,m.reminder_channels FROM team_memberships m JOIN users u ON u.id=m.user_id WHERE m.team_id=$1 AND m.status='active' ORDER BY m.joined_at`, t.ID)
@@ -1443,9 +1483,6 @@ func (s *Server) teamPayloadQ(ctx context.Context, q queryer, t Team, viewer *Us
 	return map[string]any{"id": t.ID, "game": t.Game, "game_id": t.GameID, "mode": t.Mode, "rank_requirement": t.Rank, "capacity": t.Capacity, "owner": owner, "completion_rate": completion, "rating_tags": tags, "voice_name": t.VoiceName, "voice_link": voiceLink, "notes": t.Notes, "newbie_level": t.Newbie, "vibe": t.Vibe, "reminder_channels": splitCSV(t.Channels), "my_reminder_channels": myChannels, "recurrence": t.Recurrence, "reminder_minutes": t.Reminder, "post_departure_retention_minutes": t.Retention, "status": t.Status, "content_status": contentStatus, "next_run": next, "members": members, "member_count": len(members), "joined": joined, "mine": viewer != nil && t.OwnerID == viewer.ID, "created_at": created}, nil
 }
 
-func (s *Server) runPayload(ctx context.Context, run TeamRun, viewer *User, include bool) (map[string]any, error) {
-	return s.runPayloadQ(ctx, s.DB, run, viewer, include)
-}
 func (s *Server) runPayloadTx(ctx context.Context, tx pgx.Tx, run TeamRun, viewer *User, include bool) (map[string]any, error) {
 	return s.runPayloadQ(ctx, tx, run, viewer, include)
 }
@@ -1556,7 +1593,7 @@ func (s *Server) advanceTeams(ctx context.Context, teamID *int64) error {
 		if len(expired) > 0 {
 			if team.Recurrence == "once" {
 				_, _ = tx.Exec(ctx, "UPDATE teams SET status='archived' WHERE entity_id=$1", team.ID)
-				_, _ = tx.Exec(ctx, "UPDATE content_entities SET status='expired',search_visible=false WHERE id=$1 AND status='published'", team.ID)
+				_, _ = tx.Exec(ctx, "UPDATE content_entities SET publication_status='expired',search_visible=false WHERE id=$1 AND publication_status='published'", team.ID)
 			} else if !remaining {
 				next := expired[len(expired)-1].Starts.Add(7 * 24 * time.Hour)
 				for !next.Add(time.Duration(team.Retention) * time.Minute).After(now) {
@@ -1712,14 +1749,16 @@ func splitCSV(v string) []string {
 }
 func checkRateLimitSQL(ctx context.Context, tx pgx.Tx, action, subject string, limit, minutes int) error {
 	var count int
-	if err := tx.QueryRow(ctx, "SELECT count(*) FROM rate_limit_events WHERE action=$1 AND subject=$2 AND created_at>=now()-($3*interval '1 minute')", action, subject, minutes).Scan(&count); err != nil {
+	if err := tx.QueryRow(ctx, `INSERT INTO rate_limit_counters(action,subject,window_start,count,expires_at)
+		VALUES($1,$2,to_timestamp(floor(extract(epoch FROM now())/($3*60))*($3*60)),1,now()+($3*interval '1 minute')*2)
+		ON CONFLICT(action,subject,window_start) DO UPDATE SET count=rate_limit_counters.count+1,expires_at=EXCLUDED.expires_at
+		RETURNING count`, action, subject, minutes).Scan(&count); err != nil {
 		return err
 	}
-	if count >= limit {
+	if count > limit {
 		return apiError(429, "RATE_LIMITED", "操作过于频繁，请稍后再试")
 	}
-	_, err := tx.Exec(ctx, "INSERT INTO rate_limit_events(action,subject,created_at) VALUES($1,$2,now())", action, subject)
-	return err
+	return nil
 }
 func stringRows(ctx context.Context, q queryer, sql string, args ...any) ([]string, error) {
 	rows, err := q.Query(ctx, sql, args...)

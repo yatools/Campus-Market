@@ -90,15 +90,17 @@ func Audit(ctx context.Context, q interface {
 
 func CheckRateLimit(ctx context.Context, tx pgx.Tx, action, subject string, limit, minutes int) error {
 	var count int
-	err := tx.QueryRow(ctx, `SELECT count(*) FROM rate_limit_events WHERE action=$1 AND subject=$2 AND created_at >= now()-($3 * interval '1 minute')`, action, subject, minutes).Scan(&count)
+	err := tx.QueryRow(ctx, `INSERT INTO rate_limit_counters(action,subject,window_start,count,expires_at)
+		VALUES($1,$2,to_timestamp(floor(extract(epoch FROM now())/($3*60))*($3*60)),1,now()+($3*interval '1 minute')*2)
+		ON CONFLICT(action,subject,window_start) DO UPDATE SET count=rate_limit_counters.count+1,expires_at=EXCLUDED.expires_at
+		RETURNING count`, action, subject, minutes).Scan(&count)
 	if err != nil {
 		return err
 	}
-	if count >= limit {
+	if count > limit {
 		return ErrRateLimited
 	}
-	_, err = tx.Exec(ctx, "INSERT INTO rate_limit_events(action,subject,created_at) VALUES($1,$2,now())", action, subject)
-	return err
+	return nil
 }
 
 var ErrRateLimited = fmt.Errorf("rate limited")

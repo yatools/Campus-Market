@@ -298,6 +298,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/credit-rules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Public Credit Rules */
+        get: operations["public_credit_rules_api_v1_credit_rules_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/credit-rules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Admin Credit Rules */
+        get: operations["admin_credit_rules_api_v1_admin_credit_rules_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update Credit Rules */
+        patch: operations["update_credit_rules_api_v1_admin_credit_rules_patch"];
+        trace?: never;
+    };
     "/api/v1/feed": {
         parameters: {
             query?: never;
@@ -950,58 +985,6 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
-        trace?: never;
-    };
-    "/api/v1/listings": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List Listings */
-        get: operations["list_listings_api_v1_listings_get"];
-        put?: never;
-        /** Create Listing */
-        post: operations["create_listing_api_v1_listings_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/listings/{listing_id}/status": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        /** Update Listing Status */
-        patch: operations["update_listing_status_api_v1_listings__listing_id__status_patch"];
-        trace?: never;
-    };
-    "/api/v1/listings/{listing_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        /** Update Listing */
-        patch: operations["update_listing_api_v1_listings__listing_id__patch"];
         trace?: never;
     };
     "/api/v1/activities": {
@@ -1863,6 +1846,413 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/app-config.json": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Runtime frontend configuration */
+        get: operations["getAppConfig"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/health/dependencies": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Dependency health */
+        get: operations["getHealthDependencies"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/market/options": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Market dictionaries */
+        get: operations["getMarketOptions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/listings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Search listings */
+        get: operations["listListings"];
+        put?: never;
+        /** Create listing */
+        post: operations["createListing"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/listings/{listing_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                listing_id: number;
+            };
+            cookie?: never;
+        };
+        /** Listing detail */
+        get: operations["getListing"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update listing */
+        patch: operations["updateListing"];
+        trace?: never;
+    };
+    "/api/v1/listings/{listing_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                listing_id: number;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Cancel listing */
+        post: operations["cancelListing"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/listings/{listing_id}/transactions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                listing_id: number;
+            };
+            cookie?: never;
+        };
+        /** Listing requests */
+        get: operations["listListingTransactions"];
+        put?: never;
+        /** Request reservation */
+        post: operations["requestListingTransaction"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/market-transactions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** My market transactions */
+        get: operations["listMyMarketTransactions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/market-transactions/{transaction_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                transaction_id: number;
+            };
+            cookie?: never;
+        };
+        /** Transaction detail */
+        get: operations["getMarketTransaction"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/market-transactions/{transaction_id}/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                transaction_id: number;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** accept market transaction */
+        post: operations["acceptMarketTransaction"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/market-transactions/{transaction_id}/reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                transaction_id: number;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** reject market transaction */
+        post: operations["rejectMarketTransaction"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/market-transactions/{transaction_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                transaction_id: number;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** cancel market transaction */
+        post: operations["cancelMarketTransaction"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/market-transactions/{transaction_id}/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                transaction_id: number;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** confirm market transaction */
+        post: operations["confirmMarketTransaction"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/market-transactions/{transaction_id}/disputes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                transaction_id: number;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Open dispute */
+        post: operations["openMarketDispute"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/market-transactions/{transaction_id}/reviews": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                transaction_id: number;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create blind review */
+        post: operations["createMarketReview"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/market/disputes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Admin disputes */
+        get: operations["listMarketDisputes"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/market/disputes/{dispute_id}/decision": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                dispute_id: number;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Decide dispute */
+        post: operations["decideMarketDispute"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/system-health": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Admin system health */
+        get: operations["getAdminSystemHealth"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/market/categories": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List market categories */
+        get: operations["listMarketcategories"];
+        put?: never;
+        /** Create market categories */
+        post: operations["createMarketcategories"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/market/categories/{option_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                option_id: number;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Disable market categories */
+        delete: operations["deleteMarketcategories"];
+        options?: never;
+        head?: never;
+        /** Update market categories */
+        patch: operations["updateMarketcategories"];
+        trace?: never;
+    };
+    "/api/v1/admin/market/locations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List market locations */
+        get: operations["listMarketlocations"];
+        put?: never;
+        /** Create market locations */
+        post: operations["createMarketlocations"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/market/locations/{option_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                option_id: number;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Disable market locations */
+        delete: operations["deleteMarketlocations"];
+        options?: never;
+        head?: never;
+        /** Update market locations */
+        patch: operations["updateMarketlocations"];
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1885,7 +2275,10 @@ export interface components {
              * Format: date-time
              */
             starts_at: string;
-            /** Ends At */
+            /**
+             * Ends At
+             * Format: date-time
+             */
             ends_at?: string | null;
             /** Capacity */
             capacity?: number | null;
@@ -1902,9 +2295,15 @@ export interface components {
             body?: string | null;
             /** Location */
             location?: string | null;
-            /** Starts At */
+            /**
+             * Starts At
+             * Format: date-time
+             */
             starts_at?: string | null;
-            /** Ends At */
+            /**
+             * Ends At
+             * Format: date-time
+             */
             ends_at?: string | null;
             /** Capacity */
             capacity?: number | null;
@@ -2080,6 +2479,18 @@ export interface components {
             /** Teacher */
             teacher: string;
         };
+        /** CreditRuleChange */
+        CreditRuleChange: {
+            /** Key */
+            key: string;
+            /** Value */
+            value: number;
+        };
+        /** CreditRulesUpdate */
+        CreditRulesUpdate: {
+            /** Rules */
+            rules: components["schemas"]["CreditRuleChange"][];
+        };
         /** DeactivateRequest */
         DeactivateRequest: {
             /** Password */
@@ -2120,11 +2531,6 @@ export interface components {
              * @default 0
              */
             reward_xp: number;
-            /**
-             * Reward Credit
-             * @default 0
-             */
-            reward_credit: number;
         };
         /** GameSubmissionCreate */
         GameSubmissionCreate: {
@@ -2160,56 +2566,6 @@ export interface components {
             /** Reminder Channels */
             reminder_channels?: string[];
         };
-        /** ListingCreate */
-        ListingCreate: {
-            /** Category */
-            category: string;
-            /** Title */
-            title: string;
-            /** Description */
-            description: string;
-            /** Price */
-            price: number;
-            /** Condition */
-            condition: string;
-            /**
-             * Negotiable
-             * @default true
-             */
-            negotiable: boolean;
-            /** Purchased At */
-            purchased_at?: string | null;
-            /** Location */
-            location: string;
-            /** Attachment Ids */
-            attachment_ids?: number[];
-        };
-        /** ListingStatusUpdate */
-        ListingStatusUpdate: {
-            /** Status */
-            status: string;
-        };
-        /** ListingUpdate */
-        ListingUpdate: {
-            /** Category */
-            category?: string | null;
-            /** Title */
-            title?: string | null;
-            /** Description */
-            description?: string | null;
-            /** Price */
-            price?: number | null;
-            /** Condition */
-            condition?: string | null;
-            /** Negotiable */
-            negotiable?: boolean | null;
-            /** Purchased At */
-            purchased_at?: string | null;
-            /** Location */
-            location?: string | null;
-            /** Attachment Ids */
-            attachment_ids?: number[];
-        };
         /** LoginRequest */
         LoginRequest: {
             /** Email */
@@ -2230,7 +2586,10 @@ export interface components {
             description: string;
             /** Location */
             location: string;
-            /** Happened At */
+            /**
+             * Happened At
+             * Format: date-time
+             */
             happened_at?: string | null;
             /** Attachment Ids */
             attachment_ids?: number[];
@@ -2243,7 +2602,10 @@ export interface components {
             description?: string | null;
             /** Location */
             location?: string | null;
-            /** Happened At */
+            /**
+             * Happened At
+             * Format: date-time
+             */
             happened_at?: string | null;
             /** Attachment Ids */
             attachment_ids?: number[];
@@ -2374,6 +2736,8 @@ export interface components {
         ProfileUpdate: {
             /** Nickname */
             nickname?: string | null;
+            /** Alias */
+            alias?: string | null;
             /** Avatar Attachment Id */
             avatar_attachment_id?: number | null;
         };
@@ -2525,6 +2889,11 @@ export interface components {
              * @default 30
              */
             reminder_minutes: number;
+            /**
+             * Post Departure Retention Minutes
+             * @default 120
+             */
+            post_departure_retention_minutes: number;
         };
         /** TeamRunCreate */
         TeamRunCreate: {
@@ -2536,7 +2905,10 @@ export interface components {
         };
         /** TeamRunUpdate */
         TeamRunUpdate: {
-            /** Starts At */
+            /**
+             * Starts At
+             * Format: date-time
+             */
             starts_at?: string | null;
             /** Status */
             status?: string | null;
@@ -2596,6 +2968,245 @@ export interface components {
             input?: unknown;
             /** Context */
             ctx?: Record<string, never>;
+        };
+        ListingCreate: {
+            /** Format: int64 */
+            category_id: number;
+            /** Format: int64 */
+            location_id: number;
+            title: string;
+            description: string;
+            /** Format: int64 */
+            price_cents: number;
+            /** @enum {string} */
+            condition: "new" | "like_new" | "excellent" | "good" | "fair";
+            /** @default true */
+            negotiable: boolean;
+            /** Format: date */
+            purchased_at?: string | null;
+            attachment_ids?: number[];
+        };
+        ListingUpdate: {
+            /** Format: int64 */
+            category_id?: number;
+            /** Format: int64 */
+            location_id?: number;
+            title?: string;
+            description?: string;
+            /** Format: int64 */
+            price_cents?: number;
+            /** @enum {string} */
+            condition?: "new" | "like_new" | "excellent" | "good" | "fair";
+            /** @default true */
+            negotiable: boolean;
+            /** Format: date */
+            purchased_at?: string | null;
+            attachment_ids?: number[];
+        };
+        MarketOption: {
+            /** Format: int64 */
+            id: number;
+            name: string;
+            slug: string;
+        };
+        AdminMarketOption: components["schemas"]["MarketOption"] & {
+            active: boolean;
+            sort_order: number;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        MarketOptions: {
+            categories: components["schemas"]["MarketOption"][];
+            locations: components["schemas"]["MarketOption"][];
+            conditions: {
+                code: string;
+                name: string;
+            }[];
+        };
+        PublicAttachment: {
+            /** Format: int64 */
+            id: number;
+            url: string;
+            thumbnail_url: string;
+            width: number;
+            height: number;
+        };
+        MarketParty: {
+            /** Format: int64 */
+            id: number;
+            nickname: string;
+        };
+        MarketSeller: components["schemas"]["MarketParty"] & {
+            credit: number;
+            verified: boolean;
+            completed_sales: number;
+            /** Format: double */
+            rating_average: number;
+            rating_count: number;
+        };
+        MarketListing: {
+            /** Format: int64 */
+            id: number;
+            category: components["schemas"]["MarketOption"];
+            location: components["schemas"]["MarketOption"];
+            title: string;
+            description: string;
+            /** Format: int64 */
+            price_cents: number;
+            /** @enum {string} */
+            condition: "new" | "like_new" | "excellent" | "good" | "fair";
+            condition_label: string;
+            negotiable: boolean;
+            /** Format: date */
+            purchased_at?: string | null;
+            /** @enum {string} */
+            trade_status: "available" | "reserved" | "completed" | "cancelled";
+            publication_status: string;
+            /** @enum {string} */
+            moderation_status: "pending" | "approved" | "hidden" | "rejected";
+            seller: components["schemas"]["MarketSeller"];
+            mine: boolean;
+            favorite_count: number;
+            attachments: components["schemas"]["PublicAttachment"][];
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        MarketListingPage: {
+            items: components["schemas"]["MarketListing"][];
+            page: number;
+            page_size: number;
+            total: number;
+        };
+        MarketTransaction: {
+            /** Format: int64 */
+            id: number;
+            listing: {
+                /** Format: int64 */
+                id: number;
+                title: string;
+                /** Format: int64 */
+                price_cents: number;
+            };
+            seller: components["schemas"]["MarketParty"];
+            buyer: components["schemas"]["MarketParty"];
+            /** @enum {string} */
+            status: "requested" | "reserved" | "rejected" | "cancelled" | "expired" | "disputed" | "completed";
+            message: string;
+            /** Format: date-time */
+            reserved_until?: string | null;
+            /** Format: date-time */
+            buyer_confirmed_at?: string | null;
+            /** Format: date-time */
+            seller_confirmed_at?: string | null;
+            /** Format: date-time */
+            completed_at?: string | null;
+            dispute?: {
+                /** Format: int64 */
+                id: number;
+                status: string;
+            } | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        MarketTransactionPage: {
+            items: components["schemas"]["MarketTransaction"][];
+            page: number;
+            page_size: number;
+            total: number;
+        };
+        MarketDispute: {
+            /** Format: int64 */
+            id: number;
+            /** Format: int64 */
+            transaction_id: number;
+            opened_by: components["schemas"]["MarketParty"];
+            reason: string;
+            /** @enum {string} */
+            status: "pending" | "resolved";
+            decision?: string;
+            admin_note?: string;
+            evidence: {
+                /** Format: int64 */
+                id: number;
+                content_url: string;
+                width?: number;
+                height?: number;
+            }[];
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            decided_at?: string | null;
+        };
+        MarketDisputePage: {
+            items: components["schemas"]["MarketDispute"][];
+            page: number;
+            page_size: number;
+            total: number;
+        };
+        AdminMarketOptionList: {
+            items: components["schemas"]["AdminMarketOption"][];
+        };
+        MarketTransactionRequest: {
+            message?: string;
+        };
+        MarketCancelRequest: {
+            reason?: string;
+        };
+        MarketDisputeRequest: {
+            reason: string;
+            attachment_ids?: number[];
+        };
+        MarketReviewRequest: {
+            rating: number;
+            body?: string;
+        };
+        MarketDisputeDecision: {
+            /** @enum {string} */
+            decision: "completed" | "cancelled";
+            note: string;
+        };
+        MarketOptionInput: {
+            name: string;
+            slug: string;
+            active?: boolean;
+            sort_order?: number;
+        };
+        MarketDisputeCreated: {
+            /** Format: int64 */
+            id: number;
+            /** Format: int64 */
+            transaction_id: number;
+            /** @enum {string} */
+            status: "pending";
+        };
+        MarketReviewCreated: {
+            /** Format: int64 */
+            id: number;
+            /** Format: int64 */
+            transaction_id: number;
+            /** Format: date-time */
+            visible_at: string;
+        };
+        MarketDisputeDecisionResult: {
+            /** Format: int64 */
+            id: number;
+            /** Format: int64 */
+            transaction_id: number;
+            /** @enum {string} */
+            status: "resolved";
+            /** @enum {string} */
+            decision: "completed" | "cancelled";
+        };
+        MarketCancelResult: {
+            ok: boolean;
+            /** @enum {string} */
+            trade_status: "cancelled";
         };
     };
     responses: never;
@@ -3333,6 +3944,85 @@ export interface operations {
                     "application/json": {
                         [key: string]: unknown;
                     };
+                };
+            };
+        };
+    };
+    public_credit_rules_api_v1_credit_rules_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
+    admin_credit_rules_api_v1_admin_credit_rules_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
+    update_credit_rules_api_v1_admin_credit_rules_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreditRulesUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -4908,150 +5598,6 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["CorrectionCreate"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    list_listings_api_v1_listings_get: {
-        parameters: {
-            query?: {
-                page?: number;
-                page_size?: number;
-                category?: string;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    create_listing_api_v1_listings_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ListingCreate"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    update_listing_status_api_v1_listings__listing_id__status_patch: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                listing_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ListingStatusUpdate"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    update_listing_api_v1_listings__listing_id__patch: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                listing_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ListingUpdate"];
             };
         };
         responses: {
@@ -7063,6 +7609,1001 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    getAppConfig: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Success */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
+    getHealthDependencies: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Success */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
+    getMarketOptions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarketOptions"];
+                };
+            };
+            /** @description Success */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
+    listListings: {
+        parameters: {
+            query?: {
+                q?: string;
+                category_id?: number;
+                min_price_cents?: number;
+                max_price_cents?: number;
+                condition?: "new" | "like_new" | "excellent" | "good" | "fair";
+                negotiable?: boolean;
+                location_id?: number;
+                created_after?: string;
+                has_images?: boolean;
+                trade_status?: "available" | "reserved" | "completed";
+                sort?: "newest" | "price_asc" | "price_desc" | "popular";
+                page?: number;
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarketListingPage"];
+                };
+            };
+            /** @description Success */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
+    createListing: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ListingCreate"];
+            };
+        };
+        responses: {
+            /** @description Success */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarketListing"];
+                };
+            };
+            /** @description Success */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
+    getListing: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                listing_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarketListing"];
+                };
+            };
+            /** @description Success */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
+    updateListing: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                listing_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ListingUpdate"];
+            };
+        };
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarketListing"];
+                };
+            };
+            /** @description Success */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
+    cancelListing: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                listing_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MarketCancelRequest"];
+            };
+        };
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarketCancelResult"];
+                };
+            };
+            /** @description Success */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
+    listListingTransactions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                listing_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarketTransactionPage"];
+                };
+            };
+            /** @description Success */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
+    requestListingTransaction: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                listing_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MarketTransactionRequest"];
+            };
+        };
+        responses: {
+            /** @description Success */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarketTransaction"];
+                };
+            };
+            /** @description Success */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
+    listMyMarketTransactions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarketTransactionPage"];
+                };
+            };
+            /** @description Success */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminMarketOptionList"];
+                };
+            };
+        };
+    };
+    getMarketTransaction: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                transaction_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarketTransaction"];
+                };
+            };
+            /** @description Success */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
+    acceptMarketTransaction: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                transaction_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarketTransaction"];
+                };
+            };
+            /** @description Success */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
+    rejectMarketTransaction: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                transaction_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarketTransaction"];
+                };
+            };
+            /** @description Success */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
+    cancelMarketTransaction: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                transaction_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MarketCancelRequest"];
+            };
+        };
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarketTransaction"];
+                };
+            };
+            /** @description Success */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
+    confirmMarketTransaction: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                transaction_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarketTransaction"];
+                };
+            };
+            /** @description Success */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
+    openMarketDispute: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                transaction_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MarketDisputeRequest"];
+            };
+        };
+        responses: {
+            /** @description Success */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarketDisputeCreated"];
+                };
+            };
+            /** @description Success */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
+    createMarketReview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                transaction_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MarketReviewRequest"];
+            };
+        };
+        responses: {
+            /** @description Success */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarketReviewCreated"];
+                };
+            };
+            /** @description Success */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
+    listMarketDisputes: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarketDisputePage"];
+                };
+            };
+            /** @description Success */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
+    decideMarketDispute: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                dispute_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MarketDisputeDecision"];
+            };
+        };
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarketDisputeDecisionResult"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
+    getAdminSystemHealth: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Success */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
+    listMarketcategories: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminMarketOptionList"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
+    createMarketcategories: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MarketOptionInput"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminMarketOption"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
+    deleteMarketcategories: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                option_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
+    updateMarketcategories: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                option_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MarketOptionInput"];
+            };
+        };
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminMarketOption"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
+    listMarketlocations: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminMarketOptionList"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
+    createMarketlocations: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MarketOptionInput"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminMarketOption"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
+    deleteMarketlocations: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                option_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
+    updateMarketlocations: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                option_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MarketOptionInput"];
+            };
+        };
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminMarketOption"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
                 };
             };
         };

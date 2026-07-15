@@ -16,8 +16,7 @@ RUN apt-get update \
 WORKDIR /app
 COPY --from=build /out/wutong /app/wutong
 RUN useradd --create-home --uid 10001 wutong \
-    && mkdir -p /data/uploads /data/backups \
-    && chown -R wutong:wutong /app /data
+    && chown -R wutong:wutong /app
 USER wutong
 
 EXPOSE 8000

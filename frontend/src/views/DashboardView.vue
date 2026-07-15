@@ -6,6 +6,7 @@ import AttachmentGrid from '../components/AttachmentGrid.vue'
 import RichText from '../components/RichText.vue'
 import { useAuthStore } from '../stores/auth'
 import type { Announcement, FeedItem, HotItem, Page } from '../types'
+import { formatPrice } from '../market'
 
 const router = useRouter(), auth = useAuthStore()
 const hot = ref<HotItem[]>([])
@@ -121,7 +122,7 @@ onBeforeUnmount(() => { if (pollTimer) window.clearInterval(pollTimer) })
         <div class="p-head"><span class="p-avatar">{{ item.author?.slice(0, 1) || info(item.type).icon }}</span><span class="p-name">{{ item.author || info(item.type).name }}</span><span class="tag" :class="info(item.type).color">{{ info(item.type).icon }} {{ info(item.type).name }}</span><span class="p-time">{{ new Date(item.updated_at).toLocaleString() }}<small v-if="item.updated_at !== item.created_at"> · 有更新</small></span></div>
         <div v-if="item.title" class="p-title">{{ item.title }}</div><div class="p-body"><RichText :content="item.body" /></div>
         <AttachmentGrid :content="item.body" :attachments="item.attachments" />
-        <div class="p-foot"><span v-if="item.type === 'team'">🚗 {{ item.meta.game }}</span><span v-if="item.type === 'listing'">¥{{ item.meta.price }}{{ item.meta.negotiable ? ' · 可议价' : '' }}</span><span>👍 {{ item.likes }}</span><span>💬 {{ item.comments }}</span><span>⭐ {{ item.favorites }}</span><RouterLink :to="item.route">查看详情 →</RouterLink></div>
+        <div class="p-foot"><span v-if="item.type === 'team'">🚗 {{ item.meta.game }}</span><span v-if="item.type === 'listing'">¥{{ formatPrice(Number(item.meta.price_cents || 0)) }}{{ item.meta.negotiable ? ' · 可议价' : '' }}</span><span>👍 {{ item.likes }}</span><span>💬 {{ item.comments }}</span><span>⭐ {{ item.favorites }}</span><RouterLink :to="item.route">查看详情 →</RouterLink></div>
       </article>
       <p v-if="!loading && !feed.length" class="empty-state">校园里还很安静，来写下第一条动态。</p>
     </div>

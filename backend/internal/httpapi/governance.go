@@ -70,35 +70,45 @@ func (s *Server) listObserve(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	where := "e.status='published'"
+	where := "e.publication_status='published'"
 	args := []any{}
 	if viewer.ID != 0 {
 		if viewer.Role == "moderator" || viewer.Role == "admin" {
 			where = "true"
 		} else {
-			where = "(e.status='published' OR e.owner_id=$1 OR o.respondent_id=$1)"
+			where = "(e.publication_status='published' OR e.owner_id=$1 OR o.respondent_id=$1)"
 			args = append(args, viewer.ID)
 		}
 	}
 	var total int
 	_ = s.DB.QueryRow(r.Context(), "SELECT count(*) FROM observe_posts o JOIN content_entities e ON e.id=o.entity_id WHERE "+where, args...).Scan(&total)
 	args = append(args, size, (page-1)*size)
-	rows, err := s.DB.Query(r.Context(), fmt.Sprintf(`SELECT e.id,e.type,e.owner_id,e.status,e.allow_comments,e.search_visible,e.moderation_reason,e.revision,e.deleted_at,e.created_at,e.updated_at,o.entity_id,o.title,o.body_masked,o.body_raw,o.respondent_id,o.response,o.response_at,o.admin_note FROM content_entities e JOIN observe_posts o ON o.entity_id=e.id WHERE %s ORDER BY e.created_at DESC LIMIT $%d OFFSET $%d`, where, len(args)-1, len(args)), args...)
+	rows, err := s.DB.Query(r.Context(), fmt.Sprintf(`SELECT e.id,e.owner_id,e.publication_status,e.created_at,e.updated_at,o.title,o.body_masked,o.body_raw,o.respondent_id,o.response,o.admin_note,
+		COALESCE((SELECT jsonb_agg(jsonb_build_object('id',att.id,'path',att.path,'thumbnail_path',att.thumbnail_path,'width',att.width,'height',att.height) ORDER BY att.id) FROM attachments att WHERE att.entity_id=e.id AND att.status='attached' AND att.access_scope='public'),'[]'::jsonb)
+		FROM content_entities e JOIN observe_posts o ON o.entity_id=e.id WHERE %s ORDER BY e.created_at DESC LIMIT $%d OFFSET $%d`, where, len(args)-1, len(args)), args...)
 	if err != nil {
 		return err
 	}
 	defer rows.Close()
 	items := []any{}
 	for rows.Next() {
-		e, o, err := scanEntityObserve(rows)
+		var id, ownerID int64
+		var status, title, masked, raw, response, note string
+		var respondent *int64
+		var created, updated time.Time
+		var attachmentsRaw json.RawMessage
+		if err := rows.Scan(&id, &ownerID, &status, &created, &updated, &title, &masked, &raw, &respondent, &response, &note, &attachmentsRaw); err != nil {
+			return err
+		}
+		body := masked
+		if viewer.Role == "moderator" || viewer.Role == "admin" {
+			body = raw
+		}
+		attachments, err := publicAttachmentsFromJSON(attachmentsRaw)
 		if err != nil {
 			return err
 		}
-		p, err := s.observePayload(r.Context(), s.DB, e, o, userOrNil(viewer))
-		if err != nil {
-			return err
-		}
-		items = append(items, p)
+		items = append(items, map[string]any{"id": id, "title": title, "body": body, "status": status, "response": response, "admin_note": note, "mine": viewer.ID != 0 && viewer.ID == ownerID, "respondent": viewer.ID != 0 && respondent != nil && viewer.ID == *respondent, "created_at": created, "updated_at": updated, "attachments": attachments})
 	}
 	writeJSON(w, 200, pagePayload(items, page, size, total))
 	return rows.Err()
@@ -272,13 +282,6 @@ func (s *Server) appealPenalty(w http.ResponseWriter, r *http.Request) error {
 	writeJSON(w, 201, map[string]any{"id": appealID, "status": status})
 	return nil
 }
-func scanEntityObserve(row pgx.Row) (Entity, Observe, error) {
-	var e Entity
-	var o Observe
-	args := append(entityScan(&e), &o.ID, &o.Title, &o.Masked, &o.Raw, &o.Respondent, &o.Response, &o.ResponseAt, &o.AdminNote)
-	err := row.Scan(args...)
-	return e, o, err
-}
 func (s *Server) observePayload(ctx context.Context, q queryer, e Entity, o Observe, viewer *User) (map[string]any, error) {
 	body := o.Masked
 	if viewer != nil && (viewer.Role == "moderator" || viewer.Role == "admin") {
@@ -311,7 +314,12 @@ func (s *Server) listConversations(w http.ResponseWriter, r *http.Request) error
 	}
 	var total int
 	_ = s.DB.QueryRow(r.Context(), "SELECT count(*) FROM conversation_members WHERE user_id=$1", user.ID).Scan(&total)
-	rows, err := s.DB.Query(r.Context(), `SELECT c.id,c.context_type,c.context_id,c.created_at FROM conversations c JOIN conversation_members m ON m.conversation_id=c.id WHERE m.user_id=$1 ORDER BY c.id DESC LIMIT $2 OFFSET $3`, user.ID, size, (page-1)*size)
+	rows, err := s.DB.Query(r.Context(), `SELECT c.id,c.context_type,c.context_id,other.id,other.nickname,COALESCE(last_message.body,''),COALESCE(last_message.created_at,c.created_at),
+		(SELECT count(*) FROM messages message JOIN content_entities entity ON entity.id=message.entity_id WHERE message.conversation_id=c.id AND entity.owner_id<>$1 AND entity.publication_status='published' AND entity.created_at>COALESCE(m.last_read_at,c.created_at))
+		FROM conversations c JOIN conversation_members m ON m.conversation_id=c.id
+		LEFT JOIN LATERAL (SELECT u.id,u.nickname FROM conversation_members participant JOIN users u ON u.id=participant.user_id WHERE participant.conversation_id=c.id AND participant.user_id<>$1 LIMIT 1) other ON true
+		LEFT JOIN LATERAL (SELECT message.body,entity.created_at FROM messages message JOIN content_entities entity ON entity.id=message.entity_id WHERE message.conversation_id=c.id AND entity.publication_status='published' ORDER BY entity.created_at DESC LIMIT 1) last_message ON true
+		WHERE m.user_id=$1 ORDER BY c.id DESC LIMIT $2 OFFSET $3`, user.ID, size, (page-1)*size)
 	if err != nil {
 		return err
 	}
@@ -321,15 +329,19 @@ func (s *Server) listConversations(w http.ResponseWriter, r *http.Request) error
 		var id int64
 		var kind string
 		var contextID *int64
-		var created time.Time
-		if err := rows.Scan(&id, &kind, &contextID, &created); err != nil {
+		var otherID *int64
+		var otherName *string
+		var lastBody string
+		var lastAt time.Time
+		var unread int
+		if err := rows.Scan(&id, &kind, &contextID, &otherID, &otherName, &lastBody, &lastAt, &unread); err != nil {
 			return err
 		}
-		p, err := s.conversationPayload(r.Context(), s.DB, id, kind, contextID, created, user.ID)
-		if err != nil {
-			return err
+		var other any
+		if otherID != nil && otherName != nil {
+			other = map[string]any{"id": *otherID, "nickname": *otherName}
 		}
-		items = append(items, p)
+		items = append(items, map[string]any{"id": id, "context_type": kind, "context_id": contextID, "other_user": other, "last_message": truncateRunes(lastBody, 100), "last_message_at": lastAt, "unread": unread})
 	}
 	writeJSON(w, 200, pagePayload(items, page, size, total))
 	return rows.Err()
@@ -438,8 +450,8 @@ func (s *Server) listMessages(w http.ResponseWriter, r *http.Request) error {
 		return apiError(403, "CONVERSATION_MEMBER_REQUIRED", "无权查看该会话")
 	}
 	var total int
-	_ = tx.QueryRow(r.Context(), `SELECT count(*) FROM messages m JOIN content_entities e ON e.id=m.entity_id WHERE m.conversation_id=$1 AND e.status='published'`, id).Scan(&total)
-	rows, err := tx.Query(r.Context(), `SELECT e.id,m.body,e.owner_id,e.created_at FROM content_entities e JOIN messages m ON m.entity_id=e.id WHERE m.conversation_id=$1 AND e.status='published' ORDER BY e.created_at LIMIT $2 OFFSET $3`, id, size, (page-1)*size)
+	_ = tx.QueryRow(r.Context(), `SELECT count(*) FROM messages m JOIN content_entities e ON e.id=m.entity_id WHERE m.conversation_id=$1 AND e.publication_status='published'`, id).Scan(&total)
+	rows, err := tx.Query(r.Context(), `SELECT e.id,m.body,e.owner_id,e.created_at FROM content_entities e JOIN messages m ON m.entity_id=e.id WHERE m.conversation_id=$1 AND e.publication_status='published' ORDER BY e.created_at LIMIT $2 OFFSET $3`, id, size, (page-1)*size)
 	if err != nil {
 		return err
 	}
@@ -563,7 +575,7 @@ func (s *Server) contextContactAllowed(ctx context.Context, q queryer, sender, r
 	case "activity":
 		var owner int64
 		var entityStatus, activityStatus string
-		err := q.QueryRow(ctx, "SELECT e.owner_id,e.status,a.status FROM content_entities e JOIN activities a ON a.entity_id=e.id WHERE e.id=$1", *id).Scan(&owner, &entityStatus, &activityStatus)
+		err := q.QueryRow(ctx, "SELECT e.owner_id,e.publication_status,a.status FROM content_entities e JOIN activities a ON a.entity_id=e.id WHERE e.id=$1", *id).Scan(&owner, &entityStatus, &activityStatus)
 		if err != nil {
 			return false, nil
 		}
@@ -634,7 +646,7 @@ func (s *Server) conversationPayload(ctx context.Context, q queryer, id int64, k
 	_ = q.QueryRow(ctx, `SELECT u.id,u.nickname FROM conversation_members m JOIN users u ON u.id=m.user_id WHERE m.conversation_id=$1 AND m.user_id<>$2 LIMIT 1`, id, viewer).Scan(&otherID, &otherName)
 	var lastBody string
 	var lastAt time.Time
-	err := q.QueryRow(ctx, `SELECT m.body,e.created_at FROM messages m JOIN content_entities e ON e.id=m.entity_id WHERE m.conversation_id=$1 AND e.status='published' ORDER BY e.created_at DESC LIMIT 1`, id).Scan(&lastBody, &lastAt)
+	err := q.QueryRow(ctx, `SELECT m.body,e.created_at FROM messages m JOIN content_entities e ON e.id=m.entity_id WHERE m.conversation_id=$1 AND e.publication_status='published' ORDER BY e.created_at DESC LIMIT 1`, id).Scan(&lastBody, &lastAt)
 	if err == pgx.ErrNoRows {
 		lastAt = created
 	} else if err != nil {
@@ -647,7 +659,7 @@ func (s *Server) conversationPayload(ctx context.Context, q queryer, id int64, k
 		since = *readAt
 	}
 	var unread int
-	_ = q.QueryRow(ctx, `SELECT count(*) FROM messages m JOIN content_entities e ON e.id=m.entity_id WHERE m.conversation_id=$1 AND e.owner_id<>$2 AND e.status='published' AND e.created_at>$3`, id, viewer, since).Scan(&unread)
+	_ = q.QueryRow(ctx, `SELECT count(*) FROM messages m JOIN content_entities e ON e.id=m.entity_id WHERE m.conversation_id=$1 AND e.owner_id<>$2 AND e.publication_status='published' AND e.created_at>$3`, id, viewer, since).Scan(&unread)
 	var other any
 	if otherID != nil {
 		other = map[string]any{"id": *otherID, "nickname": *otherName}
@@ -866,22 +878,36 @@ func (s *Server) listCampusServices(w http.ResponseWriter, r *http.Request) erro
 		args = append(args, category)
 		where += " AND category=$1"
 	}
-	rows, err := s.DB.Query(r.Context(), "SELECT id,name,category,manager_user_id,active,created_at,updated_at FROM campus_services WHERE "+where+" ORDER BY name", args...)
+	args = append(args, viewer.ID)
+	viewerParam := len(args)
+	rows, err := s.DB.Query(r.Context(), fmt.Sprintf(`SELECT service.id,service.name,service.category,service.manager_user_id,service.active,service.created_at,service.updated_at,
+		(SELECT count(*) FROM campus_service_ratings rating WHERE rating.service_id=service.id),
+		(SELECT avg(rating.rating)::float8 FROM campus_service_ratings rating WHERE rating.service_id=service.id),
+		(SELECT max(rating.created_at) FROM campus_service_ratings rating WHERE rating.service_id=service.id AND rating.user_id=$%d)
+		FROM campus_services service WHERE %s ORDER BY service.name`, viewerParam, strings.ReplaceAll(where, "active", "service.active")), args...)
 	if err != nil {
 		return err
 	}
 	defer rows.Close()
 	items := []any{}
 	for rows.Next() {
-		service, err := scanCampusService(rows)
-		if err != nil {
+		var service CampusService
+		var count int
+		var average *float64
+		var latest *time.Time
+		if err := rows.Scan(&service.ID, &service.Name, &service.Category, &service.Manager, &service.Active, &service.Created, &service.Updated, &count, &average, &latest); err != nil {
 			return err
 		}
-		p, err := s.campusServicePayload(r.Context(), s.DB, service, userOrNil(viewer), false)
-		if err != nil {
-			return err
+		var score any
+		if average != nil {
+			score = mathRound(*average*10) / 10
 		}
-		items = append(items, p)
+		var next any
+		if latest != nil {
+			next = latest.Add(30 * 24 * time.Hour)
+		}
+		managed := viewer.ID != 0 && ((service.Manager != nil && *service.Manager == viewer.ID) || viewer.Role == "moderator" || viewer.Role == "admin")
+		items = append(items, map[string]any{"id": service.ID, "name": service.Name, "category": service.Category, "score": score, "rating_count": count, "managed_by_me": managed, "next_rating_at": next})
 	}
 	writeJSON(w, 200, map[string]any{"items": items, "total": len(items)})
 	return rows.Err()
@@ -1140,21 +1166,23 @@ func (s *Server) campusServicePayload(ctx context.Context, q queryer, service Ca
 	}
 	p := map[string]any{"id": service.ID, "name": service.Name, "category": service.Category, "score": score, "rating_count": count, "managed_by_me": viewer != nil && ((service.Manager != nil && *service.Manager == viewer.ID) || viewer.Role == "moderator" || viewer.Role == "admin"), "next_rating_at": next}
 	if include {
-		rows, err := q.Query(ctx, "SELECT id FROM campus_service_ratings WHERE service_id=$1 ORDER BY created_at DESC LIMIT 50", service.ID)
+		rows, err := q.Query(ctx, `SELECT rating.id,rating.rating,rating.body,COALESCE(author.nickname,'已注销用户'),rating.response,COALESCE(responder.nickname,''),rating.created_at,rating.responded_at
+			FROM campus_service_ratings rating LEFT JOIN users author ON author.id=rating.user_id LEFT JOIN users responder ON responder.id=rating.responder_id
+			WHERE rating.service_id=$1 ORDER BY rating.created_at DESC LIMIT 50`, service.ID)
 		if err != nil {
 			return nil, err
 		}
 		ratings := []any{}
 		for rows.Next() {
 			var id int64
-			if err := rows.Scan(&id); err != nil {
+			var rating int
+			var body, author, response, responder string
+			var created time.Time
+			var responded *time.Time
+			if err := rows.Scan(&id, &rating, &body, &author, &response, &responder, &created, &responded); err != nil {
 				return nil, err
 			}
-			x, err := s.campusRatingPayload(ctx, q, id)
-			if err != nil {
-				return nil, err
-			}
-			ratings = append(ratings, x)
+			ratings = append(ratings, map[string]any{"id": id, "rating": rating, "body": body, "author": author, "response": response, "responder": responder, "created_at": created, "responded_at": responded})
 		}
 		rows.Close()
 		p["ratings"] = ratings

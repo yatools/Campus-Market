@@ -47,10 +47,32 @@ func (s *Server) registerModuleRoutes(r chi.Router) {
 	r.Post("/course-offerings", s.handle(s.createCourseOffering))
 	r.Post("/course-reviews", s.handle(s.createCourseReview))
 	r.Post("/course-reviews/{reviewID}/correction", s.handle(s.correctCourseReview))
-	r.Get("/listings", s.handle(s.listListings))
-	r.Post("/listings", s.handle(s.createListing))
-	r.Patch("/listings/{listingID}/status", s.handle(s.updateListingStatus))
-	r.Patch("/listings/{listingID}", s.handle(s.updateListing))
+	r.Get("/market/options", s.handle(s.marketOptions))
+	r.Get("/listings", s.handle(s.listMarketListings))
+	r.Post("/listings", s.handle(s.createMarketListing))
+	r.Get("/listings/{listingID}", s.handle(s.getMarketListing))
+	r.Patch("/listings/{listingID}", s.handle(s.updateMarketListing))
+	r.Post("/listings/{listingID}/cancel", s.handle(s.cancelMarketListing))
+	r.Post("/listings/{listingID}/transactions", s.handle(s.requestMarketTransaction))
+	r.Get("/listings/{listingID}/transactions", s.handle(s.listListingTransactions))
+	r.Get("/me/market-transactions", s.handle(s.listMyMarketTransactions))
+	r.Get("/market-transactions/{transactionID}", s.handle(s.getMarketTransaction))
+	r.Post("/market-transactions/{transactionID}/accept", s.handle(s.acceptMarketTransaction))
+	r.Post("/market-transactions/{transactionID}/reject", s.handle(s.rejectMarketTransaction))
+	r.Post("/market-transactions/{transactionID}/cancel", s.handle(s.cancelMarketTransaction))
+	r.Post("/market-transactions/{transactionID}/confirm", s.handle(s.confirmMarketTransaction))
+	r.Post("/market-transactions/{transactionID}/disputes", s.handle(s.openMarketDispute))
+	r.Post("/market-transactions/{transactionID}/reviews", s.handle(s.createMarketReview))
+	r.Get("/admin/market/disputes", s.handle(s.listMarketDisputes))
+	r.Post("/admin/market/disputes/{disputeID}/decision", s.handle(s.decideMarketDispute))
+	r.Get("/admin/market/categories", s.handle(s.adminMarketCategories))
+	r.Post("/admin/market/categories", s.handle(s.createMarketCategory))
+	r.Patch("/admin/market/categories/{optionID}", s.handle(s.updateMarketCategory))
+	r.Delete("/admin/market/categories/{optionID}", s.handle(s.deleteMarketCategory))
+	r.Get("/admin/market/locations", s.handle(s.adminMarketLocations))
+	r.Post("/admin/market/locations", s.handle(s.createMarketLocation))
+	r.Patch("/admin/market/locations/{optionID}", s.handle(s.updateMarketLocation))
+	r.Delete("/admin/market/locations/{optionID}", s.handle(s.deleteMarketLocation))
 	r.Get("/activities", s.handle(s.listActivities))
 	r.Post("/activities", s.handle(s.createActivity))
 	r.Patch("/activities/{activityID}", s.handle(s.updateActivity))
@@ -95,7 +117,7 @@ func (s *Server) listQuestions(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	where := "e.status='published'"
+	where := "e.publication_status='published' AND e.moderation_status='approved'"
 	args := []any{}
 	if category := r.URL.Query().Get("category"); category != "" {
 		if len(category) > 60 {
@@ -109,22 +131,42 @@ func (s *Server) listQuestions(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	args = append(args, size, (page-1)*size)
-	rows, err := s.DB.Query(r.Context(), fmt.Sprintf(`SELECT e.id,e.type,e.owner_id,e.status,e.allow_comments,e.search_visible,e.moderation_reason,e.revision,e.deleted_at,e.created_at,e.updated_at,q.entity_id,q.title,q.body,q.category,q.tags,q.bounty_xp,q.bounty_settled,q.accepted_answer_id FROM content_entities e JOIN questions q ON q.entity_id=e.id WHERE %s ORDER BY e.created_at DESC LIMIT $%d OFFSET $%d`, where, len(args)-1, len(args)), args...)
+	rows, err := s.DB.Query(r.Context(), fmt.Sprintf(`SELECT e.id,e.owner_id,e.publication_status,e.created_at,e.updated_at,q.title,q.body,q.category,q.tags,q.bounty_xp,q.accepted_answer_id,u.nickname,
+		(SELECT count(*) FROM answers a JOIN content_entities ae ON ae.id=a.entity_id WHERE a.question_id=e.id AND ae.publication_status='published' AND ae.moderation_status='approved') answer_count,
+		COALESCE((SELECT jsonb_agg(jsonb_build_object('id',a.id,'path',a.path,'thumbnail_path',a.thumbnail_path,'width',a.width,'height',a.height) ORDER BY a.id) FROM attachments a WHERE a.entity_id=e.id AND a.status='attached' AND a.access_scope='public'),'[]'::jsonb),
+		COALESCE((SELECT jsonb_build_object('id',ae.id,'body',ans.body,'author',au.nickname,'attachments','[]'::jsonb) FROM answers ans JOIN content_entities ae ON ae.id=ans.entity_id JOIN users au ON au.id=ae.owner_id WHERE ae.id=q.accepted_answer_id AND ae.publication_status='published'),'null'::jsonb)
+		FROM content_entities e JOIN questions q ON q.entity_id=e.id JOIN users u ON u.id=e.owner_id WHERE %s ORDER BY e.created_at DESC LIMIT $%d OFFSET $%d`, where, len(args)-1, len(args)), args...)
 	if err != nil {
 		return err
 	}
 	defer rows.Close()
 	items := []any{}
 	for rows.Next() {
-		e, q, err := scanEntityQuestion(rows)
-		if err != nil {
+		var id, ownerID int64
+		var status, title, body, category, tags, author string
+		var created, updated time.Time
+		var bounty, answerCount int
+		var acceptedID *int64
+		var attachmentsRaw, acceptedRaw json.RawMessage
+		if err := rows.Scan(&id, &ownerID, &status, &created, &updated, &title, &body, &category, &tags, &bounty, &acceptedID, &author, &answerCount, &attachmentsRaw, &acceptedRaw); err != nil {
 			return err
 		}
-		p, err := s.questionPayload(r.Context(), s.DB, e, q, userOrNil(viewer), false)
-		if err != nil {
-			return err
+		var attachments []map[string]any
+		_ = json.Unmarshal(attachmentsRaw, &attachments)
+		for _, attachment := range attachments {
+			attachment["url"] = "/uploads/" + fmt.Sprint(attachment["path"])
+			attachment["thumbnail_url"] = "/uploads/" + fmt.Sprint(attachment["thumbnail_path"])
+			delete(attachment, "path")
+			delete(attachment, "thumbnail_path")
 		}
-		items = append(items, p)
+		answers := []any{}
+		if string(acceptedRaw) != "null" {
+			var accepted map[string]any
+			if json.Unmarshal(acceptedRaw, &accepted) == nil {
+				answers = append(answers, accepted)
+			}
+		}
+		items = append(items, map[string]any{"id": id, "title": title, "body": body, "category": category, "tags": splitCSV(tags), "bounty_xp": bounty, "accepted_answer_id": acceptedID, "author": author, "answer_count": answerCount, "mine": viewer.ID != 0 && viewer.ID == ownerID, "status": status, "created_at": created, "updated_at": updated, "attachments": attachments, "answers": answers})
 	}
 	writeJSON(w, 200, pagePayload(items, page, size, total))
 	return rows.Err()
@@ -167,23 +209,23 @@ func (s *Server) createQuestion(w http.ResponseWriter, r *http.Request) error {
 	if len(fields) > 0 {
 		return validationFields(fields)
 	}
-	if body.Bounty > user.XP {
-		return apiError(400, "XP_NOT_ENOUGH", "经验余额不足以支付悬赏")
-	}
 	tx, err := s.DB.Begin(r.Context())
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(r.Context())
+	var remainingXP int
+	if err := tx.QueryRow(r.Context(), `UPDATE users SET xp=xp-$1,updated_at=now() WHERE id=$2 AND xp >= $1 RETURNING xp`, body.Bounty, user.ID).Scan(&remainingXP); err == pgx.ErrNoRows {
+		return apiError(400, "XP_NOT_ENOUGH", "经验余额不足以支付悬赏")
+	} else if err != nil {
+		return err
+	}
 	e, _, err := s.createEntity(r.Context(), tx, user.ID, "question", body.Title+"\n"+body.Body, true, true, false)
 	if err != nil {
 		return err
 	}
 	tags := strings.Join(cleanStrings(body.Tags, 80), ",")
 	if _, err := tx.Exec(r.Context(), `INSERT INTO questions(entity_id,title,body,category,tags,bounty_xp,bounty_settled) VALUES($1,$2,$3,$4,$5,$6,false)`, e.ID, strings.TrimSpace(body.Title), strings.TrimSpace(body.Body), strings.TrimSpace(body.Category), tags, body.Bounty); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(r.Context(), "UPDATE users SET xp=xp-$1,updated_at=now() WHERE id=$2", body.Bounty, user.ID); err != nil {
 		return err
 	}
 	if err := s.attachUploads(r.Context(), tx, user.ID, e.ID, body.AttachmentIDs); err != nil {
@@ -452,13 +494,6 @@ func (s *Server) acceptAnswer(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-func scanEntityQuestion(row pgx.Row) (Entity, Question, error) {
-	var e Entity
-	var q Question
-	args := append(entityScan(&e), &q.ID, &q.Title, &q.Body, &q.Category, &q.Tags, &q.Bounty, &q.Settled, &q.Accepted)
-	err := row.Scan(args...)
-	return e, q, err
-}
 func (s *Server) answerPayload(ctx context.Context, qry queryer, e Entity, a Answer, viewer *User) (map[string]any, error) {
 	author, err := s.authorName(ctx, qry, e, "nickname", e.ID)
 	if err != nil {
@@ -471,7 +506,7 @@ func (s *Server) answerPayload(ctx context.Context, qry queryer, e Entity, a Ans
 	return map[string]any{"id": e.ID, "body": a.Body, "author": author, "mine": viewer != nil && e.OwnerID == viewer.ID, "status": e.Status, "created_at": e.CreatedAt, "updated_at": e.UpdatedAt, "attachments": files}, nil
 }
 func (s *Server) questionPayload(ctx context.Context, qry queryer, e Entity, q Question, viewer *User, detail bool) (map[string]any, error) {
-	rows, err := qry.Query(ctx, `SELECT e.id,e.type,e.owner_id,e.status,e.allow_comments,e.search_visible,e.moderation_reason,e.revision,e.deleted_at,e.created_at,e.updated_at,a.entity_id,a.question_id,a.body FROM content_entities e JOIN answers a ON a.entity_id=e.id WHERE a.question_id=$1 AND e.status='published' ORDER BY e.created_at`, e.ID)
+	rows, err := qry.Query(ctx, `SELECT e.id,e.type,e.owner_id,e.publication_status,e.allow_comments,e.search_visible,e.moderation_reason,e.revision,e.deleted_at,e.created_at,e.updated_at,a.entity_id,a.question_id,a.body FROM content_entities e JOIN answers a ON a.entity_id=e.id WHERE a.question_id=$1 AND e.publication_status='published' ORDER BY e.created_at`, e.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -520,6 +555,21 @@ func scanArticle(row pgx.Row) (Article, error) {
 	err := row.Scan(&a.ID, &a.Category, &a.Title, &a.Body, &a.Featured, &a.Rewarded)
 	return a, err
 }
+
+func publicAttachmentsFromJSON(raw json.RawMessage) ([]map[string]any, error) {
+	attachments := []map[string]any{}
+	if err := json.Unmarshal(raw, &attachments); err != nil {
+		return nil, err
+	}
+	for _, attachment := range attachments {
+		attachment["url"] = "/uploads/" + fmt.Sprint(attachment["path"])
+		attachment["thumbnail_url"] = "/uploads/" + fmt.Sprint(attachment["thumbnail_path"])
+		delete(attachment, "path")
+		delete(attachment, "thumbnail_path")
+	}
+	return attachments, nil
+}
+
 func (s *Server) listHandbook(w http.ResponseWriter, r *http.Request) error {
 	page, size, err := pagination(r, 20, 50)
 	if err != nil {
@@ -529,7 +579,7 @@ func (s *Server) listHandbook(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	where := "e.status='published'"
+	where := "e.publication_status='published'"
 	args := []any{}
 	if category := r.URL.Query().Get("category"); category != "" {
 		args = append(args, category)
@@ -538,22 +588,30 @@ func (s *Server) listHandbook(w http.ResponseWriter, r *http.Request) error {
 	var total int
 	_ = s.DB.QueryRow(r.Context(), "SELECT count(*) FROM handbook_articles a JOIN content_entities e ON e.id=a.entity_id WHERE "+where, args...).Scan(&total)
 	args = append(args, size, (page-1)*size)
-	rows, err := s.DB.Query(r.Context(), fmt.Sprintf(`SELECT e.id,e.type,e.owner_id,e.status,e.allow_comments,e.search_visible,e.moderation_reason,e.revision,e.deleted_at,e.created_at,e.updated_at,a.entity_id,a.category,a.title,a.body,a.featured_at,a.featured_rewarded FROM content_entities e JOIN handbook_articles a ON a.entity_id=e.id WHERE %s ORDER BY a.featured_at DESC NULLS LAST,e.created_at DESC LIMIT $%d OFFSET $%d`, where, len(args)-1, len(args)), args...)
+	rows, err := s.DB.Query(r.Context(), fmt.Sprintf(`SELECT e.id,e.owner_id,e.publication_status,e.created_at,e.updated_at,a.category,a.title,a.body,a.featured_at,u.nickname,
+		(SELECT count(*) FROM favorites f WHERE f.entity_id=e.id),
+		COALESCE((SELECT jsonb_agg(jsonb_build_object('id',att.id,'path',att.path,'thumbnail_path',att.thumbnail_path,'width',att.width,'height',att.height) ORDER BY att.id) FROM attachments att WHERE att.entity_id=e.id AND att.status='attached' AND att.access_scope='public'),'[]'::jsonb)
+		FROM content_entities e JOIN handbook_articles a ON a.entity_id=e.id JOIN users u ON u.id=e.owner_id WHERE %s ORDER BY a.featured_at DESC NULLS LAST,e.created_at DESC LIMIT $%d OFFSET $%d`, where, len(args)-1, len(args)), args...)
 	if err != nil {
 		return err
 	}
 	defer rows.Close()
 	items := []any{}
 	for rows.Next() {
-		e, a, err := scanEntityArticle(rows)
+		var id, ownerID int64
+		var status, category, title, body, author string
+		var created, updated time.Time
+		var featured *time.Time
+		var favorites int
+		var attachmentsRaw json.RawMessage
+		if err := rows.Scan(&id, &ownerID, &status, &created, &updated, &category, &title, &body, &featured, &author, &favorites, &attachmentsRaw); err != nil {
+			return err
+		}
+		attachments, err := publicAttachmentsFromJSON(attachmentsRaw)
 		if err != nil {
 			return err
 		}
-		p, err := s.articlePayload(r.Context(), s.DB, e, a, userOrNil(viewer))
-		if err != nil {
-			return err
-		}
-		items = append(items, p)
+		items = append(items, map[string]any{"id": id, "category": category, "title": title, "body": body, "featured": featured != nil, "author": author, "mine": viewer.ID != 0 && viewer.ID == ownerID, "status": status, "favorite_count": favorites, "attachments": attachments, "created_at": created, "updated_at": updated})
 	}
 	writeJSON(w, 200, pagePayload(items, page, size, total))
 	return rows.Err()
@@ -594,7 +652,7 @@ func (s *Server) createHandbook(w http.ResponseWriter, r *http.Request) error {
 	}
 	if body.Draft {
 		e.Status = "draft"
-		_, _ = tx.Exec(r.Context(), "UPDATE content_entities SET status='draft' WHERE id=$1", e.ID)
+		_, _ = tx.Exec(r.Context(), "UPDATE content_entities SET publication_status='draft' WHERE id=$1", e.ID)
 	}
 	a := Article{ID: e.ID, Category: strings.TrimSpace(body.Category), Title: strings.TrimSpace(body.Title), Body: strings.TrimSpace(body.Body)}
 	if _, err := tx.Exec(r.Context(), "INSERT INTO handbook_articles(entity_id,category,title,body,featured_rewarded) VALUES($1,$2,$3,$4,false)", e.ID, a.Category, a.Title, a.Body); err != nil {
@@ -731,13 +789,19 @@ func (s *Server) publishHandbook(w http.ResponseWriter, r *http.Request) error {
 		return apiError(403, "NOT_OWNER", "只有作者可以发布草稿")
 	}
 	if e.Status == "draft" {
-		status, reason, _, err := s.moderate(r.Context(), tx, a.Title+"\n"+a.Body, false)
+		moderationStatus, reason, _, err := s.moderate(r.Context(), tx, a.Title+"\n"+a.Body, false)
 		if err != nil {
 			return err
 		}
-		e.Status = status
+		publicationStatus := "published"
+		storedModerationStatus := "approved"
+		if moderationStatus == "pending" {
+			publicationStatus = "hidden"
+			storedModerationStatus = "pending"
+		}
+		e.Status = publicationStatus
 		e.ModerationReason = reason
-		_, err = tx.Exec(r.Context(), "UPDATE content_entities SET status=$1,moderation_reason=$2,updated_at=now() WHERE id=$3", status, reason, id)
+		_, err = tx.Exec(r.Context(), "UPDATE content_entities SET publication_status=$1,moderation_status=$2,moderation_reason=$3,updated_at=now() WHERE id=$4", publicationStatus, storedModerationStatus, reason, id)
 		if err != nil {
 			return err
 		}
@@ -792,13 +856,6 @@ func (s *Server) featureHandbook(w http.ResponseWriter, r *http.Request) error {
 	writeJSON(w, 200, map[string]any{"ok": true})
 	return nil
 }
-func scanEntityArticle(row pgx.Row) (Entity, Article, error) {
-	var e Entity
-	var a Article
-	args := append(entityScan(&e), &a.ID, &a.Category, &a.Title, &a.Body, &a.Featured, &a.Rewarded)
-	err := row.Scan(args...)
-	return e, a, err
-}
 func (s *Server) articlePayload(ctx context.Context, q queryer, e Entity, a Article, viewer *User) (map[string]any, error) {
 	author, err := s.authorName(ctx, q, e, "nickname", e.ID)
 	if err != nil {
@@ -821,23 +878,63 @@ func (s *Server) listCourseOfferings(w http.ResponseWriter, r *http.Request) err
 	}
 	var total int
 	_ = s.DB.QueryRow(r.Context(), "SELECT count(*) FROM course_offerings").Scan(&total)
-	rows, err := s.DB.Query(r.Context(), "SELECT id,course_id,semester,section FROM course_offerings ORDER BY semester DESC LIMIT $1 OFFSET $2", size, (page-1)*size)
+	rows, err := s.DB.Query(r.Context(), `SELECT o.id,c.name,c.teacher,o.semester,o.section,stats.review_count,stats.rating_sum,
+		COALESCE(top_tags.items,'[]'::jsonb),COALESCE(recent_reviews.items,'[]'::jsonb)
+		FROM course_offerings o
+		JOIN courses c ON c.id=o.course_id
+		LEFT JOIN LATERAL (
+			SELECT count(*)::int review_count,COALESCE(sum(r.rating),0)::int rating_sum
+			FROM course_reviews r JOIN content_entities e ON e.id=r.entity_id
+			WHERE r.offering_id=o.id AND e.publication_status='published'
+		) stats ON true
+		LEFT JOIN LATERAL (
+			SELECT jsonb_agg(tag ORDER BY frequency DESC,tag) items FROM (
+				SELECT tag,count(*) frequency FROM course_reviews r JOIN content_entities e ON e.id=r.entity_id
+				CROSS JOIN LATERAL regexp_split_to_table(r.tags,',') tag
+				WHERE r.offering_id=o.id AND e.publication_status='published' AND r.tags<>''
+				GROUP BY tag ORDER BY frequency DESC,tag LIMIT 5
+			) ranked_tags
+		) top_tags ON true
+		LEFT JOIN LATERAL (
+			SELECT jsonb_agg(jsonb_build_object('id',review.id,'rating',review.rating,'tags',string_to_array(review.tags,','),'body',review.body,'correction',review.correction,'attachments',review.attachments) ORDER BY review.created_at) items
+			FROM (
+				SELECT r.entity_id id,r.rating,r.tags,r.body,r.correction,e.created_at,
+					COALESCE((SELECT jsonb_agg(jsonb_build_object('id',att.id,'url','/uploads/'||att.path,'thumbnail_url','/uploads/'||att.thumbnail_path,'width',att.width,'height',att.height) ORDER BY att.id) FROM attachments att WHERE att.entity_id=e.id AND att.status='attached' AND att.access_scope='public'),'[]'::jsonb) attachments
+				FROM course_reviews r JOIN content_entities e ON e.id=r.entity_id
+				WHERE r.offering_id=o.id AND e.publication_status='published'
+				ORDER BY e.created_at DESC LIMIT 10
+			) review
+		) recent_reviews ON true
+		ORDER BY o.semester DESC LIMIT $1 OFFSET $2`, size, (page-1)*size)
 	if err != nil {
 		return err
 	}
 	defer rows.Close()
 	items := []any{}
 	for rows.Next() {
-		var id, course int64
-		var semester, section string
-		if err := rows.Scan(&id, &course, &semester, &section); err != nil {
+		var id int64
+		var course, teacher, semester, section string
+		var reviewCount, ratingSum int
+		var tagsRaw, reviewsRaw json.RawMessage
+		if err := rows.Scan(&id, &course, &teacher, &semester, &section, &reviewCount, &ratingSum, &tagsRaw, &reviewsRaw); err != nil {
 			return err
 		}
-		p, err := s.offeringPayload(r.Context(), s.DB, id, course, semester, section)
-		if err != nil {
+		tags := []string{}
+		if err := json.Unmarshal(tagsRaw, &tags); err != nil {
 			return err
 		}
-		items = append(items, p)
+		reviews := []map[string]any{}
+		if err := json.Unmarshal(reviewsRaw, &reviews); err != nil {
+			return err
+		}
+		var score any
+		var reason any
+		if reviewCount >= 5 {
+			score = mathRound(float64(ratingSum)*10/float64(reviewCount)) / 10
+		} else {
+			reason = "评价不足 5 条，暂不显示分数"
+		}
+		items = append(items, map[string]any{"id": id, "course": course, "teacher": teacher, "semester": semester, "section": section, "review_count": reviewCount, "tags": tags, "score": score, "score_hidden_reason": reason, "reviews": reviews})
 	}
 	writeJSON(w, 200, pagePayload(items, page, size, total))
 	return rows.Err()
@@ -1024,7 +1121,7 @@ func (s *Server) offeringPayload(ctx context.Context, q queryer, id, courseID in
 	if err := q.QueryRow(ctx, "SELECT name,teacher FROM courses WHERE id=$1", courseID).Scan(&course, &teacher); err != nil {
 		return nil, err
 	}
-	rows, err := q.Query(ctx, `SELECT r.entity_id,r.rating,r.tags,r.body,r.correction FROM course_reviews r JOIN content_entities e ON e.id=r.entity_id WHERE r.offering_id=$1 AND e.status='published' ORDER BY e.created_at`, id)
+	rows, err := q.Query(ctx, `SELECT r.entity_id,r.rating,r.tags,r.body,r.correction FROM course_reviews r JOIN content_entities e ON e.id=r.entity_id WHERE r.offering_id=$1 AND e.publication_status='published' ORDER BY e.created_at`, id)
 	if err != nil {
 		return nil, err
 	}
@@ -1081,297 +1178,6 @@ func (s *Server) offeringPayload(ctx context.Context, q queryer, id, courseID in
 	return map[string]any{"id": id, "course": course, "teacher": teacher, "semester": semester, "section": section, "review_count": count, "tags": tags, "score": score, "score_hidden_reason": reason, "reviews": reviews}, nil
 }
 
-// Listings.
-type Listing struct {
-	ID                           int64
-	Category, Title, Description string
-	Price                        float64
-	Condition                    string
-	Negotiable                   bool
-	Purchased                    *time.Time
-	Location, Status             string
-}
-
-const listingSelect = `SELECT entity_id,category,title,description,price,condition,negotiable,purchased_at,location,trade_status FROM listings`
-
-func scanListing(row pgx.Row) (Listing, error) {
-	var l Listing
-	err := row.Scan(&l.ID, &l.Category, &l.Title, &l.Description, &l.Price, &l.Condition, &l.Negotiable, &l.Purchased, &l.Location, &l.Status)
-	return l, err
-}
-func (s *Server) listListings(w http.ResponseWriter, r *http.Request) error {
-	page, size, err := pagination(r, 20, 50)
-	if err != nil {
-		return err
-	}
-	viewer, _, err := s.currentUser(w, r, false)
-	if err != nil {
-		return err
-	}
-	where := "e.status='published' AND l.trade_status=ANY($1)"
-	args := []any{[]string{"available", "reserved"}}
-	if category := r.URL.Query().Get("category"); category != "" {
-		args = append(args, category)
-		where += " AND l.category=$2"
-	}
-	var total int
-	_ = s.DB.QueryRow(r.Context(), "SELECT count(*) FROM listings l JOIN content_entities e ON e.id=l.entity_id WHERE "+where, args...).Scan(&total)
-	args = append(args, size, (page-1)*size)
-	rows, err := s.DB.Query(r.Context(), fmt.Sprintf(`SELECT e.id,e.type,e.owner_id,e.status,e.allow_comments,e.search_visible,e.moderation_reason,e.revision,e.deleted_at,e.created_at,e.updated_at,l.entity_id,l.category,l.title,l.description,l.price,l.condition,l.negotiable,l.purchased_at,l.location,l.trade_status FROM content_entities e JOIN listings l ON l.entity_id=e.id WHERE %s ORDER BY e.created_at DESC LIMIT $%d OFFSET $%d`, where, len(args)-1, len(args)), args...)
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
-	items := []any{}
-	for rows.Next() {
-		e, l, err := scanEntityListing(rows)
-		if err != nil {
-			return err
-		}
-		p, err := s.listingPayload(r.Context(), s.DB, e, l, userOrNil(viewer))
-		if err != nil {
-			return err
-		}
-		items = append(items, p)
-	}
-	writeJSON(w, 200, pagePayload(items, page, size, total))
-	return rows.Err()
-}
-func (s *Server) createListing(w http.ResponseWriter, r *http.Request) error {
-	user, _, err := s.participatingUser(w, r)
-	if err != nil {
-		return err
-	}
-	var body struct {
-		Category, Title, Description string
-		Price                        float64   `json:"price"`
-		Condition                    string    `json:"condition"`
-		Negotiable                   *bool     `json:"negotiable"`
-		Purchased                    *JSONDate `json:"purchased_at"`
-		Location                     string    `json:"location"`
-		AttachmentIDs                []int64   `json:"attachment_ids"`
-	}
-	if err := decodeBody(r, &body); err != nil {
-		return err
-	}
-	negotiable := true
-	if body.Negotiable != nil {
-		negotiable = *body.Negotiable
-	}
-	if runeLen(strings.TrimSpace(body.Title)) < 3 || runeLen(strings.TrimSpace(body.Description)) < 5 || body.Price < 0 || body.Price > 1_000_000 {
-		return validation("request", "商品信息无效")
-	}
-	tx, err := s.DB.Begin(r.Context())
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(r.Context())
-	if err := s.requireCredit(r.Context(), tx, user, "threshold.listing_publish", "发布商品"); err != nil {
-		return err
-	}
-	e, _, err := s.createEntity(r.Context(), tx, user.ID, "listing", body.Title+"\n"+body.Description, true, true, false)
-	if err != nil {
-		return err
-	}
-	var purchased *time.Time
-	if body.Purchased != nil {
-		value := body.Purchased.Time
-		purchased = &value
-	}
-	l := Listing{ID: e.ID, Category: strings.TrimSpace(body.Category), Title: strings.TrimSpace(body.Title), Description: strings.TrimSpace(body.Description), Price: body.Price, Condition: strings.TrimSpace(body.Condition), Negotiable: negotiable, Purchased: purchased, Location: strings.TrimSpace(body.Location), Status: "available"}
-	if _, err := tx.Exec(r.Context(), `INSERT INTO listings(entity_id,category,title,description,price,condition,negotiable,purchased_at,location,trade_status) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,'available')`, l.ID, l.Category, l.Title, l.Description, l.Price, l.Condition, l.Negotiable, l.Purchased, l.Location); err != nil {
-		return err
-	}
-	if err := s.attachUploads(r.Context(), tx, user.ID, e.ID, body.AttachmentIDs); err != nil {
-		return err
-	}
-	p, err := s.listingPayload(r.Context(), tx, e, l, &user)
-	if err != nil {
-		return err
-	}
-	if err := tx.Commit(r.Context()); err != nil {
-		return err
-	}
-	writeJSON(w, 201, p)
-	return nil
-}
-func (s *Server) updateListingStatus(w http.ResponseWriter, r *http.Request) error {
-	id, _ := pathID(r, "listingID")
-	user, _, err := s.currentUser(w, r, true)
-	if err != nil {
-		return err
-	}
-	var body struct {
-		Status string `json:"status"`
-	}
-	if err := decodeBody(r, &body); err != nil {
-		return err
-	}
-	valid := map[string]bool{"available": true, "reserved": true, "sold": true, "offline": true}
-	if !valid[body.Status] {
-		return validation("status", "Value error, 商品状态无效")
-	}
-	tx, err := s.DB.Begin(r.Context())
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(r.Context())
-	e, err := getEntityForUpdate(r.Context(), tx, id)
-	if err != nil {
-		return apiError(404, "LISTING_NOT_FOUND", "商品不存在")
-	}
-	l, err := scanListing(tx.QueryRow(r.Context(), listingSelect+" WHERE entity_id=$1", id))
-	if err != nil {
-		return apiError(404, "LISTING_NOT_FOUND", "商品不存在")
-	}
-	if e.OwnerID != user.ID && user.Role != "moderator" && user.Role != "admin" {
-		return apiError(403, "NOT_SELLER", "只有卖家可以修改商品状态")
-	}
-	l.Status = body.Status
-	if _, err := tx.Exec(r.Context(), "UPDATE listings SET trade_status=$1 WHERE entity_id=$2", body.Status, id); err != nil {
-		return err
-	}
-	if body.Status == "offline" {
-		e.Status = "hidden"
-	}
-	_, _ = tx.Exec(r.Context(), "UPDATE content_entities SET status=$1,updated_at=now() WHERE id=$2", e.Status, id)
-	actor := user.ID
-	_ = auditSQL(r.Context(), tx, &actor, "listing.status", "listing", id, "", nil, map[string]any{"status": body.Status}, requestID(r.Context()))
-	p, err := s.listingPayload(r.Context(), tx, e, l, &user)
-	if err != nil {
-		return err
-	}
-	if err := tx.Commit(r.Context()); err != nil {
-		return err
-	}
-	writeJSON(w, 200, p)
-	return nil
-}
-func (s *Server) updateListing(w http.ResponseWriter, r *http.Request) error {
-	id, _ := pathID(r, "listingID")
-	user, _, err := s.participatingUser(w, r)
-	if err != nil {
-		return err
-	}
-	var raw map[string]json.RawMessage
-	if err := decodeBody(r, &raw); err != nil {
-		return err
-	}
-	tx, err := s.DB.Begin(r.Context())
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(r.Context())
-	e, err := getEntityForUpdate(r.Context(), tx, id)
-	if err != nil {
-		return apiError(404, "LISTING_NOT_FOUND", "商品不存在")
-	}
-	l, err := scanListing(tx.QueryRow(r.Context(), listingSelect+" WHERE entity_id=$1", id))
-	if err != nil {
-		return apiError(404, "LISTING_NOT_FOUND", "商品不存在")
-	}
-	if e.OwnerID != user.ID {
-		return apiError(403, "NOT_SELLER", "只有卖家可以修改商品")
-	}
-	changed := false
-	for key, dest := range map[string]*string{"category": &l.Category, "title": &l.Title, "description": &l.Description, "condition": &l.Condition, "location": &l.Location} {
-		if v, ok := raw[key]; ok {
-			var x string
-			if json.Unmarshal(v, &x) != nil {
-				return validation(key, "Input should be a valid string")
-			}
-			*dest = strings.TrimSpace(x)
-			changed = true
-		}
-	}
-	if v, ok := raw["price"]; ok {
-		if json.Unmarshal(v, &l.Price) != nil || l.Price < 0 || l.Price > 1_000_000 {
-			return validation("price", "Input should be between 0 and 1000000")
-		}
-		changed = true
-	}
-	if v, ok := raw["negotiable"]; ok {
-		if json.Unmarshal(v, &l.Negotiable) != nil {
-			return validation("negotiable", "Input should be a valid boolean")
-		}
-		changed = true
-	}
-	if v, ok := raw["purchased_at"]; ok {
-		if string(v) == "null" {
-			l.Purchased = nil
-		} else {
-			var x JSONDate
-			if json.Unmarshal(v, &x) != nil {
-				return validation("purchased_at", "Input should be a valid date")
-			}
-			l.Purchased = &x.Time
-		}
-		changed = true
-	}
-	var attachments []int64
-	if v, ok := raw["attachment_ids"]; ok {
-		_ = json.Unmarshal(v, &attachments)
-	}
-	if changed {
-		if err := recordRevision(r.Context(), tx, e, user.ID, l.Title, l.Description); err != nil {
-			return err
-		}
-		if _, err := tx.Exec(r.Context(), "UPDATE listings SET category=$1,title=$2,description=$3,price=$4,condition=$5,negotiable=$6,purchased_at=$7,location=$8 WHERE entity_id=$9", l.Category, l.Title, l.Description, l.Price, l.Condition, l.Negotiable, l.Purchased, l.Location, id); err != nil {
-			return err
-		}
-		if err := s.remoderate(r.Context(), tx, &e, l.Title+"\n"+l.Description); err != nil {
-			return err
-		}
-	}
-	if err := s.attachUploads(r.Context(), tx, user.ID, id, attachments); err != nil {
-		return err
-	}
-	_, _ = tx.Exec(r.Context(), "UPDATE content_entities SET updated_at=now() WHERE id=$1", id)
-	actor := user.ID
-	_ = auditSQL(r.Context(), tx, &actor, "listing.update", "listing", id, "", nil, nil, requestID(r.Context()))
-	p, err := s.listingPayload(r.Context(), tx, e, l, &user)
-	if err != nil {
-		return err
-	}
-	if err := tx.Commit(r.Context()); err != nil {
-		return err
-	}
-	writeJSON(w, 200, p)
-	return nil
-}
-func scanEntityListing(row pgx.Row) (Entity, Listing, error) {
-	var e Entity
-	var l Listing
-	args := append(entityScan(&e), &l.ID, &l.Category, &l.Title, &l.Description, &l.Price, &l.Condition, &l.Negotiable, &l.Purchased, &l.Location, &l.Status)
-	err := row.Scan(args...)
-	return e, l, err
-}
-func (s *Server) listingPayload(ctx context.Context, q queryer, e Entity, l Listing, viewer *User) (map[string]any, error) {
-	var sellerID int64
-	var nickname string
-	var credit int
-	var verified *time.Time
-	if err := q.QueryRow(ctx, "SELECT id,nickname,credit,verified_at FROM users WHERE id=$1", e.OwnerID).Scan(&sellerID, &nickname, &credit, &verified); err != nil && err != pgx.ErrNoRows {
-		return nil, err
-	}
-	var sales, favorites int
-	_ = q.QueryRow(ctx, "SELECT count(*) FROM listings l JOIN content_entities e ON e.id=l.entity_id WHERE e.owner_id=$1 AND l.trade_status='sold'", e.OwnerID).Scan(&sales)
-	_ = q.QueryRow(ctx, "SELECT count(*) FROM favorites WHERE entity_id=$1", e.ID).Scan(&favorites)
-	files, err := attachmentsPayload(ctx, q, e.ID)
-	if err != nil {
-		return nil, err
-	}
-	var seller any
-	if sellerID != 0 {
-		seller = map[string]any{"id": sellerID, "nickname": nickname, "credit": credit, "verified": verified != nil, "completed_sales": sales}
-	}
-	var purchased any
-	if l.Purchased != nil {
-		purchased = l.Purchased.Format("2006-01-02")
-	}
-	return map[string]any{"id": e.ID, "category": l.Category, "title": l.Title, "description": l.Description, "price": l.Price, "condition": l.Condition, "negotiable": l.Negotiable, "purchased_at": purchased, "location": l.Location, "trade_status": l.Status, "trade_mode": "offline_only", "seller": seller, "mine": viewer != nil && e.OwnerID == viewer.ID, "attachments": files, "favorite_count": favorites, "created_at": e.CreatedAt, "updated_at": e.UpdatedAt}, nil
-}
-
 // Activities.
 type Activity struct {
 	ID                              int64
@@ -1398,7 +1204,7 @@ func (s *Server) listActivities(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	where := "e.status='published' AND a.status='open'"
+	where := "e.publication_status='published' AND a.status='open'"
 	args := []any{}
 	if category := r.URL.Query().Get("category"); category != "" {
 		args = append(args, category)
@@ -1406,23 +1212,36 @@ func (s *Server) listActivities(w http.ResponseWriter, r *http.Request) error {
 	}
 	var total int
 	_ = s.DB.QueryRow(r.Context(), "SELECT count(*) FROM activities a JOIN content_entities e ON e.id=a.entity_id WHERE "+where, args...).Scan(&total)
+	args = append(args, viewer.ID)
+	viewerParam := len(args)
 	args = append(args, size, (page-1)*size)
-	rows, err := s.DB.Query(r.Context(), fmt.Sprintf(`SELECT e.id,e.type,e.owner_id,e.status,e.allow_comments,e.search_visible,e.moderation_reason,e.revision,e.deleted_at,e.created_at,e.updated_at,a.entity_id,a.category,a.title,a.body,a.location,a.starts_at,a.ends_at,a.capacity,a.status FROM content_entities e JOIN activities a ON a.entity_id=e.id WHERE %s ORDER BY a.starts_at LIMIT $%d OFFSET $%d`, where, len(args)-1, len(args)), args...)
+	rows, err := s.DB.Query(r.Context(), fmt.Sprintf(`SELECT e.id,e.owner_id,e.created_at,e.updated_at,a.category,a.title,a.body,a.location,a.starts_at,a.ends_at,a.capacity,a.status,u.nickname,
+		(SELECT count(*) FROM activity_members am WHERE am.activity_id=e.id AND am.status='joined'),
+		EXISTS(SELECT 1 FROM activity_members am WHERE am.activity_id=e.id AND am.user_id=$%d AND am.status='joined'),
+		COALESCE((SELECT jsonb_agg(jsonb_build_object('id',att.id,'path',att.path,'thumbnail_path',att.thumbnail_path,'width',att.width,'height',att.height) ORDER BY att.id) FROM attachments att WHERE att.entity_id=e.id AND att.status='attached' AND att.access_scope='public'),'[]'::jsonb)
+		FROM content_entities e JOIN activities a ON a.entity_id=e.id JOIN users u ON u.id=e.owner_id WHERE %s ORDER BY a.starts_at LIMIT $%d OFFSET $%d`, viewerParam, where, len(args)-1, len(args)), args...)
 	if err != nil {
 		return err
 	}
 	defer rows.Close()
 	items := []any{}
 	for rows.Next() {
-		e, a, err := scanEntityActivity(rows)
+		var id, ownerID int64
+		var category, title, body, location, status, author string
+		var starts, created, updated time.Time
+		var ends *time.Time
+		var capacity *int
+		var memberCount int
+		var joined bool
+		var attachmentsRaw json.RawMessage
+		if err := rows.Scan(&id, &ownerID, &created, &updated, &category, &title, &body, &location, &starts, &ends, &capacity, &status, &author, &memberCount, &joined, &attachmentsRaw); err != nil {
+			return err
+		}
+		attachments, err := publicAttachmentsFromJSON(attachmentsRaw)
 		if err != nil {
 			return err
 		}
-		p, err := s.activityPayload(r.Context(), s.DB, e, a, userOrNil(viewer))
-		if err != nil {
-			return err
-		}
-		items = append(items, p)
+		items = append(items, map[string]any{"id": id, "category": category, "title": title, "body": body, "location": location, "starts_at": starts, "ends_at": ends, "capacity": capacity, "status": status, "member_count": memberCount, "joined": joined, "mine": viewer.ID != 0 && viewer.ID == ownerID, "author": author, "attachments": attachments, "created_at": created, "updated_at": updated})
 	}
 	writeJSON(w, 200, pagePayload(items, page, size, total))
 	return rows.Err()
@@ -1679,7 +1498,7 @@ func (s *Server) cancelActivity(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	_, _ = tx.Exec(r.Context(), "UPDATE activities SET status='cancelled' WHERE entity_id=$1", id)
-	_, _ = tx.Exec(r.Context(), "UPDATE content_entities SET status='hidden',updated_at=now() WHERE id=$1", id)
+	_, _ = tx.Exec(r.Context(), "UPDATE content_entities SET publication_status='hidden',updated_at=now() WHERE id=$1", id)
 	_, _ = tx.Exec(r.Context(), "UPDATE activity_members SET status='cancelled' WHERE activity_id=$1 AND status='joined'", id)
 	for _, member := range members {
 		_ = notifySQL(r.Context(), tx, member, "活动已取消", "《"+a.Title+"》已取消", "/activities", "system")
@@ -1689,13 +1508,6 @@ func (s *Server) cancelActivity(w http.ResponseWriter, r *http.Request) error {
 	}
 	writeJSON(w, 200, map[string]any{"ok": true})
 	return nil
-}
-func scanEntityActivity(row pgx.Row) (Entity, Activity, error) {
-	var e Entity
-	var a Activity
-	args := append(entityScan(&e), &a.ID, &a.Category, &a.Title, &a.Body, &a.Location, &a.Starts, &a.Ends, &a.Capacity, &a.Status)
-	err := row.Scan(args...)
-	return e, a, err
 }
 func (s *Server) activityPayload(ctx context.Context, q queryer, e Entity, a Activity, viewer *User) (map[string]any, error) {
 	var count int
@@ -1739,7 +1551,7 @@ func (s *Server) listLostItems(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	where := "e.status='published'"
+	where := "e.publication_status='published'"
 	args := []any{}
 	if kind := r.URL.Query().Get("kind"); kind != "" {
 		args = append(args, kind)
@@ -1748,22 +1560,29 @@ func (s *Server) listLostItems(w http.ResponseWriter, r *http.Request) error {
 	var total int
 	_ = s.DB.QueryRow(r.Context(), "SELECT count(*) FROM lost_items l JOIN content_entities e ON e.id=l.entity_id WHERE "+where, args...).Scan(&total)
 	args = append(args, size, (page-1)*size)
-	rows, err := s.DB.Query(r.Context(), fmt.Sprintf(`SELECT e.id,e.type,e.owner_id,e.status,e.allow_comments,e.search_visible,e.moderation_reason,e.revision,e.deleted_at,e.created_at,e.updated_at,l.entity_id,l.kind,l.item_name,l.description,l.location,l.happened_at,l.status FROM content_entities e JOIN lost_items l ON l.entity_id=e.id WHERE %s ORDER BY e.created_at DESC LIMIT $%d OFFSET $%d`, where, len(args)-1, len(args)), args...)
+	rows, err := s.DB.Query(r.Context(), fmt.Sprintf(`SELECT e.id,e.owner_id,l.kind,l.item_name,l.description,l.location,l.happened_at,l.status,u.nickname,
+		(SELECT count(*) FROM lost_claims lc WHERE lc.item_id=e.id),
+		COALESCE((SELECT jsonb_agg(jsonb_build_object('id',att.id,'path',att.path,'thumbnail_path',att.thumbnail_path,'width',att.width,'height',att.height) ORDER BY att.id) FROM attachments att WHERE att.entity_id=e.id AND att.status='attached' AND att.access_scope='public'),'[]'::jsonb)
+		FROM content_entities e JOIN lost_items l ON l.entity_id=e.id JOIN users u ON u.id=e.owner_id WHERE %s ORDER BY e.created_at DESC LIMIT $%d OFFSET $%d`, where, len(args)-1, len(args)), args...)
 	if err != nil {
 		return err
 	}
 	defer rows.Close()
 	items := []any{}
 	for rows.Next() {
-		e, l, err := scanEntityLost(rows)
+		var id, ownerID int64
+		var kind, name, description, location, status, author string
+		var happened *time.Time
+		var claimCount int
+		var attachmentsRaw json.RawMessage
+		if err := rows.Scan(&id, &ownerID, &kind, &name, &description, &location, &happened, &status, &author, &claimCount, &attachmentsRaw); err != nil {
+			return err
+		}
+		attachments, err := publicAttachmentsFromJSON(attachmentsRaw)
 		if err != nil {
 			return err
 		}
-		p, err := s.lostPayload(r.Context(), s.DB, e, l, userOrNil(viewer))
-		if err != nil {
-			return err
-		}
-		items = append(items, p)
+		items = append(items, map[string]any{"id": id, "kind": kind, "item_name": name, "description": description, "location": location, "happened_at": happened, "status": status, "claim_count": claimCount, "mine": viewer.ID != 0 && viewer.ID == ownerID, "author": author, "attachments": attachments})
 	}
 	writeJSON(w, 200, pagePayload(items, page, size, total))
 	return rows.Err()
@@ -2041,13 +1860,6 @@ func (s *Server) decideLostClaim(w http.ResponseWriter, r *http.Request) error {
 	}
 	writeJSON(w, 200, map[string]any{"id": claimID, "status": status})
 	return nil
-}
-func scanEntityLost(row pgx.Row) (Entity, LostItem, error) {
-	var e Entity
-	var x LostItem
-	args := append(entityScan(&e), &x.ID, &x.Kind, &x.Name, &x.Description, &x.Location, &x.Happened, &x.Status)
-	err := row.Scan(args...)
-	return e, x, err
 }
 func (s *Server) lostPayload(ctx context.Context, q queryer, e Entity, item LostItem, viewer *User) (map[string]any, error) {
 	var claims int

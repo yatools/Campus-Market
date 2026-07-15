@@ -27,6 +27,7 @@ import (
 	domain "github.com/yatools/wutong-campus-wall/backend/internal/app"
 	"github.com/yatools/wutong-campus-wall/backend/internal/config"
 	"github.com/yatools/wutong-campus-wall/backend/internal/security"
+	storagepkg "github.com/yatools/wutong-campus-wall/backend/internal/storage"
 )
 
 const advisoryLockID int64 = 846208411
@@ -46,7 +47,19 @@ func Run(ctx context.Context, cfg config.Config, pool *pgxpool.Pool) error {
 	}
 }
 
-func Cycle(ctx context.Context, cfg config.Config, pool *pgxpool.Pool) error {
+func Cycle(ctx context.Context, cfg config.Config, pool *pgxpool.Pool) (cycleErr error) {
+	instanceID, _ := os.Hostname()
+	if instanceID == "" {
+		instanceID = "worker"
+	}
+	_, _ = pool.Exec(ctx, `INSERT INTO worker_heartbeats(worker_name,instance_id,last_seen_at,last_error) VALUES('background',$1,now(),'') ON CONFLICT(worker_name,instance_id) DO UPDATE SET last_seen_at=now()`, instanceID)
+	defer func() {
+		lastError := ""
+		if cycleErr != nil {
+			lastError = truncate(cycleErr.Error(), 2000)
+		}
+		_, _ = pool.Exec(context.Background(), `INSERT INTO worker_heartbeats(worker_name,instance_id,last_seen_at,last_success_at,last_error) VALUES('background',$1,now(),CASE WHEN $2='' THEN now() ELSE NULL END,$2) ON CONFLICT(worker_name,instance_id) DO UPDATE SET last_seen_at=now(),last_success_at=CASE WHEN $2='' THEN now() ELSE worker_heartbeats.last_success_at END,last_error=$2`, instanceID, lastError)
+	}()
 	conn, err := pool.Acquire(ctx)
 	if err != nil {
 		return err
@@ -273,7 +286,7 @@ func processTeamRuns(ctx context.Context, tx pgx.Tx) error {
 				if _, err := tx.Exec(ctx, "UPDATE teams SET status='archived' WHERE entity_id=$1", r.teamID); err != nil {
 					return err
 				}
-				if _, err := tx.Exec(ctx, "UPDATE content_entities SET status='expired',search_visible=false WHERE id=$1 AND status='published'", r.teamID); err != nil {
+				if _, err := tx.Exec(ctx, "UPDATE content_entities SET publication_status='expired',search_visible=false WHERE id=$1 AND publication_status='published'", r.teamID); err != nil {
 					return err
 				}
 			} else {
@@ -318,30 +331,59 @@ func ensureNextWeeklyRun(ctx context.Context, tx pgx.Tx, r struct {
 }
 
 func cleanup(ctx context.Context, cfg config.Config, tx pgx.Tx) error {
-	if _, err := tx.Exec(ctx, `UPDATE content_entities e SET status='expired',search_visible=false FROM posts p WHERE p.entity_id=e.id AND p.expires_at IS NOT NULL AND p.expires_at<=now() AND e.status='published'`); err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE content_entities e SET publication_status='expired',search_visible=false FROM posts p WHERE p.entity_id=e.id AND p.expires_at IS NOT NULL AND p.expires_at<=now() AND e.publication_status='published'`); err != nil {
 		return err
 	}
-	rows, err := tx.Query(ctx, "SELECT id,path,thumbnail_path FROM attachments WHERE status='pending' AND created_at<=now()-interval '24 hours'")
+	expired, err := tx.Query(ctx, `UPDATE market_transactions SET status='expired',updated_at=now() WHERE status='reserved' AND reserved_until<=now() RETURNING listing_id`)
+	if err != nil {
+		return err
+	}
+	var expiredListings []int64
+	for expired.Next() {
+		var id int64
+		if err := expired.Scan(&id); err != nil {
+			expired.Close()
+			return err
+		}
+		expiredListings = append(expiredListings, id)
+	}
+	if err := expired.Err(); err != nil {
+		expired.Close()
+		return err
+	}
+	expired.Close()
+	for _, id := range expiredListings {
+		if _, err := tx.Exec(ctx, `UPDATE listings SET trade_status='available' WHERE entity_id=$1 AND trade_status='reserved' AND NOT EXISTS(SELECT 1 FROM market_transactions WHERE listing_id=$1 AND status IN ('reserved','disputed'))`, id); err != nil {
+			return err
+		}
+	}
+	rows, err := tx.Query(ctx, "SELECT id,path,thumbnail_path,access_scope FROM attachments WHERE status='pending' AND created_at<=now()-interval '24 hours'")
 	if err != nil {
 		return err
 	}
 	type fileRow struct {
-		id          int64
-		path, thumb string
+		id                 int64
+		path, thumb, scope string
 	}
 	var files []fileRow
 	for rows.Next() {
 		var f fileRow
-		if err := rows.Scan(&f.id, &f.path, &f.thumb); err != nil {
+		if err := rows.Scan(&f.id, &f.path, &f.thumb, &f.scope); err != nil {
 			return err
 		}
 		files = append(files, f)
 	}
 	rows.Close()
+	store, err := storagepkg.New(cfg)
+	if err != nil {
+		return err
+	}
 	for _, f := range files {
 		for _, relative := range []string{f.path, f.thumb} {
 			if relative != "" {
-				_ = safeRemove(cfg.UploadDir, relative)
+				if err := store.Remove(ctx, f.scope, relative); err != nil {
+					return err
+				}
 			}
 		}
 		if _, err := tx.Exec(ctx, "DELETE FROM attachments WHERE id=$1", f.id); err != nil {
@@ -372,7 +414,7 @@ func cleanup(ctx context.Context, cfg config.Config, tx pgx.Tx) error {
 		if _, err := tx.Exec(ctx, `UPDATE messages m SET body='' FROM content_entities e WHERE e.id=m.entity_id AND e.owner_id=$1`, id); err != nil {
 			return err
 		}
-		if _, err := tx.Exec(ctx, `UPDATE content_entities SET status='deleted' WHERE owner_id=$1 AND type='message'`, id); err != nil {
+		if _, err := tx.Exec(ctx, `UPDATE content_entities SET publication_status='deleted' WHERE owner_id=$1 AND type='message'`, id); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(ctx, `DELETE FROM notifications WHERE user_id=$1`, id); err != nil {
@@ -382,7 +424,7 @@ func cleanup(ctx context.Context, cfg config.Config, tx pgx.Tx) error {
 	if _, err = tx.Exec(ctx, `DELETE FROM verification_codes WHERE expires_at<=now()-interval '1 day'`); err != nil {
 		return err
 	}
-	if _, err = tx.Exec(ctx, `DELETE FROM rate_limit_events WHERE created_at<=now()-interval '2 days'`); err != nil {
+	if _, err = tx.Exec(ctx, `DELETE FROM rate_limit_counters WHERE expires_at<=now()`); err != nil {
 		return err
 	}
 	_, err = tx.Exec(ctx, `DELETE FROM sessions WHERE absolute_expires_at<=now()-interval '30 days' OR revoked_at<=now()-interval '30 days'`)
@@ -413,7 +455,7 @@ func processBackup(ctx context.Context, cfg config.Config, conn *pgxpool.Conn) e
 		return err
 	}
 
-	archive, backupErr := createBackup(ctx, cfg, id)
+	archive, backupErr := createBackup(ctx, cfg, id, conn)
 	finalize, err := conn.Begin(ctx)
 	if err != nil {
 		return err
@@ -435,12 +477,9 @@ func processBackup(ctx context.Context, cfg config.Config, conn *pgxpool.Conn) e
 	return finalize.Commit(ctx)
 }
 
-func createBackup(ctx context.Context, cfg config.Config, jobID int64) (string, error) {
-	if err := os.MkdirAll(cfg.BackupDir, 0o750); err != nil {
-		return "", err
-	}
+func createBackup(ctx context.Context, cfg config.Config, jobID int64, conn *pgxpool.Conn) (string, error) {
 	stamp := time.Now().UTC().Format("20060102-150405")
-	work, err := os.MkdirTemp(cfg.BackupDir, fmt.Sprintf("job-%d-%s-", jobID, stamp))
+	work, err := os.MkdirTemp("", fmt.Sprintf("wutong-backup-%d-%s-", jobID, stamp))
 	if err != nil {
 		return "", err
 	}
@@ -457,13 +496,88 @@ func createBackup(ctx context.Context, cfg config.Config, jobID int64) (string, 
 	if output, err := command.CombinedOutput(); err != nil {
 		return "", fmt.Errorf("pg_dump: %w: %s", err, truncate(string(output), 1000))
 	}
-	archive := filepath.Join(cfg.BackupDir, "wutong-backup-"+stamp+".zip")
-	if err := writeBackupZip(archive, dump, cfg.UploadDir); err != nil {
+	countsPath := filepath.Join(work, "TABLE_COUNTS.tsv")
+	countsFile, err := os.Create(countsPath)
+	if err != nil {
 		return "", err
 	}
-	return archive, nil
+	countsWriter := bufio.NewWriter(countsFile)
+	for _, table := range []string{"users", "content_entities", "attachments", "listings", "market_transactions", "market_disputes", "market_reviews", "messages", "audit_logs"} {
+		var count int64
+		if err := conn.QueryRow(ctx, "SELECT count(*) FROM "+table).Scan(&count); err != nil {
+			countsFile.Close()
+			return "", err
+		}
+		fmt.Fprintf(countsWriter, "%s\t%d\n", table, count)
+	}
+	if err := countsWriter.Flush(); err != nil {
+		countsFile.Close()
+		return "", err
+	}
+	if err := countsFile.Close(); err != nil {
+		return "", err
+	}
+	objectsPath := filepath.Join(work, "OBJECTS.tsv")
+	objectsFile, err := os.Create(objectsPath)
+	if err != nil {
+		return "", err
+	}
+	objectsWriter := bufio.NewWriter(objectsFile)
+	rows, err := conn.Query(ctx, "SELECT storage_bucket,access_scope,path,thumbnail_path,size_bytes FROM attachments WHERE status='attached' ORDER BY id")
+	if err != nil {
+		objectsFile.Close()
+		return "", err
+	}
+	for rows.Next() {
+		var bucket, scope, path, thumb string
+		var size int64
+		if err := rows.Scan(&bucket, &scope, &path, &thumb, &size); err != nil {
+			rows.Close()
+			objectsFile.Close()
+			return "", err
+		}
+		fmt.Fprintf(objectsWriter, "%s\t%s\t%s\t%s\t%d\n", bucket, scope, path, thumb, size)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		objectsFile.Close()
+		return "", err
+	}
+	rows.Close()
+	if err := objectsWriter.Flush(); err != nil {
+		objectsFile.Close()
+		return "", err
+	}
+	if err := objectsFile.Close(); err != nil {
+		return "", err
+	}
+	archive := filepath.Join(work, "wutong-backup-"+stamp+".zip")
+	if err := writeBackupBundle(archive, dump, "", []string{countsPath, objectsPath}); err != nil {
+		return "", err
+	}
+	info, err := os.Stat(archive)
+	if err != nil {
+		return "", err
+	}
+	input, err := os.Open(archive)
+	if err != nil {
+		return "", err
+	}
+	defer input.Close()
+	store, err := storagepkg.New(cfg)
+	if err != nil {
+		return "", err
+	}
+	key := "daily/" + time.Now().UTC().Format("2006/01/02") + "/" + filepath.Base(archive)
+	if err := store.Put(ctx, "backup", key, "application/zip", "private, no-store", input, info.Size()); err != nil {
+		return "", err
+	}
+	return key, nil
 }
 func writeBackupZip(destination, dump, uploads string) error {
+	return writeBackupBundle(destination, dump, uploads, nil)
+}
+func writeBackupBundle(destination, dump, uploads string, extras []string) error {
 	file, err := os.OpenFile(destination, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o640)
 	if err != nil {
 		return err
@@ -502,31 +616,40 @@ func writeBackupZip(destination, dump, uploads string) error {
 		file.Close()
 		return err
 	}
-	if info, statErr := os.Stat(uploads); statErr == nil && info.IsDir() {
-		walkErr := filepath.WalkDir(uploads, func(path string, entry os.DirEntry, walkErr error) error {
+	for _, extra := range extras {
+		if err := add(extra, filepath.Base(extra)); err != nil {
+			writer.Close()
+			file.Close()
+			return err
+		}
+	}
+	if uploads != "" {
+		if info, statErr := os.Stat(uploads); statErr == nil && info.IsDir() {
+			walkErr := filepath.WalkDir(uploads, func(path string, entry os.DirEntry, walkErr error) error {
+				if walkErr != nil {
+					return walkErr
+				}
+				if entry.Type().IsRegular() {
+					relative, err := filepath.Rel(uploads, path)
+					if err != nil {
+						return err
+					}
+					return add(path, filepath.Join("uploads", relative))
+				}
+				return nil
+			})
 			if walkErr != nil {
+				writer.Close()
+				file.Close()
+				_ = os.Remove(destination)
 				return walkErr
 			}
-			if entry.Type().IsRegular() {
-				relative, err := filepath.Rel(uploads, path)
-				if err != nil {
-					return err
-				}
-				return add(path, filepath.Join("uploads", relative))
-			}
-			return nil
-		})
-		if walkErr != nil {
+		} else if statErr != nil && !os.IsNotExist(statErr) {
 			writer.Close()
 			file.Close()
 			_ = os.Remove(destination)
-			return walkErr
+			return statErr
 		}
-	} else if statErr != nil && !os.IsNotExist(statErr) {
-		writer.Close()
-		file.Close()
-		_ = os.Remove(destination)
-		return statErr
 	}
 	sort.Strings(checksums)
 	checksum, err := writer.Create("SHA256SUMS")
@@ -544,18 +667,19 @@ func writeBackupZip(destination, dump, uploads string) error {
 	return fileErr
 }
 func expireOldBackups(ctx context.Context, cfg config.Config, tx pgx.Tx) error {
-	rows, err := tx.Query(ctx, "SELECT id,file_path FROM backup_jobs WHERE status='ready' ORDER BY finished_at DESC OFFSET 7")
+	rows, err := tx.Query(ctx, "SELECT id,file_path,finished_at FROM backup_jobs WHERE status='ready' ORDER BY finished_at DESC")
 	if err != nil {
 		return err
 	}
 	type backup struct {
-		id   int64
-		path string
+		id       int64
+		path     string
+		finished time.Time
 	}
 	backups := []backup{}
 	for rows.Next() {
 		var item backup
-		if err := rows.Scan(&item.id, &item.path); err != nil {
+		if err := rows.Scan(&item.id, &item.path, &item.finished); err != nil {
 			rows.Close()
 			return err
 		}
@@ -566,8 +690,36 @@ func expireOldBackups(ctx context.Context, cfg config.Config, tx pgx.Tx) error {
 		return err
 	}
 	rows.Close()
+	now := time.Now().UTC()
+	seen := map[string]bool{}
+	expired := []backup{}
 	for _, item := range backups {
-		_ = safeRemoveAbsolute(cfg.BackupDir, item.path)
+		age := now.Sub(item.finished)
+		key := ""
+		switch {
+		case age <= 7*24*time.Hour:
+			key = "day:" + item.finished.Format("2006-01-02")
+		case age <= 35*24*time.Hour:
+			year, week := item.finished.ISOWeek()
+			key = fmt.Sprintf("week:%04d-%02d", year, week)
+		case age <= 370*24*time.Hour:
+			key = "month:" + item.finished.Format("2006-01")
+		default:
+			expired = append(expired, item)
+			continue
+		}
+		if seen[key] {
+			expired = append(expired, item)
+		} else {
+			seen[key] = true
+		}
+	}
+	for _, item := range expired {
+		store, storeErr := storagepkg.New(cfg)
+		if storeErr != nil {
+			return storeErr
+		}
+		_ = store.Remove(ctx, "backup", item.path)
 		if _, err := tx.Exec(ctx, "UPDATE backup_jobs SET status='expired',file_path='' WHERE id=$1", item.id); err != nil {
 			return err
 		}
@@ -575,9 +727,6 @@ func expireOldBackups(ctx context.Context, cfg config.Config, tx pgx.Tx) error {
 	return nil
 }
 
-func safeRemove(root, relative string) error {
-	return safeRemoveAbsolute(root, filepath.Join(root, filepath.FromSlash(relative)))
-}
 func safeRemoveAbsolute(root, path string) error {
 	base, err := filepath.Abs(root)
 	if err != nil {

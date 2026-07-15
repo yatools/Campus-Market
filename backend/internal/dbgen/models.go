@@ -66,6 +66,8 @@ type Attachment struct {
 	EntityID      pgtype.Int8        `json:"entity_id"`
 	Path          string             `json:"path"`
 	ThumbnailPath string             `json:"thumbnail_path"`
+	StorageBucket string             `json:"storage_bucket"`
+	AccessScope   string             `json:"access_scope"`
 	MimeType      string             `json:"mime_type"`
 	SizeBytes     int32              `json:"size_bytes"`
 	Width         int32              `json:"width"`
@@ -138,17 +140,18 @@ type Comment struct {
 }
 
 type ContentEntity struct {
-	ID               int64              `json:"id"`
-	Type             string             `json:"type"`
-	OwnerID          int64              `json:"owner_id"`
-	Status           string             `json:"status"`
-	AllowComments    bool               `json:"allow_comments"`
-	SearchVisible    bool               `json:"search_visible"`
-	ModerationReason string             `json:"moderation_reason"`
-	Revision         int32              `json:"revision"`
-	DeletedAt        pgtype.Timestamptz `json:"deleted_at"`
-	CreatedAt        pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
+	ID                int64              `json:"id"`
+	Type              string             `json:"type"`
+	OwnerID           int64              `json:"owner_id"`
+	PublicationStatus string             `json:"publication_status"`
+	ModerationStatus  string             `json:"moderation_status"`
+	AllowComments     bool               `json:"allow_comments"`
+	SearchVisible     bool               `json:"search_visible"`
+	ModerationReason  string             `json:"moderation_reason"`
+	Revision          int32              `json:"revision"`
+	DeletedAt         pgtype.Timestamptz `json:"deleted_at"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
 }
 
 type ContentRevision struct {
@@ -262,14 +265,14 @@ type HandbookArticle struct {
 
 type Listing struct {
 	EntityID    int64       `json:"entity_id"`
-	Category    string      `json:"category"`
+	CategoryID  int64       `json:"category_id"`
 	Title       string      `json:"title"`
 	Description string      `json:"description"`
-	Price       float64     `json:"price"`
+	PriceCents  int64       `json:"price_cents"`
 	Condition   string      `json:"condition"`
 	Negotiable  bool        `json:"negotiable"`
 	PurchasedAt pgtype.Date `json:"purchased_at"`
-	Location    string      `json:"location"`
+	LocationID  int64       `json:"location_id"`
 	TradeStatus string      `json:"trade_status"`
 }
 
@@ -291,6 +294,73 @@ type LostItem struct {
 	Location    string             `json:"location"`
 	HappenedAt  pgtype.Timestamptz `json:"happened_at"`
 	Status      string             `json:"status"`
+}
+
+type MarketCategory struct {
+	ID        int64              `json:"id"`
+	Name      string             `json:"name"`
+	Slug      string             `json:"slug"`
+	Active    bool               `json:"active"`
+	SortOrder int32              `json:"sort_order"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+}
+
+type MarketDispute struct {
+	ID            int64              `json:"id"`
+	TransactionID int64              `json:"transaction_id"`
+	OpenedBy      int64              `json:"opened_by"`
+	Reason        string             `json:"reason"`
+	Status        string             `json:"status"`
+	Decision      string             `json:"decision"`
+	AdminNote     string             `json:"admin_note"`
+	DecidedBy     pgtype.Int8        `json:"decided_by"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+	DecidedAt     pgtype.Timestamptz `json:"decided_at"`
+}
+
+type MarketDisputeEvidence struct {
+	DisputeID    int64 `json:"dispute_id"`
+	AttachmentID int64 `json:"attachment_id"`
+}
+
+type MarketLocation struct {
+	ID        int64              `json:"id"`
+	Name      string             `json:"name"`
+	Slug      string             `json:"slug"`
+	Active    bool               `json:"active"`
+	SortOrder int32              `json:"sort_order"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+}
+
+type MarketReview struct {
+	ID            int64              `json:"id"`
+	TransactionID int64              `json:"transaction_id"`
+	ReviewerID    int64              `json:"reviewer_id"`
+	RevieweeID    int64              `json:"reviewee_id"`
+	Rating        int32              `json:"rating"`
+	Body          string             `json:"body"`
+	VisibleAt     pgtype.Timestamptz `json:"visible_at"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+}
+
+type MarketTransaction struct {
+	ID                int64              `json:"id"`
+	ListingID         int64              `json:"listing_id"`
+	SellerID          int64              `json:"seller_id"`
+	BuyerID           int64              `json:"buyer_id"`
+	Status            string             `json:"status"`
+	Message           string             `json:"message"`
+	ReservedUntil     pgtype.Timestamptz `json:"reserved_until"`
+	BuyerConfirmedAt  pgtype.Timestamptz `json:"buyer_confirmed_at"`
+	SellerConfirmedAt pgtype.Timestamptz `json:"seller_confirmed_at"`
+	CompletedAt       pgtype.Timestamptz `json:"completed_at"`
+	CancelledAt       pgtype.Timestamptz `json:"cancelled_at"`
+	CancelledBy       pgtype.Int8        `json:"cancelled_by"`
+	CancelReason      string             `json:"cancel_reason"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
 }
 
 type Message struct {
@@ -364,11 +434,12 @@ type Question struct {
 	AcceptedAnswerID pgtype.Int8 `json:"accepted_answer_id"`
 }
 
-type RateLimitEvent struct {
-	ID        int64              `json:"id"`
-	Action    string             `json:"action"`
-	Subject   string             `json:"subject"`
-	CreatedAt pgtype.Timestamptz `json:"created_at"`
+type RateLimitCounter struct {
+	Action      string             `json:"action"`
+	Subject     string             `json:"subject"`
+	WindowStart pgtype.Timestamptz `json:"window_start"`
+	Count       int32              `json:"count"`
+	ExpiresAt   pgtype.Timestamptz `json:"expires_at"`
 }
 
 type Reaction struct {
@@ -522,4 +593,12 @@ type VerificationCode struct {
 	ExpiresAt  pgtype.Timestamptz `json:"expires_at"`
 	ConsumedAt pgtype.Timestamptz `json:"consumed_at"`
 	CreatedAt  pgtype.Timestamptz `json:"created_at"`
+}
+
+type WorkerHeartbeat struct {
+	WorkerName    string             `json:"worker_name"`
+	InstanceID    string             `json:"instance_id"`
+	LastSeenAt    pgtype.Timestamptz `json:"last_seen_at"`
+	LastSuccessAt pgtype.Timestamptz `json:"last_success_at"`
+	LastError     string             `json:"last_error"`
 }

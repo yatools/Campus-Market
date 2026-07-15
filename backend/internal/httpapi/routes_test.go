@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"regexp"
 	"strings"
 	"testing"
@@ -14,7 +15,7 @@ import (
 	"github.com/yatools/wutong-campus-wall/backend/internal/config"
 )
 
-func TestEveryFastAPIContractOperationHasGoRoute(t *testing.T) {
+func TestEveryCanonicalContractOperationHasRoute(t *testing.T) {
 	cfg := config.Config{APIPrefix: "/api/v1", UploadDir: t.TempDir(), BackupDir: t.TempDir(), TrustedHosts: map[string]struct{}{"example.test": {}}, PublicOrigin: "http://localhost:5173"}
 	handler := New(cfg, nil)
 	routes, ok := handler.(chi.Routes)
@@ -34,22 +35,39 @@ func TestEveryFastAPIContractOperationHasGoRoute(t *testing.T) {
 	if err := json.Unmarshal(apispec.OpenAPI, &spec); err != nil {
 		t.Fatal(err)
 	}
-	operations := 0
 	for path, methods := range spec.Paths {
 		for method := range methods {
 			upper := strings.ToUpper(method)
 			if upper != "GET" && upper != "POST" && upper != "PUT" && upper != "PATCH" && upper != "DELETE" {
 				continue
 			}
-			operations++
 			key := upper + " " + normalizeRoute(path)
 			if !have[key] {
 				t.Errorf("missing Go route %s %s", upper, path)
 			}
 		}
 	}
-	if operations != 134 {
-		t.Fatalf("baseline operation count changed: %d", operations)
+}
+
+func TestClientIPIgnoresSpoofedForwardingHeaders(t *testing.T) {
+	s := &Server{Config: config.Config{TrustedProxyCIDRs: []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8")}}}
+	request := httptest.NewRequest(http.MethodGet, "http://example.test/health/live", nil)
+	request.RemoteAddr = "203.0.113.8:43210"
+	request.Header.Set("X-Forwarded-For", "1.2.3.4")
+	request.Header.Set("X-Real-IP", "1.2.3.4")
+	if got := s.resolveClientIP(request); got != "203.0.113.8" {
+		t.Fatalf("untrusted forwarding header was accepted: %s", got)
+	}
+}
+
+func TestClientIPAcceptsRealIPOnlyFromTrustedProxy(t *testing.T) {
+	s := &Server{Config: config.Config{TrustedProxyCIDRs: []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8")}}}
+	request := httptest.NewRequest(http.MethodGet, "http://example.test/health/live", nil)
+	request.RemoteAddr = "10.1.2.3:43210"
+	request.Header.Set("X-Forwarded-For", "198.51.100.9")
+	request.Header.Set("X-Real-IP", "2001:db8::1")
+	if got := s.resolveClientIP(request); got != "2001:db8::1" {
+		t.Fatalf("trusted real ip was not accepted: %s", got)
 	}
 }
 
@@ -73,7 +91,7 @@ func TestInvalidNumericPathParameterIsRejectedBeforeDatabaseAccess(t *testing.T)
 	}
 }
 
-func TestUnknownAPIEndpointUsesTheCompatibilityErrorEnvelope(t *testing.T) {
+func TestUnknownAPIEndpointUsesStandardErrorEnvelope(t *testing.T) {
 	cfg := config.Config{APIPrefix: "/api/v1", UploadDir: t.TempDir(), BackupDir: t.TempDir(), TrustedHosts: map[string]struct{}{"example.test": {}}, PublicOrigin: "http://localhost:5173"}
 	request := httptest.NewRequest(http.MethodGet, "http://example.test/api/v1/emails", nil)
 	response := httptest.NewRecorder()

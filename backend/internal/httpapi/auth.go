@@ -75,7 +75,7 @@ func decodeBody(r *http.Request, value any) *APIError {
 }
 
 func clientIP(r *http.Request) string {
-	if value := strings.TrimSpace(strings.Split(r.Header.Get("X-Forwarded-For"), ",")[0]); value != "" {
+	if value, ok := r.Context().Value(clientIPKey).(string); ok && value != "" {
 		return value
 	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)

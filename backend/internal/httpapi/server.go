@@ -8,6 +8,7 @@ import (
 	"mime"
 	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"runtime/debug"
@@ -21,20 +22,28 @@ import (
 
 	apispec "github.com/yatools/wutong-campus-wall/backend/api"
 	"github.com/yatools/wutong-campus-wall/backend/internal/config"
+	"github.com/yatools/wutong-campus-wall/backend/internal/database"
 	"github.com/yatools/wutong-campus-wall/backend/internal/security"
+	storagepkg "github.com/yatools/wutong-campus-wall/backend/internal/storage"
 )
 
 type contextKey string
 
 const requestIDKey contextKey = "request-id"
+const clientIPKey contextKey = "client-ip"
 
 type Server struct {
-	Config config.Config
-	DB     *pgxpool.Pool
+	Config  config.Config
+	DB      *pgxpool.Pool
+	Storage *storagepkg.Store
 }
 
 func New(cfg config.Config, db *pgxpool.Pool) http.Handler {
-	s := &Server{Config: cfg, DB: db}
+	store, err := storagepkg.New(cfg)
+	if err != nil {
+		slog.Error("storage_config_invalid", "error", err)
+	}
+	s := &Server{Config: cfg, DB: db, Storage: store}
 	r := chi.NewRouter()
 	r.Use(s.recoverer, s.requestContext, s.securityHeaders, s.trustedHost, s.cors)
 	r.NotFound(func(w http.ResponseWriter, r *http.Request) {
@@ -47,6 +56,11 @@ func New(cfg config.Config, db *pgxpool.Pool) http.Handler {
 		writeJSON(w, 200, map[string]any{"status": "ok", "service": "api", "version": "1.0.0"})
 	})
 	r.Get("/health/ready", s.handle(s.healthReady))
+	r.Get("/health/dependencies", s.handle(s.healthDependencies))
+	r.Get("/app-config.json", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
+		writeJSON(w, 200, map[string]any{"api_prefix": cfg.APIPrefix, "csrf_cookie_name": cfg.CSRFCookieName})
+	})
 	if cfg.DocsEnabled {
 		r.Get("/openapi.json", func(w http.ResponseWriter, _ *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
@@ -58,8 +72,7 @@ func New(cfg config.Config, db *pgxpool.Pool) http.Handler {
 		})
 	}
 	_ = mime.AddExtensionType(".webp", "image/webp")
-	uploads := http.StripPrefix("/uploads/", http.FileServer(http.Dir(cfg.UploadDir)))
-	r.Handle("/uploads/*", uploads)
+	r.Get("/uploads/*", s.servePublicUpload)
 	r.Route(cfg.APIPrefix, func(api chi.Router) {
 		api.Use(s.csrfProtection)
 		s.registerRoutes(api)
@@ -67,14 +80,75 @@ func New(cfg config.Config, db *pgxpool.Pool) http.Handler {
 	return r
 }
 
+func (s *Server) servePublicUpload(w http.ResponseWriter, r *http.Request) {
+	key := strings.TrimPrefix(r.URL.Path, "/uploads/")
+	if key == "" || strings.Contains(key, "..") || strings.Contains(key, "\\") {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Cache-Control", "public, max-age=300")
+	http.Redirect(w, r, s.Storage.PublicURL(key), http.StatusTemporaryRedirect)
+}
+
 func (s *Server) healthReady(w http.ResponseWriter, r *http.Request) error {
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 	defer cancel()
 	if err := s.DB.Ping(ctx); err != nil {
-		return err
+		slog.Warn("readiness_database_failed", "error", err, "request_id", requestID(r.Context()))
+		return apiError(http.StatusServiceUnavailable, "NOT_READY", "服务尚未就绪")
+	}
+	var version int64
+	if err := s.DB.QueryRow(ctx, "SELECT COALESCE(max(version_id),0) FROM goose_db_version WHERE is_applied=true").Scan(&version); err != nil || version != database.LatestMigrationVersion {
+		slog.Warn("readiness_migration_failed", "version", version, "error", err, "request_id", requestID(r.Context()))
+		return apiError(http.StatusServiceUnavailable, "NOT_READY", "服务尚未就绪")
+	}
+	if s.Storage == nil {
+		return apiError(http.StatusServiceUnavailable, "NOT_READY", "服务尚未就绪")
+	}
+	if err := s.Storage.Probe(ctx); err != nil {
+		slog.Warn("readiness_storage_failed", "error", err, "request_id", requestID(r.Context()))
+		return apiError(http.StatusServiceUnavailable, "NOT_READY", "服务尚未就绪")
 	}
 	writeJSON(w, 200, map[string]any{"status": "ready"})
 	return nil
+}
+
+func (s *Server) healthDependencies(w http.ResponseWriter, r *http.Request) error {
+	token := strings.TrimSpace(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
+	if s.Config.HealthCheckToken == "" || subtle.ConstantTimeCompare([]byte(token), []byte(s.Config.HealthCheckToken)) != 1 {
+		return apiError(http.StatusUnauthorized, "HEALTH_TOKEN_REQUIRED", "需要健康检查令牌")
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+	defer cancel()
+	components := map[string]any{}
+	dbErr := s.DB.Ping(ctx)
+	components["database"] = componentStatus(dbErr)
+	var storageErr error
+	if s.Storage == nil {
+		storageErr = fmt.Errorf("对象存储未初始化")
+	} else {
+		storageErr = s.Storage.Probe(ctx)
+	}
+	components["object_storage"] = componentStatus(storageErr)
+	var version int64
+	migrationErr := s.DB.QueryRow(ctx, "SELECT COALESCE(max(version_id),0) FROM goose_db_version WHERE is_applied=true").Scan(&version)
+	if migrationErr == nil && version != database.LatestMigrationVersion {
+		migrationErr = fmt.Errorf("want %d got %d", database.LatestMigrationVersion, version)
+	}
+	components["migrations"] = componentStatus(migrationErr)
+	status := http.StatusOK
+	if dbErr != nil || storageErr != nil || migrationErr != nil {
+		status = http.StatusServiceUnavailable
+	}
+	writeJSON(w, status, map[string]any{"status": map[bool]string{true: "ok", false: "degraded"}[status == http.StatusOK], "components": components})
+	return nil
+}
+
+func componentStatus(err error) map[string]any {
+	if err == nil {
+		return map[string]any{"ok": true}
+	}
+	return map[string]any{"ok": false, "error": truncate(err.Error(), 300)}
 }
 
 func (s *Server) recoverer(next http.Handler) http.Handler {
@@ -100,11 +174,34 @@ func (s *Server) requestContext(next http.Handler) http.Handler {
 		}
 		started := time.Now()
 		ctx := context.WithValue(r.Context(), requestIDKey, id)
+		ctx = context.WithValue(ctx, clientIPKey, s.resolveClientIP(r))
 		next.ServeHTTP(w, r.WithContext(ctx))
 		if elapsed := time.Since(started); elapsed >= 800*time.Millisecond {
 			slog.Warn("slow_request", "method", r.Method, "path", r.URL.Path, "elapsed_ms", elapsed.Milliseconds(), "request_id", id)
 		}
 	})
+}
+
+func (s *Server) resolveClientIP(r *http.Request) string {
+	host := r.RemoteAddr
+	if parsedHost, _, err := net.SplitHostPort(host); err == nil {
+		host = parsedHost
+	}
+	remote, err := netip.ParseAddr(strings.Trim(host, "[]"))
+	if err != nil {
+		return host
+	}
+	for _, prefix := range s.Config.TrustedProxyCIDRs {
+		if !prefix.Contains(remote) {
+			continue
+		}
+		forwarded, err := netip.ParseAddr(strings.TrimSpace(r.Header.Get("X-Real-IP")))
+		if err == nil {
+			return forwarded.Unmap().String()
+		}
+		break
+	}
+	return remote.Unmap().String()
 }
 
 func requestID(ctx context.Context) string {
@@ -191,12 +288,26 @@ func (s *Server) csrfProtection(next http.Handler) http.Handler {
 }
 
 func EnsureDirs(cfg config.Config) error {
-	for _, dir := range []string{cfg.UploadDir, cfg.BackupDir} {
-		if err := os.MkdirAll(filepath.Clean(dir), 0o750); err != nil {
-			return err
-		}
+	probe, err := os.CreateTemp("", "wutong-write-probe-")
+	if err != nil {
+		return fmt.Errorf("临时目录不可写: %w", err)
 	}
-	return nil
+	name := probe.Name()
+	if err := probe.Close(); err != nil {
+		return err
+	}
+	return os.Remove(filepath.Clean(name))
+}
+
+func EnsureStorage(ctx context.Context, cfg config.Config) error {
+	store, err := storagepkg.New(cfg)
+	if err != nil {
+		return err
+	}
+	if cfg.Environment == "production" {
+		return store.Probe(ctx)
+	}
+	return store.EnsureBuckets(ctx)
 }
 
 var _ = middleware.GetReqID

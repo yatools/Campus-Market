@@ -17,6 +17,7 @@ import (
 
 	"github.com/yatools/wutong-campus-wall/backend/internal/config"
 	"github.com/yatools/wutong-campus-wall/backend/internal/database"
+	storagepkg "github.com/yatools/wutong-campus-wall/backend/internal/storage"
 )
 
 func TestWriteBackupZipIncludesDatabaseUploadsAndChecksums(t *testing.T) {
@@ -94,6 +95,23 @@ func TestCycleQueuesTeamReminderAfterClosingMemberRows(t *testing.T) {
 	targetURL := *parsed
 	targetURL.Path = "/" + name
 	cfg := config.Config{DatabaseURL: targetURL.String(), DBPoolSize: 2, UploadDir: t.TempDir(), BackupDir: t.TempDir()}
+	if endpoint := os.Getenv("TEST_S3_ENDPOINT"); endpoint != "" {
+		cfg.S3Endpoint = endpoint
+		cfg.S3Region = "us-east-1"
+		cfg.S3AccessKeyID = os.Getenv("S3_ACCESS_KEY_ID")
+		cfg.S3SecretAccessKey = os.Getenv("S3_SECRET_ACCESS_KEY")
+		cfg.S3PublicBucket = "wutong-worker-public"
+		cfg.S3PrivateBucket = "wutong-worker-private"
+		cfg.S3BackupBucket = "wutong-worker-backups"
+		cfg.S3PublicBaseURL = endpoint + "/wutong-worker-public"
+		store, err := storagepkg.New(cfg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := store.EnsureBuckets(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
 	if err := database.Migrate(context.Background(), cfg); err != nil {
 		t.Fatal(err)
 	}
@@ -108,8 +126,8 @@ func TestCycleQueuesTeamReminderAfterClosingMemberRows(t *testing.T) {
 		t.Fatal(err)
 	}
 	var teamID int64
-	if err := pool.QueryRow(context.Background(), `INSERT INTO content_entities(type,owner_id,status,allow_comments,search_visible,moderation_reason,revision,created_at,updated_at)
-		VALUES('team',$1,'published',true,true,'',1,now(),now()) RETURNING id`, userID).Scan(&teamID); err != nil {
+	if err := pool.QueryRow(context.Background(), `INSERT INTO content_entities(type,owner_id,publication_status,moderation_status,allow_comments,search_visible,moderation_reason,revision,created_at,updated_at)
+		VALUES('team',$1,'published','approved',true,true,'',1,now(),now()) RETURNING id`, userID).Scan(&teamID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := pool.Exec(context.Background(), `INSERT INTO teams(entity_id,owner_id,game,mode,rank_requirement,capacity,voice_name,voice_link,notes,newbie_level,vibe,reminder_channels,recurrence,reminder_minutes,post_departure_retention_minutes,status)
@@ -146,7 +164,7 @@ func TestCycleQueuesTeamReminderAfterClosingMemberRows(t *testing.T) {
 	if notifications != 1 || emails != 1 || sentAt == nil {
 		t.Fatalf("reminder was not queued exactly once: notifications=%d emails=%d sent_at=%v", notifications, emails, sentAt)
 	}
-	if _, err := exec.LookPath("pg_dump"); err == nil {
+	if _, err := exec.LookPath("pg_dump"); err == nil && cfg.S3Endpoint != "" {
 		var backupID int64
 		if err := pool.QueryRow(context.Background(), `INSERT INTO backup_jobs(requested_by,status,file_path,download_token,error,created_at)
 			VALUES($1,'pending','','worker-test-token','',now()) RETURNING id`, userID).Scan(&backupID); err != nil {
@@ -162,17 +180,12 @@ func TestCycleQueuesTeamReminderAfterClosingMemberRows(t *testing.T) {
 		if status != "ready" {
 			t.Fatalf("backup job did not finish: status=%s path=%s", status, archivePath)
 		}
-		reader, err := zip.OpenReader(archivePath)
+		store, err := storagepkg.New(cfg)
 		if err != nil {
 			t.Fatal(err)
 		}
-		entries := map[string]bool{}
-		for _, entry := range reader.File {
-			entries[entry.Name] = true
-		}
-		reader.Close()
-		if !entries["database.dump"] || !entries["SHA256SUMS"] {
-			t.Fatalf("worker backup archive is incomplete: %#v", entries)
+		if err := store.Exists(context.Background(), "backup", archivePath); err != nil {
+			t.Fatalf("worker backup object is missing: %s: %v", archivePath, err)
 		}
 	}
 }

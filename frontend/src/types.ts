@@ -203,6 +203,14 @@ export interface SearchResult {
   summary: string
 }
 
+export type MarketOption = components['schemas']['MarketOption']
+export type AdminMarketOption = components['schemas']['AdminMarketOption']
+export type MarketOptions = components['schemas']['MarketOptions']
+export type MarketParty = components['schemas']['MarketParty']
+export type MarketListing = components['schemas']['MarketListing']
+export type MarketTransaction = components['schemas']['MarketTransaction']
+export type MarketDispute = components['schemas']['MarketDispute']
+
 export type AuthMode = 'login' | 'register' | 'reset'
 
 export interface ApiErrorBody {

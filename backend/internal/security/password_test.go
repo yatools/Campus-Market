@@ -1,28 +1,53 @@
 package security
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
-func TestPythonArgon2HashCompatibility(t *testing.T) {
-	const pythonHash = "$argon2id$v=19$m=65536,t=3,p=2$iJYRbF+38qC9Fm6LjTShRQ$qGaSFqypYLsdYk2HLB9rTqk5NI/IXm4seF8nk5yR5Fk"
-	if !VerifyPassword("SafePassword123", pythonHash) {
-		t.Fatal("Go must verify the final Python argon2-cffi hash format")
-	}
-	if VerifyPassword("wrong", pythonHash) {
-		t.Fatal("wrong password accepted")
-	}
-	hash, err := HashPassword("SafePassword123")
+func TestPasswordRoundTrip(t *testing.T) {
+	encoded, err := HashPassword("SafePassword123")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !VerifyPassword("SafePassword123", hash) {
-		t.Fatal("Go hash did not round trip")
+	if !VerifyPassword("SafePassword123", encoded) {
+		t.Fatal("new Argon2id hash did not verify")
+	}
+	if VerifyPassword("wrong", encoded) {
+		t.Fatal("wrong password verified")
 	}
 }
 
-func TestTokenHashStable(t *testing.T) {
-	got := TokenHash("secret", "token")
-	const want = "e941110e3d2bfe82621f0e3e1434730d7305d106c5f68c87165d0b27a4611a4a"
-	if got != want {
-		t.Fatalf("token hash changed: %s", got)
+func TestPasswordRejectsMalformedOrHostileParameters(t *testing.T) {
+	for _, value := range []string{"", "$argon2i$v=19$m=65536,t=3,p=2$bad$bad", "$argon2id$v=19$m=999999999,t=3,p=2$MTIzNDU2Nzg5MDEyMzQ1Ng$MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI", "$argon2id$v=19$m=x,t=3,p=2$bad$bad"} {
+		if VerifyPassword("password", value) {
+			t.Fatalf("malformed hash accepted: %s", value)
+		}
+	}
+}
+
+func TestTokenAndCodeHashesAreDeterministicAndScoped(t *testing.T) {
+	a := TokenHash("secret", "value")
+	if len(a) != 64 || a != TokenHash("secret", "value") {
+		t.Fatalf("unexpected token hash: %s", a)
+	}
+	if a == TokenHash("other", "value") {
+		t.Fatal("secret did not scope token hash")
+	}
+	if CodeHash("secret", "USER@EXAMPLE.EDU", "register", "123456") != CodeHash("secret", "user@example.edu", "register", "123456") {
+		t.Fatal("email normalization changed code hash")
+	}
+	if strings.Contains(CodeHash("secret", "user@example.edu", "register", "123456"), "123456") {
+		t.Fatal("code leaked into hash")
+	}
+}
+
+func TestRandomTokenUsesURLSafeEncoding(t *testing.T) {
+	token, err := RandomToken(32)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(token) < 40 || strings.ContainsAny(token, "+/=") {
+		t.Fatalf("token is not raw URL-safe base64: %q", token)
 	}
 }
