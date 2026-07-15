@@ -22,6 +22,7 @@ const user = {
   dm_stranger_off: false,
   hide_online: false,
   unread_notifications: 0,
+  unread_messages: 0,
 }
 
 class EventSourceStub {
@@ -55,10 +56,18 @@ describe('auth store', () => {
     expect(auth.creditRule('threshold.team_create')).toBe(650)
     const stream = EventSourceStub.instances[0]
     expect(stream.url).toBe('/api/v1/notifications/stream')
-    stream.listeners.get('unread')?.(new MessageEvent('unread', { data: '{"count":4}' }))
+    stream.listeners.get('unread')?.(new MessageEvent('unread', { data: '{"count":4,"messages":3}' }))
     expect(auth.user?.unread_notifications).toBe(4)
+    expect(auth.user?.unread_messages).toBe(3)
+    auth.acknowledgeMessages(2)
+    expect(auth.user?.unread_notifications).toBe(2)
+    expect(auth.user?.unread_messages).toBe(1)
+    auth.setUnreadCounts(7, 4)
+    expect(auth.user?.unread_notifications).toBe(7)
+    expect(auth.user?.unread_messages).toBe(4)
     stream.listeners.get('unread')?.(new MessageEvent('unread', { data: 'invalid' }))
-    expect(auth.user?.unread_notifications).toBe(4)
+    expect(auth.user?.unread_notifications).toBe(7)
+    expect(auth.user?.unread_messages).toBe(4)
   })
 
   it('falls back safely when rules and session loading fail', async () => {

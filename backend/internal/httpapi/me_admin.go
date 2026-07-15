@@ -57,10 +57,11 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	p := userPayload(user)
-	var unread, sessions int
-	_ = s.DB.QueryRow(r.Context(), "SELECT count(*) FROM notifications WHERE user_id=$1 AND read_at IS NULL", user.ID).Scan(&unread)
+	var unread, unreadMessages, sessions int
+	_ = s.DB.QueryRow(r.Context(), "SELECT count(*) FILTER(WHERE read_at IS NULL),count(*) FILTER(WHERE read_at IS NULL AND type='message') FROM notifications WHERE user_id=$1", user.ID).Scan(&unread, &unreadMessages)
 	_ = s.DB.QueryRow(r.Context(), "SELECT count(*) FROM sessions WHERE user_id=$1 AND revoked_at IS NULL AND expires_at>now()", user.ID).Scan(&sessions)
 	p["unread_notifications"] = unread
+	p["unread_messages"] = unreadMessages
 	p["active_sessions"] = sessions
 	writeJSON(w, 200, p)
 	return nil

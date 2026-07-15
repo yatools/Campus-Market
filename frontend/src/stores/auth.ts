@@ -42,8 +42,9 @@ export const useAuthStore = defineStore('auth', () => {
     notificationStream = new EventSource(`${appConfig().api_prefix}/notifications/stream`, { withCredentials: true })
     notificationStream.addEventListener('unread', (event) => {
       try {
-        const value = JSON.parse((event as MessageEvent).data) as { count?: number }
+        const value = JSON.parse((event as MessageEvent).data) as { count?: number; messages?: number }
         if (user.value && typeof value.count === 'number') user.value.unread_notifications = value.count
+        if (user.value && typeof value.messages === 'number') user.value.unread_messages = value.messages
       } catch { /* 下一次服务端事件会重新同步。 */ }
     })
   }
@@ -91,5 +92,19 @@ export const useAuthStore = defineStore('auth', () => {
     return creditRules.value.values[key] ?? defaultCreditRules.values[key] ?? 0
   }
 
-  return { user, loading, authOpen, authMode, creditRules, isAdmin, canModerate, load, login, logout, requireLogin, openAuth, creditRule }
+  function acknowledgeMessages(count: number) {
+    if (!user.value || count <= 0) return
+    const previous = user.value.unread_messages || 0
+    const next = Math.max(0, previous - count)
+    user.value.unread_messages = next
+    user.value.unread_notifications = Math.max(0, (user.value.unread_notifications || 0) - (previous - next))
+  }
+
+  function setUnreadCounts(notifications: number, messages: number) {
+    if (!user.value) return
+    user.value.unread_notifications = Math.max(0, notifications)
+    user.value.unread_messages = Math.max(0, messages)
+  }
+
+  return { user, loading, authOpen, authMode, creditRules, isAdmin, canModerate, load, login, logout, requireLogin, openAuth, creditRule, acknowledgeMessages, setUnreadCounts }
 })

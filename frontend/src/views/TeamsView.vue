@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { api, json } from '../api'
 import BaseModal from '../components/BaseModal.vue'
 import { useAuthStore } from '../stores/auth'
+import { teamRunActionState } from '../teamRun'
 import type { Page, Team, TeamGame } from '../types'
 
 const auth = useAuthStore()
@@ -13,6 +14,9 @@ const loading = ref(true)
 const error = ref('')
 const composer = ref(false)
 const detailTeam = ref<Team | null>(null)
+const teamActionBusy = ref<'check-in' | 'excuse' | 'leave' | null>(null)
+const teamActionNotice = ref('')
+const teamActionFailed = ref(false)
 const runManager = ref<Team | null>(null)
 const runs = ref<any[]>([])
 const gameFilter = ref('all')
@@ -24,6 +28,7 @@ const now = ref(Date.now())
 let clock: ReturnType<typeof setInterval> | null = null
 const form = reactive({ game_id: null as number | null, game: '', mode: '', rank_requirement: '不限', capacity: 5, starts_at: '', recurrence: 'once', voice_name: 'KOOK', voice_link: '', notes: '', newbie_level: '欢迎新手，带练', vibe: '', reminder_minutes: 30, post_departure_retention_minutes: 120, reminder_channels: ['email', 'in_app'] as string[] })
 const visibleTeams = computed(() => gameFilter.value === 'all' ? teams.value : teams.value.filter((team) => team.game === gameFilter.value))
+const currentRunAction = computed(() => teamRunActionState(detailTeam.value, now.value))
 const minStartsAt = computed(() => localDateTime(new Date(now.value + 10 * 60_000)))
 const timeWarning = computed(() => {
   if (!form.starts_at) return ''
@@ -60,10 +65,14 @@ async function create() {
 async function join(team: Team) { if (auth.requireLogin()) { await api(`/teams/${team.id}/join`, json('POST', { reminder_channels: ['email', 'in_app'] })); await load() } }
 function openDetail(team: Team) {
   detailTeam.value = team
+  teamActionNotice.value = ''
+  teamActionFailed.value = false
   if (String(route.params.id || '') !== String(team.id)) router.push({ path: `/teams/${team.id}`, query: route.query })
 }
 function closeDetail() {
   detailTeam.value = null
+  teamActionNotice.value = ''
+  teamActionFailed.value = false
   if (route.params.id) router.replace({ path: '/teams', query: route.query })
 }
 async function submitGame() {
@@ -84,9 +93,30 @@ function quickTime(kind: string) {
   else return
   form.starts_at = localDateTime(date)
 }
-async function leave(team: Team) { if (confirm(`确定下车吗？临近发车且未请假会扣 ${Math.abs(auth.creditRule('penalty.team_late_leave'))} 信用。`)) { await api(`/teams/${team.id}/leave`, json('POST')); await auth.load(); await load() } }
-async function excuse(team: Team) { if (team.next_run) { await api(`/teams/${team.id}/runs/${team.next_run.id}/excuse`, json('POST')); await load() } }
-async function checkIn(team: Team) { if (team.next_run) { await api(`/teams/${team.id}/runs/${team.next_run.id}/check-in`, json('POST')); await auth.load(); await load() } }
+async function runTeamAction(kind: 'check-in' | 'excuse' | 'leave', task: () => Promise<string>) {
+  teamActionBusy.value = kind
+  teamActionNotice.value = ''
+  teamActionFailed.value = false
+  try { teamActionNotice.value = await task() }
+  catch (e) { teamActionFailed.value = true; teamActionNotice.value = e instanceof Error ? e.message : '操作失败，请稍后重试。' }
+  finally { teamActionBusy.value = null }
+}
+async function leave(team: Team) {
+  if (!confirm(`确定下车吗？临近发车且未请假会扣 ${Math.abs(auth.creditRule('penalty.team_late_leave'))} 信用。`)) return
+  await runTeamAction('leave', async () => { await api(`/teams/${team.id}/leave`, json('POST')); await auth.load(); await load(); return '已退出车队。' })
+}
+async function excuse(team: Team) {
+  if (!team.next_run) return
+  await runTeamAction('excuse', async () => { await api(`/teams/${team.id}/runs/${team.next_run?.id}/excuse`, json('POST')); await load(); return '本场请假已记录。' })
+}
+async function checkIn(team: Team) {
+  if (!team.next_run) return
+  await runTeamAction('check-in', async () => {
+    const result = await api<{ ok: boolean; credit_delta: number }>(`/teams/${team.id}/runs/${team.next_run?.id}/check-in`, json('POST'))
+    await auth.load(); await load()
+    return result.credit_delta > 0 ? `签到成功，信用 +${result.credit_delta}。` : '本场已签到，信用奖励未重复发放。'
+  })
+}
 async function cancel(team: Team) { if (confirm('取消后所有成员都会收到通知，确定继续吗？')) { await api(`/teams/${team.id}/cancel`, json('POST')); await load() } }
 async function editTeam(team: Team) {
   const mode = prompt('车队模式：', team.mode); if (mode === null) return
@@ -208,11 +238,13 @@ onBeforeUnmount(() => { if (clock) clearInterval(clock) })
           <div class="seatdots detail-seatdots"><i v-for="n in detailTeam.capacity" :key="n" :class="{ 'is-empty': n > detailTeam.member_count }" /></div>
         </div>
         <div class="rulebox detail-reminders"><b>提醒：</b>{{ detailTeam.reminder_channels.map(reminderLabel).join(' · ') }}，发车前 {{ detailTeam.reminder_minutes }} 分钟发送。</div>
+        <p v-if="detailTeam.joined" class="notice info team-run-hint">{{ currentRunAction.hint }}</p>
+        <p v-if="teamActionNotice" class="notice" :class="teamActionFailed ? 'danger' : 'success'">{{ teamActionNotice }}</p>
         <div v-if="detailTeam.notes" class="team-detail-notes"><b>车头注意事项</b><p>{{ detailTeam.notes }}</p></div>
         <div class="team-member-list"><h3>队伍成员</h3><div v-for="member in detailTeam.members" :key="member.id" class="team-member-row"><span><b>{{ member.nickname }}</b><small>信用 {{ member.credit }}<template v-if="member.id === detailTeam.owner.id"> · 车头</template></small></span><div v-if="detailTeam.mine && member.id !== detailTeam.owner.id"><button class="btn ghost sm" @click="removeMember(detailTeam, member)">移除</button><button class="btn ghost sm" @click="transfer(detailTeam, member)">转让车头</button></div></div></div>
         <div class="modal-actions-v4">
           <button v-if="!detailTeam.joined && !departed(detailTeam)" class="btn primary" @click="join(detailTeam)">确认上车</button>
-          <template v-else-if="!detailTeam.mine"><button class="btn primary" @click="checkIn(detailTeam)">场次签到</button><button class="btn ghost" @click="excuse(detailTeam)">本次请假</button><button class="btn ghost" @click="leave(detailTeam)">退出车队</button></template>
+          <template v-else-if="detailTeam.joined"><button class="btn primary" :disabled="!currentRunAction.checkInEnabled || teamActionBusy !== null" @click="checkIn(detailTeam)">{{ teamActionBusy === 'check-in' ? '签到中…' : currentRunAction.checkInLabel }}</button><button class="btn ghost" :disabled="!currentRunAction.excuseEnabled || teamActionBusy !== null" @click="excuse(detailTeam)">{{ teamActionBusy === 'excuse' ? '请假中…' : currentRunAction.excuseLabel }}</button><button v-if="!detailTeam.mine" class="btn ghost" :disabled="teamActionBusy !== null" @click="leave(detailTeam)">{{ teamActionBusy === 'leave' ? '退出中…' : '退出车队' }}</button></template>
           <template v-if="detailTeam.mine"><button class="btn ghost" @click="editTeam(detailTeam)">编辑车队</button><button class="btn ghost" @click="createRun(detailTeam)">新增场次</button><button class="btn warn" @click="cancel(detailTeam)">取消车队</button></template>
           <button v-if="detailTeam.joined" class="btn ghost" @click="openRuns(detailTeam)">场次记录与评价</button>
           <a v-if="detailTeam.joined && (detailTeam.my_reminder_channels || []).includes('calendar')" class="btn ghost" :href="`/api/v1/teams/${detailTeam.id}/calendar.ics`">下载日历</a>

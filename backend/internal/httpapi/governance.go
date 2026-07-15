@@ -22,6 +22,7 @@ func (s *Server) registerGovernanceRoutes(r chi.Router) {
 	r.Post("/penalties/{penaltyID}/appeals", s.handle(s.appealPenalty))
 	r.Get("/conversations", s.handle(s.listConversations))
 	r.Post("/conversations", s.handle(s.createConversation))
+	r.Post("/conversations/read-all", s.handle(s.readAllMessages))
 	r.Get("/conversations/{conversationID}/messages", s.handle(s.listMessages))
 	r.Post("/conversations/{conversationID}/messages", s.handle(s.sendMessage))
 	r.Put("/blocks/{blockedID}", s.handle(s.blockUser))
@@ -315,6 +316,7 @@ func (s *Server) listConversations(w http.ResponseWriter, r *http.Request) error
 	var total int
 	_ = s.DB.QueryRow(r.Context(), "SELECT count(*) FROM conversation_members WHERE user_id=$1", user.ID).Scan(&total)
 	rows, err := s.DB.Query(r.Context(), `SELECT c.id,c.context_type,c.context_id,other.id,other.nickname,COALESCE(last_message.body,''),COALESCE(last_message.created_at,c.created_at),
+		EXISTS(SELECT 1 FROM blocks block WHERE block.user_id=$1 AND block.blocked_id=other.id),
 		(SELECT count(*) FROM messages message JOIN content_entities entity ON entity.id=message.entity_id WHERE message.conversation_id=c.id AND entity.owner_id<>$1 AND entity.publication_status='published' AND entity.created_at>COALESCE(m.last_read_at,c.created_at))
 		FROM conversations c JOIN conversation_members m ON m.conversation_id=c.id
 		LEFT JOIN LATERAL (SELECT u.id,u.nickname FROM conversation_members participant JOIN users u ON u.id=participant.user_id WHERE participant.conversation_id=c.id AND participant.user_id<>$1 LIMIT 1) other ON true
@@ -333,15 +335,16 @@ func (s *Server) listConversations(w http.ResponseWriter, r *http.Request) error
 		var otherName *string
 		var lastBody string
 		var lastAt time.Time
+		var blockedByMe bool
 		var unread int
-		if err := rows.Scan(&id, &kind, &contextID, &otherID, &otherName, &lastBody, &lastAt, &unread); err != nil {
+		if err := rows.Scan(&id, &kind, &contextID, &otherID, &otherName, &lastBody, &lastAt, &blockedByMe, &unread); err != nil {
 			return err
 		}
 		var other any
 		if otherID != nil && otherName != nil {
 			other = map[string]any{"id": *otherID, "nickname": *otherName}
 		}
-		items = append(items, map[string]any{"id": id, "context_type": kind, "context_id": contextID, "other_user": other, "last_message": truncateRunes(lastBody, 100), "last_message_at": lastAt, "unread": unread})
+		items = append(items, map[string]any{"id": id, "context_type": kind, "context_id": contextID, "other_user": other, "last_message": truncateRunes(lastBody, 100), "last_message_at": lastAt, "unread": unread, "blocked_by_me": blockedByMe})
 	}
 	writeJSON(w, 200, pagePayload(items, page, size, total))
 	return rows.Err()
@@ -466,13 +469,55 @@ func (s *Server) listMessages(w http.ResponseWriter, r *http.Request) error {
 		items = append(items, map[string]any{"id": mid, "body": body, "sender_id": sender, "mine": sender == user.ID, "created_at": created})
 	}
 	rows.Close()
-	_, _ = tx.Exec(r.Context(), "UPDATE conversation_members SET last_read_at=now() WHERE id=$1", membership)
+	if _, err := tx.Exec(r.Context(), "UPDATE conversation_members SET last_read_at=now() WHERE id=$1", membership); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(r.Context(), "UPDATE notifications SET read_at=now() WHERE user_id=$1 AND type='message' AND link=$2 AND read_at IS NULL", user.ID, fmt.Sprintf("/messages/%d", id)); err != nil {
+		return err
+	}
+	var unreadNotifications, unreadMessages int
+	if err := tx.QueryRow(r.Context(), "SELECT count(*) FILTER(WHERE read_at IS NULL),count(*) FILTER(WHERE read_at IS NULL AND type='message') FROM notifications WHERE user_id=$1", user.ID).Scan(&unreadNotifications, &unreadMessages); err != nil {
+		return err
+	}
 	if err := tx.Commit(r.Context()); err != nil {
 		return err
 	}
-	writeJSON(w, 200, pagePayload(items, page, size, total))
+	payload := pagePayload(items, page, size, total)
+	payload["unread_notifications"] = unreadNotifications
+	payload["unread_messages"] = unreadMessages
+	writeJSON(w, 200, payload)
 	return nil
 }
+
+func (s *Server) readAllMessages(w http.ResponseWriter, r *http.Request) error {
+	user, _, err := s.currentUser(w, r, true)
+	if err != nil {
+		return err
+	}
+	tx, err := s.DB.Begin(r.Context())
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(r.Context())
+	_, err = tx.Exec(r.Context(), "UPDATE conversation_members SET last_read_at=now() WHERE user_id=$1", user.ID)
+	if err != nil {
+		return err
+	}
+	tag, err := tx.Exec(r.Context(), "UPDATE notifications SET read_at=now() WHERE user_id=$1 AND type='message' AND read_at IS NULL", user.ID)
+	if err != nil {
+		return err
+	}
+	var unreadNotifications int
+	if err := tx.QueryRow(r.Context(), "SELECT count(*) FROM notifications WHERE user_id=$1 AND read_at IS NULL", user.ID).Scan(&unreadNotifications); err != nil {
+		return err
+	}
+	if err := tx.Commit(r.Context()); err != nil {
+		return err
+	}
+	writeJSON(w, 200, map[string]any{"ok": true, "marked_messages": tag.RowsAffected(), "unread_messages": 0, "unread_notifications": unreadNotifications})
+	return nil
+}
+
 func (s *Server) sendMessage(w http.ResponseWriter, r *http.Request) error {
 	id, _ := pathID(r, "conversationID")
 	user, _, err := s.participatingUser(w, r)
@@ -661,10 +706,12 @@ func (s *Server) conversationPayload(ctx context.Context, q queryer, id int64, k
 	var unread int
 	_ = q.QueryRow(ctx, `SELECT count(*) FROM messages m JOIN content_entities e ON e.id=m.entity_id WHERE m.conversation_id=$1 AND e.owner_id<>$2 AND e.publication_status='published' AND e.created_at>$3`, id, viewer, since).Scan(&unread)
 	var other any
+	blockedByMe := false
 	if otherID != nil {
 		other = map[string]any{"id": *otherID, "nickname": *otherName}
+		_ = q.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM blocks WHERE user_id=$1 AND blocked_id=$2)", viewer, *otherID).Scan(&blockedByMe)
 	}
-	return map[string]any{"id": id, "context_type": kind, "context_id": contextID, "other_user": other, "last_message": truncateRunes(lastBody, 100), "last_message_at": lastAt, "unread": unread}, nil
+	return map[string]any{"id": id, "context_type": kind, "context_id": contextID, "other_user": other, "last_message": truncateRunes(lastBody, 100), "last_message_at": lastAt, "unread": unread, "blocked_by_me": blockedByMe}, nil
 }
 
 // Notifications, announcements and feedback.
@@ -712,19 +759,19 @@ func (s *Server) notificationStream(w http.ResponseWriter, r *http.Request) erro
 	w.Header().Set("Connection", "keep-alive")
 	ticker := time.NewTicker(15 * time.Second)
 	defer ticker.Stop()
-	last := -1
+	last, lastMessages := -1, -1
 	for {
 		var active bool
 		if err := s.DB.QueryRow(r.Context(), "SELECT EXISTS(SELECT 1 FROM sessions WHERE id=$1 AND revoked_at IS NULL AND expires_at>now() AND absolute_expires_at>now())", session.ID).Scan(&active); err != nil || !active {
 			return nil
 		}
-		var count int
-		if err := s.DB.QueryRow(r.Context(), "SELECT count(*) FROM notifications WHERE user_id=$1 AND read_at IS NULL", user.ID).Scan(&count); err != nil {
+		var count, messages int
+		if err := s.DB.QueryRow(r.Context(), "SELECT count(*) FILTER(WHERE read_at IS NULL),count(*) FILTER(WHERE read_at IS NULL AND type='message') FROM notifications WHERE user_id=$1", user.ID).Scan(&count, &messages); err != nil {
 			return err
 		}
-		if count != last {
-			fmt.Fprintf(w, "event: unread\ndata: {\"count\":%d}\n\n", count)
-			last = count
+		if count != last || messages != lastMessages {
+			fmt.Fprintf(w, "event: unread\ndata: {\"count\":%d,\"messages\":%d}\n\n", count, messages)
+			last, lastMessages = count, messages
 		} else {
 			fmt.Fprint(w, ": keepalive\n\n")
 		}

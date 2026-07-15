@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -1128,15 +1129,35 @@ func (s *Server) excuseTeamRun(w http.ResponseWriter, r *http.Request) error {
 	if err != nil || run.TeamID != teamID {
 		return apiError(403, "RUN_MEMBER_REQUIRED", "只有本场成员可以请假")
 	}
-	if !time.Now().UTC().Before(run.Starts) {
-		return apiError(400, "RUN_STARTED", "发车后不能请假")
+	var status string
+	var excusedAt *time.Time
+	err = tx.QueryRow(r.Context(), `
+		SELECT status, excused_at
+		FROM team_run_members
+		WHERE run_id=$1 AND user_id=$2
+		FOR UPDATE`, runID, user.ID).Scan(&status, &excusedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return apiError(403, "RUN_MEMBER_REQUIRED", "只有本场成员可以请假")
 	}
-	tag, err := tx.Exec(r.Context(), "UPDATE team_run_members SET excused_at=COALESCE(excused_at,now()),status='excused' WHERE run_id=$1 AND user_id=$2 AND status='joined'", runID, user.ID)
 	if err != nil {
 		return err
 	}
-	if tag.RowsAffected() == 0 {
+	if status == "excused" && excusedAt != nil {
+		if err := tx.Commit(r.Context()); err != nil {
+			return err
+		}
+		writeJSON(w, 200, map[string]any{"ok": true, "excused_at": excusedAt})
+		return nil
+	}
+	if !time.Now().UTC().Before(run.Starts) {
+		return apiError(400, "RUN_STARTED", "发车后不能请假")
+	}
+	if status != "joined" {
 		return apiError(403, "RUN_MEMBER_REQUIRED", "只有本场成员可以请假")
+	}
+	err = tx.QueryRow(r.Context(), "UPDATE team_run_members SET excused_at=now(),status='excused' WHERE run_id=$1 AND user_id=$2 RETURNING excused_at", runID, user.ID).Scan(&excusedAt)
+	if err != nil {
+		return err
 	}
 	team, err := s.loadTeam(r.Context(), tx, teamID)
 	if err != nil {
@@ -1147,7 +1168,7 @@ func (s *Server) excuseTeamRun(w http.ResponseWriter, r *http.Request) error {
 	if err := tx.Commit(r.Context()); err != nil {
 		return err
 	}
-	writeJSON(w, 200, map[string]any{"ok": true})
+	writeJSON(w, 200, map[string]any{"ok": true, "excused_at": excusedAt})
 	return nil
 }
 

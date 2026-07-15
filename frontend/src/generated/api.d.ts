@@ -1214,6 +1214,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/conversations/read-all": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Mark all private messages as read */
+        post: operations["readAllMessages"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/conversations/{conversation_id}/messages": {
         parameters: {
             query?: never;
@@ -2466,6 +2483,89 @@ export interface components {
             context_id?: number | null;
             /** First Message */
             first_message: string;
+        };
+        ConversationUser: {
+            /** Format: int64 */
+            id: number;
+            nickname: string;
+        };
+        ConversationSummary: {
+            /** Format: int64 */
+            id: number;
+            context_type: string;
+            /** Format: int64 */
+            context_id?: number | null;
+            other_user: components["schemas"]["ConversationUser"];
+            last_message: string;
+            /** Format: date-time */
+            last_message_at: string;
+            unread: number;
+            blocked_by_me: boolean;
+        };
+        ConversationPage: {
+            items: components["schemas"]["ConversationSummary"][];
+            page: number;
+            page_size: number;
+            total: number;
+        };
+        ConversationMessage: {
+            /** Format: int64 */
+            id: number;
+            body: string;
+            /** Format: int64 */
+            sender_id: number;
+            mine: boolean;
+            /** Format: date-time */
+            created_at: string;
+        };
+        ConversationMessagePage: {
+            items: components["schemas"]["ConversationMessage"][];
+            page: number;
+            page_size: number;
+            total: number;
+            unread_notifications: number;
+            unread_messages: number;
+        };
+        MessageReadAllResult: {
+            ok: boolean;
+            /** Format: int64 */
+            marked_messages: number;
+            unread_messages: number;
+            unread_notifications: number;
+        };
+        AdminSystemHealth: {
+            worker: {
+                stale: boolean;
+                /** Format: date-time */
+                last_seen_at?: string | null;
+                /** Format: date-time */
+                last_success_at?: string | null;
+                last_error: string;
+            };
+            object_storage: {
+                ok: boolean;
+                error?: string;
+            };
+            database: {
+                /** Format: int64 */
+                size_bytes: number;
+            };
+            disk: {
+                ok: boolean;
+                /** Format: int64 */
+                temp_free_bytes: number;
+                error?: string;
+            };
+            email: {
+                pending: number;
+                failed: number;
+            };
+            backup: {
+                status: string;
+                object_key: string;
+                /** Format: date-time */
+                finished_at?: string | null;
+            };
         };
         /** CorrectionCreate */
         CorrectionCreate: {
@@ -6239,9 +6339,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["ConversationPage"];
                 };
             };
             /** @description Validation Error */
@@ -6290,6 +6388,26 @@ export interface operations {
             };
         };
     };
+    readAllMessages: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessageReadAllResult"];
+                };
+            };
+        };
+    };
     list_messages_api_v1_conversations__conversation_id__messages_get: {
         parameters: {
             query?: {
@@ -6310,9 +6428,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["ConversationMessagePage"];
                 };
             };
             /** @description Validation Error */
@@ -8322,9 +8438,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["AdminSystemHealth"];
                 };
             };
             /** @description Success */

@@ -2,11 +2,13 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { api, json } from '../api'
 import { useAuthStore } from '../stores/auth'
-import type { AdminMarketOption, CampusService, CreditRuleSet, GameSubmission, Page, TeamGame } from '../types'
+import { buildHealthCards, formatHealthTime } from '../systemHealth'
+import type { AdminMarketOption, AdminSystemHealth, CampusService, CreditRuleSet, GameSubmission, Page, TeamGame } from '../types'
 
 const auth = useAuthStore()
 const overview = ref<Record<string, number>>({}), users = ref<any[]>([]), cases = ref<any[]>([]), appeals = ref<any[]>([]), feedback = ref<any[]>([]), backups = ref<any[]>([]), auditRows = ref<any[]>([])
-const marketDisputes = ref<any[]>([]), systemHealth = ref<Record<string, any>>({})
+const marketDisputes = ref<any[]>([]), systemHealth = ref<AdminSystemHealth | null>(null)
+const systemHealthRefreshing = ref(false), systemHealthRefreshedAt = ref<Date | null>(null)
 const gameSubmissions = ref<GameSubmission[]>([]), teamGames = ref<TeamGame[]>([])
 const campusServices = ref<CampusService[]>([])
 const marketCategories = ref<AdminMarketOption[]>([]), marketLocations = ref<AdminMarketOption[]>([])
@@ -17,6 +19,7 @@ const serviceForm = reactive({ name: '', category: '校园服务', manager_user_
 const marketOptionForm = reactive({ kind: 'categories' as 'categories' | 'locations', name: '', slug: '', sort_order: 0 })
 const tab = ref('queue'), error = ref(''), success = ref('')
 const siteSettingKeys = computed(() => Object.keys(settings).filter((key) => key !== 'anonymous_nickname_pool'))
+const healthCards = computed(() => systemHealth.value ? buildHealthCards(systemHealth.value) : [])
 
 async function load() {
   await auth.load()
@@ -25,17 +28,26 @@ async function load() {
     api('/admin/overview'), api<Page<any>>('/admin/users?page_size=100'), api<Page<any>>('/admin/moderation-cases'),
     api<Page<any>>('/admin/appeals'), api<Page<any>>('/admin/feedback'), api<Page<any>>('/admin/market/disputes'),
   ]
-  if (auth.isAdmin) tasks.push(api('/admin/settings'), api<Page<any>>('/admin/backups'), api<Page<any>>('/admin/audit-logs?page_size=100'), api<CreditRuleSet>('/admin/credit-rules'), api('/admin/system-health'))
+  if (auth.isAdmin) tasks.push(api('/admin/settings'), api<Page<any>>('/admin/backups'), api<Page<any>>('/admin/audit-logs?page_size=100'), api<CreditRuleSet>('/admin/credit-rules'), api<AdminSystemHealth>('/admin/system-health'))
   const values = await Promise.all(tasks)
   overview.value = values[0]; users.value = values[1].items; cases.value = values[2].items; appeals.value = values[3].items; feedback.value = values[4].items; marketDisputes.value = values[5].items
   if (auth.isAdmin) {
-    Object.assign(settings, values[6]); backups.value = values[7].items; auditRows.value = values[8].items; creditRules.value = values[9]; systemHealth.value = values[10]
+    Object.assign(settings, values[6]); backups.value = values[7].items; auditRows.value = values[8].items; creditRules.value = values[9]; systemHealth.value = values[10]; systemHealthRefreshedAt.value = new Date()
     const [catalog, submissions, services, categories, locations] = await Promise.all([
       api<{ items: TeamGame[] }>('/team-games'), api<Page<GameSubmission>>('/admin/game-submissions'), api<{ items: CampusService[] }>('/campus-services'),
       api<{ items: AdminMarketOption[] }>('/admin/market/categories'), api<{ items: AdminMarketOption[] }>('/admin/market/locations'),
     ])
     teamGames.value = catalog.items; gameSubmissions.value = submissions.items; campusServices.value = services.items
     marketCategories.value = categories.items; marketLocations.value = locations.items
+  }
+}
+async function refreshSystemHealth() {
+  systemHealthRefreshing.value = true
+  try {
+    systemHealth.value = await api<AdminSystemHealth>('/admin/system-health')
+    systemHealthRefreshedAt.value = new Date()
+  } finally {
+    systemHealthRefreshing.value = false
   }
 }
 function run(task: () => Promise<void>) { error.value = ''; success.value = ''; task().catch((e) => { error.value = e instanceof Error ? e.message : '操作失败' }) }
@@ -117,7 +129,11 @@ onMounted(() => run(load))
       <div v-else-if="tab === 'market'" class="stack"><form class="card form-grid" @submit.prevent="run(createMarketOption)"><h3 class="full">添加市场分类或交易地点</h3><label>字典<select v-model="marketOptionForm.kind"><option value="categories">商品分类</option><option value="locations">交易地点</option></select></label><label>显示名称<input v-model.trim="marketOptionForm.name" maxlength="120" required /></label><label>稳定 slug<input v-model.trim="marketOptionForm.slug" pattern="[a-z0-9][a-z0-9-]{0,59}" maxlength="60" required /></label><label>排序<input v-model.number="marketOptionForm.sort_order" type="number" min="-10000" max="10000" required /></label><button class="button primary full">添加字典项</button></form><div v-for="group in [{ key: 'categories' as const, title: '商品分类', items: marketCategories }, { key: 'locations' as const, title: '交易地点', items: marketLocations }]" :key="group.key" class="card table-wrap"><h3>{{ group.title }}</h3><table><thead><tr><th>名称</th><th>slug</th><th>排序</th><th>启用</th><th>操作</th></tr></thead><tbody><tr v-for="item in group.items" :key="item.id"><td><input v-model.trim="item.name" maxlength="120" /></td><td><input v-model.trim="item.slug" maxlength="60" /></td><td><input v-model.number="item.sort_order" type="number" min="-10000" max="10000" style="width:90px" /></td><td><input v-model="item.active" type="checkbox" /></td><td><button class="button secondary small" @click="run(() => saveMarketOption(group.key, item))">保存</button><button v-if="item.active" class="button danger small" @click="run(() => disableMarketOption(group.key, item))">停用</button></td></tr></tbody></table></div></div>
       <form v-else-if="tab === 'announce'" class="card form-grid" @submit.prevent="run(publishAnnouncement)"><h3 class="full">发布公告</h3><label class="full">标题<input v-model="announcement.title" required /></label><label>级别<select v-model="announcement.level"><option value="normal">普通</option><option value="strong">强提醒</option></select></label><label>目标人群<select v-model="announcement.audience"><option value="all">所有用户</option><option value="student">学生</option><option value="staff">教职工</option></select></label><label class="full">正文<textarea v-model="announcement.body" rows="8" required /></label><button class="button primary full">发布公告</button></form>
       <div v-else-if="tab === 'credit'" class="stack"><template v-if="auth.isAdmin"><form class="card" @submit.prevent="run(saveCreditRules)"><div class="card-head"><div><h3>信用规则（满分 {{ creditRules.max_score }}）</h3><p class="muted">门槛变更立即生效；加减分只影响之后发生的事件。</p></div><button class="button primary">保存信用规则</button></div><div class="table-wrap"><table><thead><tr><th>类别</th><th>规则</th><th>说明</th><th>数值</th></tr></thead><tbody><tr v-for="rule in creditRules.rules" :key="rule.key"><td><span class="badge">{{ rule.kind }}</span></td><td><b>{{ rule.label }}</b><small class="muted"> {{ rule.key }}</small></td><td>{{ rule.description }}</td><td><input v-model.number="rule.value" type="number" :min="rule.kind === 'penalty' ? -1000 : 0" :max="rule.kind === 'penalty' ? 0 : 1000" style="width:90px" /></td></tr></tbody></table></div></form><form class="card form-stack" @submit.prevent="run(saveAnonymousPool)"><h3>树洞完全匿名昵称池</h3><p class="muted">一行一个昵称；保存时自动删除空行和重复项。已分配的历史匿名身份不会改变。</p><textarea v-model="settings.anonymous_nickname_pool" rows="16" maxlength="20000" placeholder="丹阳子&#10;小狐狸&#10;欧阳牛马" /><button class="button primary">保存昵称池</button></form></template><p v-else class="empty-state">信用规则和匿名昵称池仅管理员可修改。</p></div>
-      <div v-else class="stack"><template v-if="auth.isAdmin"><div class="card"><h3>系统健康</h3><pre style="white-space:pre-wrap">{{ JSON.stringify(systemHealth, null, 2) }}</pre></div><form class="card form-stack" @submit.prevent="run(saveSettings)"><h3>站点设置</h3><label v-for="key in siteSettingKeys" :key="key">{{ key }}<textarea v-model="settings[key]" rows="2" /></label><button class="button primary">保存设置</button></form><div class="card"><div class="card-head"><div><h3>备份</h3><p class="muted">备份写入异地 S3，保留 7 个每日、4 个每周和 12 个每月恢复点。</p></div><button class="button secondary" @click="run(backup)">生成备份</button></div><p v-for="item in backups" :key="item.id"><span class="badge">{{ item.status }}</span> #{{ item.id }} · {{ item.created_at }} <a v-if="item.download_url" class="button small secondary" :href="item.download_url">安全下载</a></p></div><div class="card table-wrap"><h3>审计日志</h3><table><thead><tr><th>时间</th><th>操作者</th><th>动作</th><th>对象</th><th>理由</th></tr></thead><tbody><tr v-for="item in auditRows" :key="item.id"><td>{{ new Date(item.created_at).toLocaleString() }}</td><td>{{ item.actor_id }}</td><td>{{ item.action }}</td><td>{{ item.target_type }} #{{ item.target_id }}</td><td>{{ item.reason }}</td></tr></tbody></table></div></template><p v-else class="empty-state">运维、设置和完整审计日志仅管理员可见。</p></div>
+      <div v-else class="stack"><template v-if="auth.isAdmin"><div class="card health-panel"><div class="card-head"><div><h3>系统健康</h3><p class="muted">最后刷新：{{ formatHealthTime(systemHealthRefreshedAt?.toISOString()) }}</p></div><button class="button secondary" :disabled="systemHealthRefreshing" @click="run(refreshSystemHealth)">{{ systemHealthRefreshing ? '刷新中…' : '手动刷新' }}</button></div><div v-if="systemHealth" class="health-grid"><article v-for="item in healthCards" :key="item.key" class="health-card" :class="`health-${item.tone}`"><div class="health-card-title"><h4>{{ item.title }}</h4><span class="health-status">{{ item.status }}</span></div><p v-for="detail in item.details" :key="detail">{{ detail }}</p></article></div><p v-else class="empty-state">正在读取系统健康状态…</p><details v-if="systemHealth" class="health-raw"><summary>原始数据（排障用）</summary><pre>{{ JSON.stringify(systemHealth, null, 2) }}</pre></details></div><form class="card form-stack" @submit.prevent="run(saveSettings)"><h3>站点设置</h3><label v-for="key in siteSettingKeys" :key="key">{{ key }}<textarea v-model="settings[key]" rows="2" /></label><button class="button primary">保存设置</button></form><div class="card"><div class="card-head"><div><h3>备份</h3><p class="muted">备份写入异地 S3，保留 7 个每日、4 个每周和 12 个每月恢复点。</p></div><button class="button secondary" @click="run(backup)">生成备份</button></div><p v-for="item in backups" :key="item.id"><span class="badge">{{ item.status }}</span> #{{ item.id }} · {{ item.created_at }} <a v-if="item.download_url" class="button small secondary" :href="item.download_url">安全下载</a></p></div><div class="card table-wrap"><h3>审计日志</h3><table><thead><tr><th>时间</th><th>操作者</th><th>动作</th><th>对象</th><th>理由</th></tr></thead><tbody><tr v-for="item in auditRows" :key="item.id"><td>{{ new Date(item.created_at).toLocaleString() }}</td><td>{{ item.actor_id }}</td><td>{{ item.action }}</td><td>{{ item.target_type }} #{{ item.target_id }}</td><td>{{ item.reason }}</td></tr></tbody></table></div></template><p v-else class="empty-state">运维、设置和完整审计日志仅管理员可见。</p></div>
     </template>
   </section>
 </template>
+
+<style scoped>
+.health-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-top:16px}.health-card{border:1px solid var(--line);border-left-width:5px;border-radius:10px;padding:14px;background:var(--paper)}.health-card-title{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}.health-card h4{margin:0}.health-card p{margin:5px 0 0;color:var(--muted);font-size:12px;overflow-wrap:anywhere}.health-status{border-radius:999px;padding:2px 8px;font-size:11px;white-space:nowrap}.health-ok{border-left-color:var(--green)}.health-ok .health-status{color:var(--green);background:var(--green-soft)}.health-warning{border-left-color:#b7791f}.health-warning .health-status{color:#7c4a00;background:var(--yellow)}.health-danger{border-left-color:var(--red)}.health-danger .health-status{color:#fff;background:var(--red)}.health-raw{margin-top:16px}.health-raw summary{cursor:pointer;color:var(--muted)}.health-raw pre{max-height:360px;overflow:auto;white-space:pre-wrap;font-size:12px}@media(max-width:900px){.health-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:600px){.health-grid{grid-template-columns:1fr}}
+</style>

@@ -139,6 +139,246 @@ func TestMarketTransactionRequiresTwoPartyCompletion(t *testing.T) {
 	}
 	sellerClient := newClient(sellerToken, sellerCSRF)
 	buyerClient := newClient(buyerToken, buyerCSRF)
+
+	conversationCreated := requestJSON(t, sellerClient, http.MethodPost, server.URL+"/api/v1/conversations", map[string]any{"recipient_id": buyerID, "context_type": "direct", "first_message": "你好，这是拉黑状态测试"}, sellerCSRF)
+	if conversationCreated.StatusCode != http.StatusCreated {
+		t.Fatalf("create conversation: %d %s", conversationCreated.StatusCode, readResponse(conversationCreated))
+	}
+	var conversationResult struct {
+		Conversation struct {
+			ID int64 `json:"id"`
+		} `json:"conversation"`
+	}
+	if err := json.NewDecoder(conversationCreated.Body).Decode(&conversationResult); err != nil {
+		t.Fatal(err)
+	}
+	conversationCreated.Body.Close()
+	blocked := requestJSON(t, sellerClient, http.MethodPut, fmt.Sprintf("%s/api/v1/blocks/%d", server.URL, buyerID), nil, sellerCSRF)
+	if blocked.StatusCode != http.StatusOK {
+		t.Fatalf("block user: %d %s", blocked.StatusCode, readResponse(blocked))
+	}
+	blocked.Body.Close()
+	assertBlockDirection := func(client *http.Client, want bool) {
+		response, err := client.Get(server.URL + "/api/v1/conversations")
+		if err != nil {
+			t.Fatal(err)
+		}
+		var page struct {
+			Items []struct {
+				ID          int64 `json:"id"`
+				BlockedByMe bool  `json:"blocked_by_me"`
+			} `json:"items"`
+		}
+		if response.StatusCode != http.StatusOK {
+			t.Fatalf("list conversations: %d %s", response.StatusCode, readResponse(response))
+		}
+		if err := json.NewDecoder(response.Body).Decode(&page); err != nil {
+			t.Fatal(err)
+		}
+		response.Body.Close()
+		for _, item := range page.Items {
+			if item.ID == conversationResult.Conversation.ID {
+				if item.BlockedByMe != want {
+					t.Fatalf("blocked_by_me=%v want %v", item.BlockedByMe, want)
+				}
+				return
+			}
+		}
+		t.Fatal("created conversation missing from list")
+	}
+	assertBlockDirection(sellerClient, true)
+	assertBlockDirection(buyerClient, false)
+	if _, err := pool.Exec(context.Background(), "INSERT INTO notifications(user_id,type,title,body,link,created_at) VALUES($1,'system','系统通知','不应被私信已读清除','/me',now())", buyerID); err != nil {
+		t.Fatal(err)
+	}
+	unreadCounts := func() (int, int) {
+		response, err := buyerClient.Get(server.URL + "/api/v1/me")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if response.StatusCode != http.StatusOK {
+			t.Fatalf("load me: %d %s", response.StatusCode, readResponse(response))
+		}
+		var payload struct {
+			UnreadNotifications int `json:"unread_notifications"`
+			UnreadMessages      int `json:"unread_messages"`
+		}
+		if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
+			t.Fatal(err)
+		}
+		response.Body.Close()
+		return payload.UnreadNotifications, payload.UnreadMessages
+	}
+	if all, messages := unreadCounts(); all != 2 || messages != 1 {
+		t.Fatalf("initial unread counts all=%d messages=%d", all, messages)
+	}
+	readConversation, err := buyerClient.Get(fmt.Sprintf("%s/api/v1/conversations/%d/messages", server.URL, conversationResult.Conversation.ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if readConversation.StatusCode != http.StatusOK {
+		t.Fatalf("read conversation: %d %s", readConversation.StatusCode, readResponse(readConversation))
+	}
+	readConversation.Body.Close()
+	if all, messages := unreadCounts(); all != 1 || messages != 0 {
+		t.Fatalf("single-conversation read cleared unrelated notifications: all=%d messages=%d", all, messages)
+	}
+	blockedSend := requestJSON(t, sellerClient, http.MethodPost, fmt.Sprintf("%s/api/v1/conversations/%d/messages", server.URL, conversationResult.Conversation.ID), map[string]any{"body": "这条消息不应发送"}, sellerCSRF)
+	if blockedSend.StatusCode != http.StatusForbidden {
+		t.Fatalf("blocked send: %d %s", blockedSend.StatusCode, readResponse(blockedSend))
+	}
+	blockedSend.Body.Close()
+	for i := 0; i < 2; i++ {
+		unblocked := requestJSON(t, sellerClient, http.MethodDelete, fmt.Sprintf("%s/api/v1/blocks/%d", server.URL, buyerID), nil, sellerCSRF)
+		if unblocked.StatusCode != http.StatusOK {
+			t.Fatalf("unblock user attempt %d: %d %s", i+1, unblocked.StatusCode, readResponse(unblocked))
+		}
+		unblocked.Body.Close()
+	}
+	assertBlockDirection(sellerClient, false)
+	unblockedSend := requestJSON(t, sellerClient, http.MethodPost, fmt.Sprintf("%s/api/v1/conversations/%d/messages", server.URL, conversationResult.Conversation.ID), map[string]any{"body": "取消拉黑后可以发送"}, sellerCSRF)
+	if unblockedSend.StatusCode != http.StatusCreated {
+		t.Fatalf("send after unblock: %d %s", unblockedSend.StatusCode, readResponse(unblockedSend))
+	}
+	unblockedSend.Body.Close()
+	for i := 0; i < 2; i++ {
+		readAll := requestJSON(t, buyerClient, http.MethodPost, server.URL+"/api/v1/conversations/read-all", nil, buyerCSRF)
+		if readAll.StatusCode != http.StatusOK {
+			t.Fatalf("read all messages attempt %d: %d %s", i+1, readAll.StatusCode, readResponse(readAll))
+		}
+		var payload struct {
+			MarkedMessages      int64 `json:"marked_messages"`
+			UnreadMessages      int   `json:"unread_messages"`
+			UnreadNotifications int   `json:"unread_notifications"`
+		}
+		if err := json.NewDecoder(readAll.Body).Decode(&payload); err != nil {
+			t.Fatal(err)
+		}
+		readAll.Body.Close()
+		wantMarked := int64(1)
+		if i == 1 {
+			wantMarked = 0
+		}
+		if payload.MarkedMessages != wantMarked || payload.UnreadMessages != 0 || payload.UnreadNotifications != 1 {
+			t.Fatalf("read all attempt %d payload=%+v want marked=%d, private=0, total=1", i+1, payload, wantMarked)
+		}
+	}
+	observeThreshold := creditDefault("threshold.observe_publish")
+	if _, err := pool.Exec(context.Background(), "UPDATE users SET credit=$1 WHERE id=$2", observeThreshold, sellerID); err != nil {
+		t.Fatal(err)
+	}
+	observeCreated := requestJSON(t, sellerClient, http.MethodPost, server.URL+"/api/v1/observe-posts", map[string]any{"title": "文明观察测试", "body": "只描述发生的公共事件，不包含任何个人隐私信息。"}, sellerCSRF)
+	if observeCreated.StatusCode != http.StatusCreated {
+		t.Fatalf("credit-qualified observe post: %d %s", observeCreated.StatusCode, readResponse(observeCreated))
+	}
+	observeCreated.Body.Close()
+	if _, err := pool.Exec(context.Background(), "UPDATE users SET credit=$1 WHERE id=$2", observeThreshold-1, buyerID); err != nil {
+		t.Fatal(err)
+	}
+	observeRejected := requestJSON(t, buyerClient, http.MethodPost, server.URL+"/api/v1/observe-posts", map[string]any{"title": "信用不足测试", "body": "这条观察记录不应在信用不足时创建成功。"}, buyerCSRF)
+	if observeRejected.StatusCode != http.StatusForbidden {
+		t.Fatalf("low-credit observe post: %d %s", observeRejected.StatusCode, readResponse(observeRejected))
+	}
+	observeRejected.Body.Close()
+	if _, err := pool.Exec(context.Background(), "UPDATE users SET credit=900 WHERE id IN ($1,$2)", sellerID, buyerID); err != nil {
+		t.Fatal(err)
+	}
+
+	teamGamesResponse, err := http.Get(server.URL + "/api/v1/team-games")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if teamGamesResponse.StatusCode != http.StatusOK {
+		t.Fatalf("seed team games: %d %s", teamGamesResponse.StatusCode, readResponse(teamGamesResponse))
+	}
+	teamGamesResponse.Body.Close()
+	var gameID int64
+	if err := pool.QueryRow(context.Background(), "SELECT id FROM team_games WHERE active=true ORDER BY id LIMIT 1").Scan(&gameID); err != nil {
+		t.Fatal(err)
+	}
+	teamStart := time.Now().UTC().Add(15 * time.Minute)
+	teamCreated := requestJSON(t, sellerClient, http.MethodPost, server.URL+"/api/v1/teams", map[string]any{"game_id": gameID, "mode": "集成测试", "capacity": 3, "starts_at": teamStart, "recurrence": "once", "reminder_channels": []string{"in_app"}}, sellerCSRF)
+	if teamCreated.StatusCode != http.StatusCreated {
+		t.Fatalf("create team: %d %s", teamCreated.StatusCode, readResponse(teamCreated))
+	}
+	var team struct {
+		ID      int64 `json:"id"`
+		NextRun struct {
+			ID int64 `json:"id"`
+		} `json:"next_run"`
+	}
+	if err := json.NewDecoder(teamCreated.Body).Decode(&team); err != nil {
+		t.Fatal(err)
+	}
+	teamCreated.Body.Close()
+	joined := requestJSON(t, buyerClient, http.MethodPost, fmt.Sprintf("%s/api/v1/teams/%d/join", server.URL, team.ID), map[string]any{"reminder_channels": []string{"in_app"}}, buyerCSRF)
+	if joined.StatusCode != http.StatusOK {
+		t.Fatalf("join team: %d %s", joined.StatusCode, readResponse(joined))
+	}
+	joined.Body.Close()
+	var creditBefore int
+	if err := pool.QueryRow(context.Background(), "SELECT credit FROM users WHERE id=$1", sellerID).Scan(&creditBefore); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ {
+		checkedIn := requestJSON(t, sellerClient, http.MethodPost, fmt.Sprintf("%s/api/v1/teams/%d/runs/%d/check-in", server.URL, team.ID, team.NextRun.ID), nil, sellerCSRF)
+		if checkedIn.StatusCode != http.StatusOK {
+			t.Fatalf("owner check-in attempt %d: %d %s", i+1, checkedIn.StatusCode, readResponse(checkedIn))
+		}
+		checkedIn.Body.Close()
+	}
+	var creditAfter int
+	if err := pool.QueryRow(context.Background(), "SELECT credit FROM users WHERE id=$1", sellerID).Scan(&creditAfter); err != nil {
+		t.Fatal(err)
+	}
+	reward := creditDefault("reward.team_check_in")
+	if creditAfter-creditBefore != reward {
+		t.Fatalf("check-in reward applied more than once: before=%d after=%d reward=%d", creditBefore, creditAfter, reward)
+	}
+	var firstExcusedAt time.Time
+	for i := 0; i < 2; i++ {
+		excused := requestJSON(t, buyerClient, http.MethodPost, fmt.Sprintf("%s/api/v1/teams/%d/runs/%d/excuse", server.URL, team.ID, team.NextRun.ID), nil, buyerCSRF)
+		if excused.StatusCode != http.StatusOK {
+			t.Fatalf("member excuse attempt %d: %d %s", i+1, excused.StatusCode, readResponse(excused))
+		}
+		var payload struct {
+			ExcusedAt time.Time `json:"excused_at"`
+		}
+		if err := json.NewDecoder(excused.Body).Decode(&payload); err != nil {
+			t.Fatal(err)
+		}
+		excused.Body.Close()
+		if i == 0 {
+			firstExcusedAt = payload.ExcusedAt
+		} else if !payload.ExcusedAt.Equal(firstExcusedAt) {
+			t.Fatalf("idempotent excuse changed timestamp: first=%s second=%s", firstExcusedAt, payload.ExcusedAt)
+		}
+	}
+	secondRun := requestJSON(t, sellerClient, http.MethodPost, fmt.Sprintf("%s/api/v1/teams/%d/runs", server.URL, team.ID), map[string]any{"starts_at": time.Now().UTC().Add(2 * time.Hour)}, sellerCSRF)
+	if secondRun.StatusCode != http.StatusCreated {
+		t.Fatalf("create second run: %d %s", secondRun.StatusCode, readResponse(secondRun))
+	}
+	var secondRunPayload struct {
+		ID int64 `json:"id"`
+	}
+	if err := json.NewDecoder(secondRun.Body).Decode(&secondRunPayload); err != nil {
+		t.Fatal(err)
+	}
+	secondRun.Body.Close()
+	outOfWindow := requestJSON(t, sellerClient, http.MethodPost, fmt.Sprintf("%s/api/v1/teams/%d/runs/%d/check-in", server.URL, team.ID, secondRunPayload.ID), nil, sellerCSRF)
+	if outOfWindow.StatusCode != http.StatusBadRequest {
+		t.Fatalf("outside-window check-in: %d %s", outOfWindow.StatusCode, readResponse(outOfWindow))
+	}
+	outOfWindow.Body.Close()
+	if _, err := pool.Exec(context.Background(), "UPDATE team_runs SET starts_at=now()-interval '1 minute' WHERE id=$1", secondRunPayload.ID); err != nil {
+		t.Fatal(err)
+	}
+	lateExcuse := requestJSON(t, buyerClient, http.MethodPost, fmt.Sprintf("%s/api/v1/teams/%d/runs/%d/excuse", server.URL, team.ID, secondRunPayload.ID), nil, buyerCSRF)
+	if lateExcuse.StatusCode != http.StatusBadRequest {
+		t.Fatalf("post-start excuse: %d %s", lateExcuse.StatusCode, readResponse(lateExcuse))
+	}
+	lateExcuse.Body.Close()
+
 	var categoryID, locationID int64
 	if err := pool.QueryRow(context.Background(), "SELECT (SELECT id FROM market_categories ORDER BY id LIMIT 1),(SELECT id FROM market_locations ORDER BY id LIMIT 1)").Scan(&categoryID, &locationID); err != nil {
 		t.Fatal(err)

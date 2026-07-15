@@ -4,6 +4,14 @@ export type RegisterRequest = components['schemas']['RegisterRequest']
 export type VerificationCodeRequest = components['schemas']['CodeRequest']
 export type PostCreateRequest = components['schemas']['PostCreate']
 export type TeamRunCreateRequest = components['schemas']['TeamRunCreate']
+export type AdminSystemHealth = components['schemas']['AdminSystemHealth']
+export type MessageReadAllResult = components['schemas']['MessageReadAllResult']
+export type ConversationMessagePage = components['schemas']['ConversationMessagePage']
+export type ConversationUser = components['schemas']['ConversationUser']
+export type ConversationSummary = Omit<components['schemas']['ConversationSummary'], 'other_user'> & {
+  other_user: ConversationUser | null
+}
+export type DirectMessage = components['schemas']['ConversationMessage']
 
 export interface Page<T> {
   items: T[]
@@ -26,6 +34,7 @@ export interface User {
   dm_stranger_off: boolean
   hide_online: boolean
   unread_notifications?: number
+  unread_messages?: number
 }
 
 export interface Attachment {
@@ -73,6 +82,17 @@ export interface Post {
   expires_at: string | null
 }
 
+export interface TeamRunSummary {
+  id: number
+  starts_at: string
+  expires_at: string | null
+  status: string
+  my_status: 'joined' | 'checked_in' | 'excused' | 'left' | 'removed' | null
+  checked_in: boolean
+  excused: boolean
+  member_count: number
+}
+
 export interface Team {
   id: number
   game: string
@@ -98,7 +118,7 @@ export interface Team {
   status: string
   joined: boolean
   mine: boolean
-  next_run: { id: number; starts_at: string; expires_at: string; status: string } | null
+  next_run: TeamRunSummary | null
 }
 
 export interface CreditRule {

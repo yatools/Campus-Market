@@ -329,6 +329,8 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .activity-filter-v4 { margin-bottom: 6px; }
 .activity-post-v4, .lost-post-v4, .observe-post-v4 { cursor: pointer; }
 .observe-rules-v4 { color: #7f3327; }
+.observe-publish-action { display: flex; flex: 0 0 auto !important; align-items: flex-end; flex-direction: column; gap: 4px; }
+.observe-confirm { align-items: flex-start; border: 1px solid var(--line); border-radius: 9px; padding: 10px 12px; background: var(--paper-deep); }
 .governance-card-v4 { padding: 0; overflow: hidden; }
 table.gov { width: 100%; border-collapse: collapse; font-size: 12.5px; }
 table.gov th { border-bottom: 2px solid var(--line); padding: 8px 10px; background: #f0eee2; font-size: 12px; text-align: left; }
@@ -528,6 +530,8 @@ tbody tr:hover td { background: #fbfaf3; }
   .conversation-list { max-height: 260px; overflow-y: auto; }
   .mobile-nav { position: fixed; z-index: 110; right: 0; bottom: 0; left: 0; display: flex; border-top: 1px solid var(--line); padding: 4px 0 max(4px, env(safe-area-inset-bottom)); background: #fff; box-shadow: 0 -2px 10px rgba(20,40,30,.08); }
   .mobile-nav a, .mobile-nav button { display: flex; flex: 1; flex-direction: column; align-items: center; gap: 1px; border: 0; padding: 3px 0; color: var(--muted); background: transparent; font-size: 10px; }
+  .mobile-message-link { position: relative; }
+  .mobile-message-link i { position: absolute; top: 0; left: 54%; min-width: 16px; border-radius: 999px; padding: 1px 4px; color: #fff; background: var(--red); font-size: 9px; font-style: normal; line-height: 1.4; }
   .mobile-nav span { font-size: 18px; line-height: 1.2; }
   .mobile-nav a.router-link-active { color: var(--board); font-weight: 700; }
   .drawer-mask { position: fixed; z-index: 140; inset: 0; display: block; background: rgba(25,35,28,.5); }

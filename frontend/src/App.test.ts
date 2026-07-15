@@ -10,7 +10,7 @@ vi.mock('./api', () => ({
   json: (method: string, body?: unknown) => ({ method, body: body === undefined ? undefined : JSON.stringify(body) }),
 }))
 
-const user = { id: 1, email: 'admin@test.edu.cn', nickname: '管理员', alias: '梧桐#1', campus_identity: 'staff', role: 'admin', status: 'active', credit: 900, xp: 0, avatar_url: null, dm_stranger_off: false, hide_online: false, unread_notifications: 2 }
+const user = { id: 1, email: 'admin@test.edu.cn', nickname: '管理员', alias: '梧桐#1', campus_identity: 'staff', role: 'admin', status: 'active', credit: 900, xp: 0, avatar_url: null, dm_stranger_off: false, hide_online: false, unread_notifications: 4, unread_messages: 2 }
 
 class EventSourceStub {
   addEventListener() {}
@@ -51,6 +51,7 @@ describe('application shell', () => {
     await flushPromises()
     expect(wrapper.text()).toContain('维护公告')
     expect(wrapper.text()).toContain('教职工')
+    expect(wrapper.find('.sidenav .navitem i').text()).toBe('2')
 
     await wrapper.find('.close-notice').trigger('click')
     expect(wrapper.find('.notice-bar').exists()).toBe(false)

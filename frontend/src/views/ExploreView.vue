@@ -72,9 +72,14 @@ const serviceForm = reactive({ rating: 5, body: '' })
 const marketOptions = ref<MarketOptions>({ categories: [], locations: [], conditions: [] })
 const marketTransactions = ref<MarketTransaction[] | null>(null)
 const transactionTitle = ref('我的交易')
+const observeConfirmed = ref(false)
 
 const handbookItems = computed(() => items.value.filter((item) => item.category === handbookFilter.value))
 const activityItems = computed(() => activityFilter.value === '全部' ? items.value : items.value.filter((item) => item.category === activityFilter.value))
+const observeThreshold = computed(() => auth.creditRule('threshold.observe_publish'))
+const canPublishObserve = computed(() => Boolean(auth.user && auth.user.credit >= observeThreshold.value))
+const observeCreditGap = computed(() => Math.max(0, observeThreshold.value - (auth.user?.credit || 0)))
+const observePublishLabel = computed(() => !auth.user ? '+ 登录后发布' : canPublishObserve.value ? '+ 发布观察' : `信用不足（${auth.user.credit}/${observeThreshold.value}）`)
 const modalTitle = computed(() => action.value === 'answer' ? '回答问题'
   : action.value === 'claim' ? '提交认领线索'
     : action.value === 'claims' ? '处理认领申请'
@@ -114,7 +119,12 @@ async function load() {
 
 function openCreate() {
   if (!auth.requireLogin()) return
+  if (section.value === 'observe' && !canPublishObserve.value) {
+    error.value = `当前信用 ${auth.user?.credit || 0}，发布观察帖需要 ${observeThreshold.value}，还差 ${observeCreditGap.value} 分。`
+    return
+  }
   resetForm()
+  observeConfirmed.value = false
   action.value = 'create'
   target.value = null
   Object.assign(form, section.value === 'questions' ? { category: '其他', bounty_xp: 0, tags: '' }
@@ -273,6 +283,7 @@ onMounted(async () => { await load(); await consumeCreate() })
   <section class="explore-page-v4" :class="`section-${section}`">
     <header v-if="section === 'listings'" class="page-head v4-page-head-action"><div><h2>🛒 二手集市</h2><p>{{ currentInfo.subtitle }}</p></div><div class="actions"><button class="btn ghost" @click="showMyTransactions">我的买卖</button><button class="btn primary" @click="openCreate">+ 发布出售</button></div></header>
     <header v-else-if="section === 'lost'" class="page-head v4-page-head-action"><div><h2>🧣 失物招领</h2><p>{{ currentInfo.subtitle }}</p></div><button class="btn primary" @click="openCreate">+ 登记</button></header>
+    <header v-else-if="section === 'observe'" class="page-head v4-page-head-action"><div><h2>{{ currentInfo.icon }} {{ currentInfo.title }}</h2><p>{{ currentInfo.subtitle }}</p></div><div class="observe-publish-action"><button class="btn primary" :disabled="Boolean(auth.user) && !canPublishObserve" @click="openCreate">{{ observePublishLabel }}</button><small v-if="auth.user && !canPublishObserve" class="muted">还差 {{ observeCreditGap }} 信用分</small></div></header>
     <header v-else class="page-head"><h2>{{ currentInfo.icon }} {{ currentInfo.title }}</h2><p>{{ currentInfo.subtitle }}</p></header>
 
     <p v-if="error" class="notice danger">{{ error }}</p>
@@ -397,8 +408,8 @@ onMounted(async () => { await load(); await consumeCreate() })
         <template v-else-if="section === 'listings'"><label>分类<select v-model.number="form.category_id" required><option v-for="option in marketOptions.categories" :key="option.id" :value="option.id">{{ option.name }}</option></select></label><label>价格（¥）<input v-model.number="form.price_yuan" type="number" min="0" max="1000000" step="0.01" required /></label><label class="full">物品标题<input v-model="form.title" required minlength="3" maxlength="160" placeholder="品牌 + 型号 + 关键信息" /></label><label>成色<select v-model="form.condition"><option v-for="option in marketOptions.conditions" :key="option.code" :value="option.code">{{ option.name }}</option></select></label><label>购买日期（选填）<input v-model="form.purchased_at" type="date" :max="new Date().toISOString().slice(0, 10)" /></label><label>是否可刀<select v-model="form.negotiable"><option :value="true">可小刀</option><option :value="false">一口价</option></select></label><label>交付地点<select v-model.number="form.location_id" required><option v-for="option in marketOptions.locations" :key="option.id" :value="option.id">{{ option.name }}</option></select></label><div class="editor-field full"><span class="editor-field-label">瑕疵与详细说明</span><RichEditor v-model="form.description" v-model:attachments="form.attachments" aria-label="商品详细说明" :max-length="10000" :max-images="9" /></div><p class="notice info full">平台不经手资金、不收取费用、不提供担保。买卖双方通过预订流程约定校内线下面交。</p></template>
         <template v-else-if="section === 'activities'"><label>分类<input v-model="form.category" required /></label><label>人数上限<input v-model.number="form.capacity" type="number" min="2" /></label><label class="full">标题<input v-model="form.title" required /></label><label>开始时间<input v-model="form.starts_at" type="datetime-local" required /></label><label>结束时间<input v-model="form.ends_at" type="datetime-local" /></label><label class="full">地点<input v-model="form.location" required /></label><div class="editor-field full"><span class="editor-field-label">详情</span><RichEditor v-model="form.body" v-model:attachments="form.attachments" aria-label="活动详情" /></div></template>
         <template v-else-if="section === 'lost'"><label>类型<select v-model="form.kind"><option value="lost">我丢失了</option><option value="found">我捡到了</option></select></label><label>发生时间<input v-model="form.happened_at" type="datetime-local" /></label><label class="full">物品名称<input v-model="form.item_name" required /></label><label class="full">地点<input v-model="form.location" required /></label><div class="editor-field full"><span class="editor-field-label">特征说明</span><RichEditor v-model="form.description" v-model:attachments="form.attachments" aria-label="失物特征说明" :max-length="5000" :max-images="6" /></div></template>
-        <template v-else-if="section === 'observe'"><p class="notice info full">观察帖默认先审后发。请只描述事件，不公开可识别个人信息。</p><label class="full">事件标题<input v-model="form.title" required /></label><div class="editor-field full"><span class="editor-field-label">事件描述</span><RichEditor v-model="form.body" v-model:attachments="form.attachments" aria-label="事件描述" /></div></template>
-        <button v-if="action !== 'claims'" class="btn primary full">提交</button>
+        <template v-else-if="section === 'observe'"><p class="notice info full">观察帖默认先审后发。请只描述事件，不公开可识别个人信息。</p><label class="full">事件标题<input v-model="form.title" required minlength="4" maxlength="160" /></label><div class="editor-field full"><span class="editor-field-label">事件描述</span><RichEditor v-model="form.body" v-model:attachments="form.attachments" aria-label="事件描述" :max-length="10000" /></div><label class="check full observe-confirm"><input v-model="observeConfirmed" type="checkbox" required /> 我已阅读并同意本区须知，确认内容不包含可识别个人隐私。</label></template>
+        <button v-if="action !== 'claims'" class="btn primary full" :disabled="section === 'observe' && action === 'create' && !observeConfirmed">提交</button>
       </form>
     </BaseModal>
   </section>

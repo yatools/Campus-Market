@@ -162,7 +162,7 @@ onMounted(async () => {
           <div class="group-label">{{ group.label }}</div>
           <RouterLink v-for="item in group.items" :key="item[2]" :to="item[2]" class="navitem" :class="{ exact: item[2] === '/' }">
             <span class="nav-ico">{{ item[0] }}</span><span>{{ item[1] }}</span>
-            <i v-if="item[2] === '/messages' && auth.user?.unread_notifications">{{ auth.user.unread_notifications }}</i>
+            <i v-if="item[2] === '/messages' && auth.user?.unread_messages">{{ auth.user.unread_messages }}</i>
           </RouterLink>
         </template>
         <RouterLink v-if="auth.canModerate" to="/admin" class="navitem"><span class="nav-ico">🛠️</span><span>管理后台</span></RouterLink>
@@ -193,7 +193,7 @@ onMounted(async () => {
     </div>
 
     <nav v-if="!isAdminRoute" class="mobile-nav" aria-label="移动端导航">
-      <RouterLink to="/"><span>🏠</span>首页</RouterLink><RouterLink to="/treehole"><span>🌳</span>树洞</RouterLink><RouterLink to="/teams"><span>🎮</span>车队</RouterLink><RouterLink to="/messages"><span>✉️</span>私信</RouterLink><button @click="drawerOpen = true"><span>☰</span>更多</button>
+      <RouterLink to="/"><span>🏠</span>首页</RouterLink><RouterLink to="/treehole"><span>🌳</span>树洞</RouterLink><RouterLink to="/teams"><span>🎮</span>车队</RouterLink><RouterLink to="/messages" class="mobile-message-link"><span>✉️</span>私信<i v-if="auth.user?.unread_messages">{{ auth.user.unread_messages }}</i></RouterLink><button @click="drawerOpen = true"><span>☰</span>更多</button>
     </nav>
     <div v-if="drawerOpen" class="drawer-mask" @click="drawerOpen = false" />
     <nav class="mobile-drawer" :class="{ open: drawerOpen }" aria-label="全部板块">
