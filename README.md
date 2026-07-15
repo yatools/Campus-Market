@@ -3,6 +3,9 @@
 梧桐墙是面向单校部署的校园社区。当前工程只有一套架构：Vue 3 + TypeScript 前端、Go API/Worker、PostgreSQL 16、S3 兼容对象存储和 Nginx HTTPS 入口。`/api/v1` 是唯一业务 API 前缀，`backend/api/openapi.yaml` 是唯一接口契约。
 
 ## 前端演示
+### 移动端
+<img width="509" height="1134" alt="image" src="https://github.com/user-attachments/assets/c30b440b-6077-490c-8f19-942047f383bf" />
+### 桌面端
 <img width="2510" height="1223" alt="image" src="https://github.com/user-attachments/assets/5dee3c27-8c46-45aa-ba36-d55d896618d4" />
 <img width="1284" height="976" alt="image" src="https://github.com/user-attachments/assets/f29b9400-d327-46ee-80e2-2951aec4b70b" />
 <img width="1276" height="835" alt="image" src="https://github.com/user-attachments/assets/efe8f166-652a-4d2e-9df9-5ebcd90ad6f8" />
