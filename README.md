@@ -1,4 +1,4 @@
-<img width="1271" height="883" alt="image" src="https://github.com/user-attachments/assets/ea1f0e52-3ddb-4f0f-8bd3-fb9d5c110b4a" /><img width="1284" height="889" alt="image" src="https://github.com/user-attachments/assets/626ea73d-9bf8-4f6c-9413-d88d5153ba55" /># 梧桐墙
+# 梧桐墙
 
 梧桐墙是面向单校部署的校园社区。当前工程只有一套架构：Vue 3 + TypeScript 前端、Go API/Worker、PostgreSQL 16、S3 兼容对象存储和 Nginx HTTPS 入口。`/api/v1` 是唯一业务 API 前缀，`backend/api/openapi.yaml` 是唯一接口契约。
 
@@ -19,7 +19,8 @@
 <img width="1281" height="898" alt="image" src="https://github.com/user-attachments/assets/39e9b042-85a0-4d40-9a72-d7aa268d9d54" />
 <img width="1274" height="1032" alt="image" src="https://github.com/user-attachments/assets/166f2db8-b5a0-4628-a173-81e2d04ba3c4" />
 <img width="1626" height="397" alt="image" src="https://github.com/user-attachments/assets/17fd1155-b6da-4324-949e-f0cc0b62d4be" />
-
+<img width="1271" height="883" alt="image" src="https://github.com/user-attachments/assets/ea1f0e52-3ddb-4f0f-8bd3-fb9d5c110b4a" />
+<img width="1284" height="889" alt="image" src="https://github.com/user-attachments/assets/626ea73d-9bf8-4f6c-9413-d88d5153ba55" />
 
 
 ## 主要能力
