@@ -7,6 +7,17 @@ cd "$(dirname "$0")/.."
 CONFIG_FILE=${ENV_FILE:-.env}
 test -f "$CONFIG_FILE" || { echo "配置文件不存在：$CONFIG_FILE" >&2; exit 1; }
 compose() { docker compose --env-file "$CONFIG_FILE" "$@"; }
+wait_ready() {
+  origin=$1
+  attempts=30
+  while [ "$attempts" -gt 0 ]; do
+    if curl -fsS "$origin/health/ready" >/dev/null 2>&1; then return 0; fi
+    attempts=$((attempts - 1))
+    sleep 1
+  done
+  echo "健康检查在 30 秒内未就绪：$origin/health/ready" >&2
+  return 1
+}
 POSTGRES_USER=$(grep '^POSTGRES_USER=' "$CONFIG_FILE" | tail -n 1 | cut -d= -f2-)
 POSTGRES_DB=$(grep '^POSTGRES_DB=' "$CONFIG_FILE" | tail -n 1 | cut -d= -f2-)
 case "$POSTGRES_USER:$POSTGRES_DB" in *[!A-Za-z0-9_:.-]*) echo "数据库名或用户包含不安全字符" >&2; exit 1;; esac
@@ -57,7 +68,7 @@ fi
 SWAPPED=1
 compose up -d api worker
 ORIGIN=$(grep '^PUBLIC_ORIGIN=' "$CONFIG_FILE" | tail -n 1 | cut -d= -f2-)
-if ! curl -fsS "$ORIGIN/health/ready"; then
+if ! wait_ready "$ORIGIN"; then
   echo "新数据库健康检查失败，正在自动回滚" >&2
   compose stop api worker
   compose exec -T db psql -U "$POSTGRES_USER" -d postgres -v ON_ERROR_STOP=1 -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname IN ('$POSTGRES_DB','$ROLLBACK_DB') AND pid<>pg_backend_pid();"

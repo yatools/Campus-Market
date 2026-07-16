@@ -11,6 +11,16 @@ compose() {
   docker compose --env-file "$ENV_FILE" "$@"
 }
 
+wait_ready() {
+  origin=$1
+  for _ in $(seq 1 60); do
+    if curl -fsS "$origin/health/ready" >/dev/null 2>&1; then return 0; fi
+    sleep 1
+  done
+  echo "health endpoint did not become ready: $origin/health/ready" >&2
+  return 1
+}
+
 cleanup() {
   status=$?
   trap - EXIT INT TERM
@@ -76,14 +86,7 @@ EOF
 
 cd "$ROOT"
 compose up -d --build
-
-for _ in $(seq 1 60); do
-  if curl -fsS http://127.0.0.1:8080/health/ready >/dev/null; then
-    break
-  fi
-  sleep 1
-done
-curl -fsS http://127.0.0.1:8080/health/ready >/dev/null
+wait_ready http://127.0.0.1:8080
 
 compose exec -T db psql -U wutong -d wutong -v ON_ERROR_STOP=1 -c \
   "UPDATE market_categories SET name='archive-state' WHERE id=(SELECT min(id) FROM market_categories);" >/dev/null
@@ -116,6 +119,6 @@ ROLLED_BACK=$(compose exec -T db psql -U wutong -d wutong -Atqc "SELECT name FRO
 test "$ROLLED_BACK" = "live-state"
 sed -i 's#^PUBLIC_ORIGIN=.*#PUBLIC_ORIGIN=http://127.0.0.1:8080#' "$ENV_FILE"
 compose up -d api worker
-curl -fsS http://127.0.0.1:8080/health/ready >/dev/null
+wait_ready http://127.0.0.1:8080
 
 echo "restore success and readiness-failure rollback verified"
