@@ -2395,7 +2395,10 @@ export interface components {
         };
         /** Body_upload_image_api_v1_uploads_images_post */
         Body_upload_image_api_v1_uploads_images_post: {
-            /** File */
+            /**
+             * File
+             * Format: binary
+             */
             file: string;
         };
         /** CampusServiceCreate */

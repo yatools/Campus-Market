@@ -3,9 +3,11 @@ package httpapi
 import (
 	"bytes"
 	"encoding/json"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
+	"net/textproto"
 	"regexp"
 	"strings"
 	"testing"
@@ -161,6 +163,37 @@ func TestDecodeBodyAcceptsJSONParametersAndRejectsOversizedPayload(t *testing.T)
 			t.Fatal("oversized JSON request was accepted")
 		}
 	})
+}
+
+func TestOpenAPIRequestValidatorAcceptsBinaryImageUpload(t *testing.T) {
+	validator, err := openAPIRequestValidator()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	header := textproto.MIMEHeader{}
+	header.Set("Content-Disposition", `form-data; name="file"; filename="image.png"`)
+	header.Set("Content-Type", "image/png")
+	part, err := writer.CreatePart(header)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := part.Write([]byte("PNG")); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPost, "http://example.test/api/v1/uploads/images", &body)
+	request.Header.Set("Content-Type", writer.FormDataContentType())
+	response := httptest.NewRecorder()
+	validator(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})).ServeHTTP(response, request)
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("multipart image upload rejected by OpenAPI validator: %d %s", response.Code, response.Body.String())
+	}
 }
 
 func TestDocsNeverLoadRemoteReDoc(t *testing.T) {
