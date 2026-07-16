@@ -1654,7 +1654,7 @@ func (s *Server) applyCredit(ctx context.Context, tx pgx.Tx, userID int64, key, 
 
 func validateTeamCreate(mode string, capacity int, starts time.Time, recurrence string, channels []string, reminder, retention int) error {
 	fields := map[string]string{}
-	if strings.TrimSpace(mode) == "" || len(mode) > 80 {
+	if runeLen(mode) == 0 || runeLen(mode) > 80 {
 		fields["mode"] = "String should have at least 1 character"
 	}
 	if capacity < 2 || capacity > 99 {

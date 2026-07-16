@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -59,15 +58,7 @@ type marketListingPatch struct {
 }
 
 func decodeStrictBody(r *http.Request, value any) *APIError {
-	decoder := json.NewDecoder(io.LimitReader(r.Body, 2<<20))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(value); err != nil {
-		return validation("request", "请求正文无效或包含未知字段")
-	}
-	if err := decoder.Decode(&struct{}{}); err != io.EOF {
-		return validation("request", "请求正文只能包含一个 JSON 对象")
-	}
-	return nil
+	return decodeBody(r, value)
 }
 
 func (s *Server) marketOptions(w http.ResponseWriter, r *http.Request) error {
@@ -118,8 +109,12 @@ func (s *Server) validateMarketListing(ctx context.Context, q queryer, listing m
 	if _, ok := marketConditions[listing.Condition]; !ok {
 		fields["condition"] = "商品成色无效"
 	}
-	if listing.PurchasedAt != nil && listing.PurchasedAt.After(time.Now().UTC().Truncate(24*time.Hour)) {
-		fields["purchased_at"] = "购买日期不能晚于今天"
+	location, err := time.LoadLocation(s.Config.AppTimezone)
+	if err != nil {
+		location, _ = time.LoadLocation("Asia/Shanghai")
+	}
+	if listing.PurchasedAt != nil && listing.PurchasedAt.Format("2006-01-02") > time.Now().In(location).Format("2006-01-02") {
+		fields["purchased_at"] = "Purchase date cannot be in the future"
 	}
 	if len(attachmentIDs) > 9 {
 		fields["attachment_ids"] = "最多上传 9 张图片"
@@ -166,6 +161,9 @@ func (s *Server) listMarketListings(w http.ResponseWriter, r *http.Request) erro
 	if q := strings.TrimSpace(r.URL.Query().Get("q")); q != "" {
 		if runeLen(q) < 2 || runeLen(q) > 80 {
 			return validation("q", "关键词应为 2 到 80 个字符")
+		}
+		if err := s.checkSearchRateLimit(r.Context(), clientIP(r)); err != nil {
+			return err
 		}
 		add("(l.title ILIKE $%[1]d OR l.description ILIKE $%[1]d)", "%"+q+"%")
 	}

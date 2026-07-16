@@ -119,8 +119,8 @@ func (s *Server) listQuestions(w http.ResponseWriter, r *http.Request) error {
 	}
 	where := "e.publication_status='published' AND e.moderation_status='approved'"
 	args := []any{}
-	if category := r.URL.Query().Get("category"); category != "" {
-		if len(category) > 60 {
+	if category := strings.TrimSpace(r.URL.Query().Get("category")); category != "" {
+		if runeLen(category) > 60 {
 			return validation("category", "String should have at most 60 characters")
 		}
 		args = append(args, category)
@@ -191,10 +191,10 @@ func (s *Server) createQuestion(w http.ResponseWriter, r *http.Request) error {
 		body.Category = "其他"
 	}
 	fields := map[string]string{}
-	if runeLen(strings.TrimSpace(body.Title)) < 4 || len(body.Title) > 160 {
+	if runeLen(strings.TrimSpace(body.Title)) < 4 || runeLen(strings.TrimSpace(body.Title)) > 160 {
 		fields["title"] = "String should have at least 4 characters"
 	}
-	if len(body.Body) > 10000 {
+	if runeLen(strings.TrimSpace(body.Body)) > 10000 {
 		fields["body"] = "String should have at most 10000 characters"
 	}
 	if len(body.Tags) > 8 {
@@ -280,7 +280,7 @@ func (s *Server) updateQuestion(w http.ResponseWriter, r *http.Request) error {
 	changed := false
 	if v, ok := raw["title"]; ok {
 		var x string
-		if json.Unmarshal(v, &x) != nil || runeLen(strings.TrimSpace(x)) < 4 || len(x) > 160 {
+		if json.Unmarshal(v, &x) != nil || runeLen(strings.TrimSpace(x)) < 4 || runeLen(strings.TrimSpace(x)) > 160 {
 			return validation("title", "String should have at least 4 characters")
 		}
 		q.Title = strings.TrimSpace(x)
@@ -288,7 +288,7 @@ func (s *Server) updateQuestion(w http.ResponseWriter, r *http.Request) error {
 	}
 	if v, ok := raw["body"]; ok {
 		var x string
-		if json.Unmarshal(v, &x) != nil || len(x) > 10000 {
+		if json.Unmarshal(v, &x) != nil || runeLen(x) > 10000 {
 			return validation("body", "String should have at most 10000 characters")
 		}
 		q.Body = strings.TrimSpace(x)
@@ -296,7 +296,7 @@ func (s *Server) updateQuestion(w http.ResponseWriter, r *http.Request) error {
 	}
 	if v, ok := raw["category"]; ok {
 		var x string
-		if json.Unmarshal(v, &x) != nil || len(x) > 60 {
+		if json.Unmarshal(v, &x) != nil || runeLen(x) > 60 {
 			return validation("category", "String should have at most 60 characters")
 		}
 		q.Category = strings.TrimSpace(x)
@@ -390,7 +390,7 @@ func (s *Server) createAnswer(w http.ResponseWriter, r *http.Request) error {
 	if err := decodeBody(r, &body); err != nil {
 		return err
 	}
-	if runeLen(strings.TrimSpace(body.Body)) < 2 || len(body.Body) > 10000 {
+	if runeLen(strings.TrimSpace(body.Body)) < 2 || runeLen(strings.TrimSpace(body.Body)) > 10000 {
 		return validation("body", "String should have at least 2 characters")
 	}
 	if len(body.AttachmentIDs) > 6 {
@@ -629,13 +629,13 @@ func (s *Server) createHandbook(w http.ResponseWriter, r *http.Request) error {
 	if err := decodeBody(r, &body); err != nil {
 		return err
 	}
-	if runeLen(strings.TrimSpace(body.Category)) < 1 || len(body.Category) > 80 {
+	if runeLen(strings.TrimSpace(body.Category)) < 1 || runeLen(strings.TrimSpace(body.Category)) > 80 {
 		return validation("category", "String should have at least 1 character")
 	}
-	if runeLen(strings.TrimSpace(body.Title)) < 4 || len(body.Title) > 160 {
+	if runeLen(strings.TrimSpace(body.Title)) < 4 || runeLen(strings.TrimSpace(body.Title)) > 160 {
 		return validation("title", "String should have at least 4 characters")
 	}
-	if runeLen(strings.TrimSpace(body.Body)) < 20 || len(body.Body) > 30000 {
+	if runeLen(strings.TrimSpace(body.Body)) < 20 || runeLen(strings.TrimSpace(body.Body)) > 30000 {
 		return validation("body", "String should have at least 20 characters")
 	}
 	if len(body.AttachmentIDs) > 9 {
@@ -948,10 +948,10 @@ func (s *Server) createCourse(w http.ResponseWriter, r *http.Request) error {
 	if err := decodeBody(r, &body); err != nil {
 		return err
 	}
-	if runeLen(strings.TrimSpace(body.Name)) < 2 || len(body.Name) > 160 {
+	if runeLen(strings.TrimSpace(body.Name)) < 2 || runeLen(strings.TrimSpace(body.Name)) > 160 {
 		return validation("name", "String should have at least 2 characters")
 	}
-	if strings.TrimSpace(body.Teacher) == "" || len(body.Teacher) > 100 {
+	if strings.TrimSpace(body.Teacher) == "" || runeLen(strings.TrimSpace(body.Teacher)) > 100 {
 		return validation("teacher", "String should have at least 1 character")
 	}
 	tx, err := s.DB.Begin(r.Context())
@@ -1040,7 +1040,7 @@ func (s *Server) createCourseReview(w http.ResponseWriter, r *http.Request) erro
 	if body.Rating < 1 || body.Rating > 5 {
 		return validation("rating", "Input should be between 1 and 5")
 	}
-	if runeLen(strings.TrimSpace(body.Body)) < 5 || len(body.Body) > 5000 {
+	if runeLen(strings.TrimSpace(body.Body)) < 5 || runeLen(strings.TrimSpace(body.Body)) > 5000 {
 		return validation("body", "String should have at least 5 characters")
 	}
 	tx, err := s.DB.Begin(r.Context())
@@ -1091,7 +1091,7 @@ func (s *Server) correctCourseReview(w http.ResponseWriter, r *http.Request) err
 	if err := decodeBody(r, &body); err != nil {
 		return err
 	}
-	if runeLen(strings.TrimSpace(body.Text)) < 2 || len(body.Text) > 3000 {
+	if runeLen(strings.TrimSpace(body.Text)) < 2 || runeLen(strings.TrimSpace(body.Text)) > 3000 {
 		return validation("text", "String should have at least 2 characters")
 	}
 	tx, err := s.DB.Begin(r.Context())
@@ -1729,7 +1729,7 @@ func (s *Server) createLostClaim(w http.ResponseWriter, r *http.Request) error {
 	if err := decodeBody(r, &body); err != nil {
 		return err
 	}
-	if runeLen(strings.TrimSpace(body.Message)) < 5 || len(body.Message) > 2000 {
+	if runeLen(strings.TrimSpace(body.Message)) < 5 || runeLen(strings.TrimSpace(body.Message)) > 2000 {
 		return validation("message", "String should have at least 5 characters")
 	}
 	tx, err := s.DB.Begin(r.Context())

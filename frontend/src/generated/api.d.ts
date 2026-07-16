@@ -2658,8 +2658,12 @@ export interface components {
         };
         /** HTTPValidationError */
         HTTPValidationError: {
-            /** Detail */
-            detail?: components["schemas"]["ValidationError"][];
+            code: string;
+            message: string;
+            field_errors: {
+                [key: string]: string;
+            };
+            request_id: string;
         };
         /** JoinRequest */
         JoinRequest: {

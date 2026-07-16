@@ -25,7 +25,12 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
+
+	domain "github.com/yatools/wutong-campus-wall/backend/internal/app"
+	operationalmetrics "github.com/yatools/wutong-campus-wall/backend/internal/metrics"
 )
+
+var imageProcessingSlots = make(chan struct{}, 2)
 
 var anonymousDefaults = []string{
 	"丹阳子", "小狐狸", "欧阳牛马", "逍遥客", "青衫剑客", "云游道人", "长安故人", "江湖小虾",
@@ -126,8 +131,8 @@ func (s *Server) listPosts(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	q := r.URL.Query().Get("q")
-	if len(q) > 80 {
+	q := strings.TrimSpace(r.URL.Query().Get("q"))
+	if runeLen(q) > 80 {
 		return validation("q", "String should have at most 80 characters")
 	}
 	viewer, _, err := s.currentUser(w, r, false)
@@ -185,6 +190,21 @@ func (s *Server) listPosts(w http.ResponseWriter, r *http.Request) error {
 	return rows.Err()
 }
 
+func (s *Server) checkSearchRateLimit(ctx context.Context, subject string) error {
+	tx, err := s.DB.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if err := domain.CheckRateLimit(ctx, tx, "search", subject, 120, 1); err != nil {
+		if err == domain.ErrRateLimited {
+			return apiError(http.StatusTooManyRequests, "RATE_LIMITED", "Search rate limit exceeded")
+		}
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
 func (s *Server) createPost(w http.ResponseWriter, r *http.Request) error {
 	user, _, err := s.participatingUser(w, r)
 	if err != nil {
@@ -211,10 +231,10 @@ func (s *Server) createPost(w http.ResponseWriter, r *http.Request) error {
 		v := true
 		body.AllowComments = &v
 	}
-	if len(body.Title) > 120 {
+	if runeLen(strings.TrimSpace(body.Title)) > 120 {
 		return validation("title", "String should have at most 120 characters")
 	}
-	if len(strings.TrimSpace(body.Body)) < 1 || len(body.Body) > 10000 {
+	if runeLen(strings.TrimSpace(body.Body)) < 1 || runeLen(strings.TrimSpace(body.Body)) > 10000 {
 		return validation("body", "String should have at least 1 character")
 	}
 	if !validIdentity(body.IdentityMode) {
@@ -339,14 +359,19 @@ func (s *Server) updatePost(w http.ResponseWriter, r *http.Request) error {
 		if json.Unmarshal(value, &v) != nil {
 			return validation("title", "Input should be a valid string")
 		}
-		if len(v) > 120 {
+		v = strings.TrimSpace(v)
+		if runeLen(v) > 120 {
 			return validation("title", "String should have at most 120 characters")
 		}
 		title = &v
 	}
 	if value, ok := raw["body"]; ok {
 		var v string
-		if json.Unmarshal(value, &v) != nil || strings.TrimSpace(v) == "" || len(v) > 10000 {
+		if json.Unmarshal(value, &v) != nil {
+			return validation("body", "Input should be a valid string")
+		}
+		v = strings.TrimSpace(v)
+		if runeLen(v) == 0 || runeLen(v) > 10000 {
 			return validation("body", "String should have at least 1 character")
 		}
 		body = &v
@@ -433,8 +458,8 @@ func (s *Server) deleteEntity(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	reason := r.URL.Query().Get("reason")
-	if len(reason) > 1000 {
+	reason := strings.TrimSpace(r.URL.Query().Get("reason"))
+	if runeLen(reason) > 1000 {
 		return validation("reason", "String should have at most 1000 characters")
 	}
 	tx, err := s.DB.Begin(r.Context())
@@ -614,7 +639,7 @@ func (s *Server) createComment(w http.ResponseWriter, r *http.Request) error {
 	if body.IdentityMode == "" {
 		body.IdentityMode = "nickname"
 	}
-	if strings.TrimSpace(body.Body) == "" || len(body.Body) > 3000 {
+	if strings.TrimSpace(body.Body) == "" || runeLen(strings.TrimSpace(body.Body)) > 3000 {
 		return validation("body", "String should have at least 1 character")
 	}
 	if !validIdentity(body.IdentityMode) {
@@ -793,10 +818,10 @@ func (s *Server) reportEntity(w http.ResponseWriter, r *http.Request) error {
 	if err := decodeBody(r, &body); err != nil {
 		return err
 	}
-	if runeLen(strings.TrimSpace(body.Reason)) < 2 || len(body.Reason) > 80 {
+	if runeLen(strings.TrimSpace(body.Reason)) < 2 || runeLen(strings.TrimSpace(body.Reason)) > 80 {
 		return validation("reason", "String should have at least 2 characters")
 	}
-	if len(body.Detail) > 2000 {
+	if runeLen(strings.TrimSpace(body.Detail)) > 2000 {
 		return validation("detail", "String should have at most 2000 characters")
 	}
 	tx, err := s.DB.Begin(r.Context())
@@ -954,12 +979,18 @@ func (s *Server) uploadImage(w http.ResponseWriter, r *http.Request) error {
 }
 
 func (s *Server) search(w http.ResponseWriter, r *http.Request) error {
-	q := r.URL.Query().Get("q")
-	if runeLen(q) < 2 || len(q) > 80 {
+	q := strings.TrimSpace(r.URL.Query().Get("q"))
+	if runeLen(q) < 2 || runeLen(q) > 80 {
 		return validation("q", "String should have at least 2 characters")
 	}
 	page, size, err := pagination(r, 20, 50)
 	if err != nil {
+		return err
+	}
+	if page > 100 {
+		return validation("page", "Search results are limited to the first 100 pages")
+	}
+	if err := s.checkSearchRateLimit(r.Context(), clientIP(r)); err != nil {
 		return err
 	}
 	pattern := "%" + q + "%"
@@ -1507,12 +1538,23 @@ func notifySQL(ctx context.Context, tx pgx.Tx, userID int64, title, body, link, 
 }
 
 func vipsThumbnail(ctx context.Context, input, output, size string, quality int) error {
+	select {
+	case imageProcessingSlots <- struct{}{}:
+		defer func() { <-imageProcessingSlots }()
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	processCtx, cancel := context.WithTimeout(ctx, 25*time.Second)
+	defer cancel()
+	started := time.Now()
+	defer func() { operationalmetrics.Default.Observe("image_processing_duration_seconds", time.Since(started)) }()
 	bin := os.Getenv("VIPS_THUMBNAIL_BIN")
 	if bin == "" {
 		bin = "vipsthumbnail"
 	}
-	command := exec.CommandContext(ctx, bin, input, "--size", size, "--rotate", "--output", fmt.Sprintf("%s[Q=%d,strip]", output, quality))
+	command := exec.CommandContext(processCtx, bin, input, "--size", size, "--rotate", "--output", fmt.Sprintf("%s[Q=%d,strip]", output, quality))
 	if data, err := command.CombinedOutput(); err != nil {
+		operationalmetrics.Default.Inc("image_processing_failures_total")
 		return fmt.Errorf("图片处理失败: %w: %s", err, truncateRunes(string(data), 300))
 	}
 	return nil

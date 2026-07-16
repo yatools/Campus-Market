@@ -20,7 +20,7 @@ services:
     networks: [internal]
 
   migrate:
-    build: ./backend
+    image: ${API_IMAGE}
     env_file: ${ENV_FILE:-.env}
     command: ["migrate", "up"]
     depends_on:
@@ -30,7 +30,7 @@ services:
     networks: [internal]
 
   api:
-    build: ./backend
+    image: ${API_IMAGE}
     restart: unless-stopped
     env_file: ${ENV_FILE:-.env}
     depends_on:
@@ -48,7 +48,7 @@ services:
     networks: [internal]
 
   worker:
-    build: ./backend
+    image: ${WORKER_IMAGE}
     command: ["worker"]
     restart: unless-stopped
     env_file: ${ENV_FILE:-.env}
@@ -65,13 +65,12 @@ services:
     networks: [internal]
 
   web:
-    build:
-      context: .
-      dockerfile: frontend/Dockerfile
+    image: ${WEB_IMAGE}
     restart: unless-stopped
     environment:
       DOMAIN: ${DOMAIN}
-      NGINX_ENVSUBST_FILTER: DOMAIN
+      CSP_MEDIA_ORIGINS: ${CSP_MEDIA_ORIGINS:-}
+      NGINX_ENVSUBST_FILTER: DOMAIN|CSP_MEDIA_ORIGINS
     depends_on:
       api:
         condition: service_healthy

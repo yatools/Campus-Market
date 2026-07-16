@@ -44,6 +44,8 @@ services:
     networks: [internal]
 
   migrate:
+    image: wutong-api:dev
+    build: ./backend
     environment:
       ENVIRONMENT: development
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
@@ -57,6 +59,8 @@ services:
       SMTP_FROM: ""
 
   api:
+    image: wutong-api:dev
+    build: ./backend
     environment:
       ENVIRONMENT: development
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
@@ -75,6 +79,8 @@ services:
         condition: service_completed_successfully
 
   worker:
+    image: wutong-api:dev
+    build: ./backend
     environment:
       ENVIRONMENT: development
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
@@ -91,6 +97,10 @@ services:
         condition: service_completed_successfully
 
   web:
+    image: wutong-web:dev
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
     ports: !override
       - "127.0.0.1:8080:8080"
     volumes: !override

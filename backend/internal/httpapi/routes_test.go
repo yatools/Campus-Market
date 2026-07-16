@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -16,7 +17,7 @@ import (
 )
 
 func TestEveryCanonicalContractOperationHasRoute(t *testing.T) {
-	cfg := config.Config{APIPrefix: "/api/v1", UploadDir: t.TempDir(), BackupDir: t.TempDir(), TrustedHosts: map[string]struct{}{"example.test": {}}, PublicOrigin: "http://localhost:5173"}
+	cfg := config.Config{APIPrefix: "/api/v1", AppTimezone: "Asia/Shanghai", TrustedHosts: map[string]struct{}{"example.test": {}}, PublicOrigin: "http://localhost:5173"}
 	handler := New(cfg, nil)
 	routes, ok := handler.(chi.Routes)
 	if !ok {
@@ -72,7 +73,7 @@ func TestClientIPAcceptsRealIPOnlyFromTrustedProxy(t *testing.T) {
 }
 
 func TestInvalidNumericPathParameterIsRejectedBeforeDatabaseAccess(t *testing.T) {
-	cfg := config.Config{APIPrefix: "/api/v1", UploadDir: t.TempDir(), BackupDir: t.TempDir(), TrustedHosts: map[string]struct{}{"example.test": {}}, PublicOrigin: "http://localhost:5173"}
+	cfg := config.Config{APIPrefix: "/api/v1", AppTimezone: "Asia/Shanghai", TrustedHosts: map[string]struct{}{"example.test": {}}, PublicOrigin: "http://localhost:5173"}
 	request := httptest.NewRequest(http.MethodGet, "http://example.test/api/v1/posts/not-a-number", nil)
 	response := httptest.NewRecorder()
 	New(cfg, nil).ServeHTTP(response, request)
@@ -92,7 +93,7 @@ func TestInvalidNumericPathParameterIsRejectedBeforeDatabaseAccess(t *testing.T)
 }
 
 func TestUnknownAPIEndpointUsesStandardErrorEnvelope(t *testing.T) {
-	cfg := config.Config{APIPrefix: "/api/v1", UploadDir: t.TempDir(), BackupDir: t.TempDir(), TrustedHosts: map[string]struct{}{"example.test": {}}, PublicOrigin: "http://localhost:5173"}
+	cfg := config.Config{APIPrefix: "/api/v1", AppTimezone: "Asia/Shanghai", TrustedHosts: map[string]struct{}{"example.test": {}}, PublicOrigin: "http://localhost:5173"}
 	request := httptest.NewRequest(http.MethodGet, "http://example.test/api/v1/emails", nil)
 	response := httptest.NewRecorder()
 	New(cfg, nil).ServeHTTP(response, request)
@@ -108,6 +109,72 @@ func TestUnknownAPIEndpointUsesStandardErrorEnvelope(t *testing.T) {
 	}
 	if body.Code != "HTTP_ERROR" || body.RequestID == "" {
 		t.Fatalf("unexpected error envelope: %#v", body)
+	}
+}
+
+func TestDecodeBodyRejectsLooseJSON(t *testing.T) {
+	type payload struct {
+		Name string `json:"name"`
+	}
+	tests := []struct {
+		name        string
+		contentType string
+		body        string
+	}{
+		{"wrong content type", "text/plain", `{"name":"ok"}`},
+		{"lookalike content type", "application/json-patch+json", `{"name":"ok"}`},
+		{"unknown field", "application/json", `{"name":"ok","extra":true}`},
+		{"trailing value", "application/json", `{"name":"ok"} {"name":"second"}`},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodPost, "http://example.test/api/v1/test", strings.NewReader(test.body))
+			request.Header.Set("Content-Type", test.contentType)
+			var body payload
+			if err := decodeBody(request, &body); err == nil {
+				t.Fatal("loose JSON request was accepted")
+			}
+		})
+	}
+}
+
+func TestDecodeBodyAcceptsJSONParametersAndRejectsOversizedPayload(t *testing.T) {
+	t.Run("json parameters", func(t *testing.T) {
+		request := httptest.NewRequest(http.MethodPost, "http://example.test/api/v1/test", strings.NewReader(`{"name":"ok"}`))
+		request.Header.Set("Content-Type", "application/json; charset=utf-8")
+		var body struct {
+			Name string `json:"name"`
+		}
+		if err := decodeBody(request, &body); err != nil || body.Name != "ok" {
+			t.Fatalf("parameterized JSON content type was rejected: %#v", err)
+		}
+	})
+	t.Run("body limit", func(t *testing.T) {
+		payload := append([]byte(`{"name":"`), bytes.Repeat([]byte("a"), int(maxJSONBodyBytes))...)
+		payload = append(payload, []byte(`"}`)...)
+		request := httptest.NewRequest(http.MethodPost, "http://example.test/api/v1/test", bytes.NewReader(payload))
+		request.Header.Set("Content-Type", "application/json")
+		var body struct {
+			Name string `json:"name"`
+		}
+		if err := decodeBody(request, &body); err == nil {
+			t.Fatal("oversized JSON request was accepted")
+		}
+	})
+}
+
+func TestDocsNeverLoadRemoteReDoc(t *testing.T) {
+	cfg := config.Config{APIPrefix: "/api/v1", AppTimezone: "Asia/Shanghai", DocsEnabled: true, TrustedHosts: map[string]struct{}{"example.test": {}}, PublicOrigin: "http://localhost:5173"}
+	for _, path := range []string{"/docs", "/docs-legacy"} {
+		request := httptest.NewRequest(http.MethodGet, "http://example.test"+path, nil)
+		response := httptest.NewRecorder()
+		New(cfg, nil).ServeHTTP(response, request)
+		if response.Code != http.StatusOK {
+			t.Fatalf("GET %s: %d", path, response.Code)
+		}
+		if strings.Contains(response.Body.String(), "cdn.redoc.ly") || !strings.Contains(response.Body.String(), "/docs/redoc.standalone.js") {
+			t.Fatalf("GET %s did not use the bundled ReDoc asset", path)
+		}
 	}
 }
 

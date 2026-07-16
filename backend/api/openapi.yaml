@@ -8296,15 +8296,14 @@
                                                                   },
                                        "HTTPValidationError":  {
                                                                    "properties":  {
-                                                                                      "detail":  {
-                                                                                                     "items":  {
-                                                                                                                   "$ref":  "#/components/schemas/ValidationError"
-                                                                                                               },
-                                                                                                     "type":  "array",
-                                                                                                     "title":  "Detail"
-                                                                                                 }
+                                                                                      "code":  {"type":  "string"},
+                                                                                      "message":  {"type":  "string"},
+                                                                                      "field_errors":  {"type":  "object", "additionalProperties":  {"type":  "string"}},
+                                                                                      "request_id":  {"type":  "string"}
                                                                                   },
                                                                    "type":  "object",
+                                                                   "additionalProperties":  false,
+                                                                   "required":  ["code", "message", "field_errors", "request_id"],
                                                                    "title":  "HTTPValidationError"
                                                                },
                                        "JoinRequest":  {

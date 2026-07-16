@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"crypto/subtle"
+	_ "embed"
 	"fmt"
 	"log/slog"
 	"mime"
@@ -23,11 +24,19 @@ import (
 	apispec "github.com/yatools/wutong-campus-wall/backend/api"
 	"github.com/yatools/wutong-campus-wall/backend/internal/config"
 	"github.com/yatools/wutong-campus-wall/backend/internal/database"
+	operationalmetrics "github.com/yatools/wutong-campus-wall/backend/internal/metrics"
 	"github.com/yatools/wutong-campus-wall/backend/internal/security"
 	storagepkg "github.com/yatools/wutong-campus-wall/backend/internal/storage"
 )
 
 type contextKey string
+
+//go:embed assets/redoc.standalone.js
+var redocBundle []byte
+
+// ReDoc 2.5.3, bundled under the MIT license.
+//go:embed assets/REDOC-LICENSE
+var redocLicense []byte
 
 const requestIDKey contextKey = "request-id"
 const clientIPKey contextKey = "client-ip"
@@ -36,6 +45,8 @@ type Server struct {
 	Config  config.Config
 	DB      *pgxpool.Pool
 	Storage *storagepkg.Store
+	Metrics *operationalmetrics.Registry
+	Hub     *notificationHub
 }
 
 func New(cfg config.Config, db *pgxpool.Pool) http.Handler {
@@ -43,7 +54,7 @@ func New(cfg config.Config, db *pgxpool.Pool) http.Handler {
 	if err != nil {
 		slog.Error("storage_config_invalid", "error", err)
 	}
-	s := &Server{Config: cfg, DB: db, Storage: store}
+	s := &Server{Config: cfg, DB: db, Storage: store, Metrics: operationalmetrics.Default, Hub: newNotificationHub(db)}
 	r := chi.NewRouter()
 	r.Use(s.recoverer, s.requestContext, s.securityHeaders, s.trustedHost, s.cors)
 	r.NotFound(func(w http.ResponseWriter, r *http.Request) {
@@ -57,6 +68,7 @@ func New(cfg config.Config, db *pgxpool.Pool) http.Handler {
 	})
 	r.Get("/health/ready", s.handle(s.healthReady))
 	r.Get("/health/dependencies", s.handle(s.healthDependencies))
+	r.Get("/metrics", func(w http.ResponseWriter, r *http.Request) { s.Metrics.ServeHTTP(s.DB, w, r) })
 	r.Get("/app-config.json", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 		writeJSON(w, 200, map[string]any{"api_prefix": cfg.APIPrefix, "csrf_cookie_name": cfg.CSRFCookieName})
@@ -66,14 +78,32 @@ func New(cfg config.Config, db *pgxpool.Pool) http.Handler {
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write(apispec.OpenAPI)
 		})
+		r.Get("/docs-legacy", func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			_, _ = fmt.Fprint(w, `<!doctype html><html><head><title>梧桐墙 API</title></head><body><redoc spec-url="/openapi.json"></redoc><script src="/docs/redoc.standalone.js"></script></body></html>`)
+		})
+		r.Get("/docs/redoc.standalone.js", func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
+			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+			_, _ = w.Write(redocBundle)
+		})
+		r.Get("/docs/licenses/redoc", func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+			_, _ = w.Write(redocLicense)
+		})
 		r.Get("/docs", func(w http.ResponseWriter, _ *http.Request) {
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-			_, _ = fmt.Fprint(w, `<!doctype html><html><head><title>梧桐墙 API</title></head><body><redoc spec-url="/openapi.json"></redoc><script src="https://cdn.redoc.ly/redoc/latest/bundles/redoc.standalone.js"></script></body></html>`)
+			_, _ = fmt.Fprint(w, `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>API documentation</title><style>body{font:14px system-ui;margin:0;color:#17202a}main{max-width:1000px;margin:auto;padding:32px}article{border-top:1px solid #ddd;padding:12px 0}code{display:inline-block;width:64px;color:#075985}p{color:#52606d}</style></head><body><redoc spec-url="/openapi.json"></redoc><script src="/docs/redoc.standalone.js"></script></body></html>`)
 		})
 	}
 	_ = mime.AddExtensionType(".webp", "image/webp")
 	r.Get("/uploads/*", s.servePublicUpload)
+	contractValidator, err := openAPIRequestValidator()
+	if err != nil {
+		panic(err)
+	}
 	r.Route(cfg.APIPrefix, func(api chi.Router) {
+		api.Use(contractValidator)
 		api.Use(s.csrfProtection)
 		s.registerRoutes(api)
 	})
@@ -175,11 +205,33 @@ func (s *Server) requestContext(next http.Handler) http.Handler {
 		started := time.Now()
 		ctx := context.WithValue(r.Context(), requestIDKey, id)
 		ctx = context.WithValue(ctx, clientIPKey, s.resolveClientIP(r))
-		next.ServeHTTP(w, r.WithContext(ctx))
+		recorder := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+		next.ServeHTTP(recorder, r.WithContext(ctx))
+		route := r.URL.Path
+		if routeContext := chi.RouteContext(r.Context()); routeContext != nil && routeContext.RoutePattern() != "" {
+			route = routeContext.RoutePattern()
+		}
+		s.Metrics.ObserveHTTP(r.Method, route, recorder.status, time.Since(started))
 		if elapsed := time.Since(started); elapsed >= 800*time.Millisecond {
 			slog.Warn("slow_request", "method", r.Method, "path", r.URL.Path, "elapsed_ms", elapsed.Milliseconds(), "request_id", id)
 		}
 	})
+}
+
+type statusRecorder struct {
+	http.ResponseWriter
+	status int
+}
+
+func (w *statusRecorder) WriteHeader(status int) {
+	w.status = status
+	w.ResponseWriter.WriteHeader(status)
+}
+
+func (w *statusRecorder) Flush() {
+	if flusher, ok := w.ResponseWriter.(http.Flusher); ok {
+		flusher.Flush()
+	}
 }
 
 func (s *Server) resolveClientIP(r *http.Request) string {

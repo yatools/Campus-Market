@@ -10,6 +10,8 @@ import (
 	"unicode"
 
 	"github.com/go-chi/chi/v5"
+
+	operationalmetrics "github.com/yatools/wutong-campus-wall/backend/internal/metrics"
 )
 
 type APIError struct {
@@ -69,6 +71,9 @@ func (s *Server) writeError(w http.ResponseWriter, r *http.Request, err error) {
 	}
 	if api.Status == http.StatusTooManyRequests {
 		w.Header().Set("Retry-After", "60")
+	}
+	if api.Status == http.StatusConflict && strings.Contains(r.URL.Path, "/market-transactions/") {
+		operationalmetrics.Default.Inc("market_transaction_conflicts_total")
 	}
 	writeJSON(w, api.Status, map[string]any{
 		"code": api.Code, "message": api.Message, "field_errors": api.FieldErrors, "request_id": requestID(r.Context()),

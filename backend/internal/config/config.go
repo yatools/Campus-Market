@@ -6,7 +6,6 @@ import (
 	"net/netip"
 	"net/url"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -29,8 +28,6 @@ type Config struct {
 	SessionSliding            time.Duration
 	SessionAbsolute           time.Duration
 	SessionRotation           time.Duration
-	UploadDir                 string
-	BackupDir                 string
 	MaxUploadBytes            int64
 	SMTPHost                  string
 	SMTPPort                  int
@@ -53,12 +50,13 @@ type Config struct {
 	S3BackupBucket            string
 	S3PublicBaseURL           string
 	S3UsePathStyle            bool
+	CSPMediaOrigins           []string
+	AppTimezone               string
 	MarketReservationTTL      time.Duration
 	MarketReviewBlindTTL      time.Duration
 }
 
 func Load() (Config, error) {
-	cwd, _ := os.Getwd()
 	dbPool, err := envInt("DB_POOL_SIZE", 10, 1, 100)
 	if err != nil {
 		return Config{}, err
@@ -119,6 +117,14 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	mediaOrigins, err := parseOrigins("CSP_MEDIA_ORIGINS", envString("CSP_MEDIA_ORIGINS", ""))
+	if err != nil {
+		return Config{}, err
+	}
+	appTimezone := envString("APP_TIMEZONE", "Asia/Shanghai")
+	if _, err := time.LoadLocation(appTimezone); err != nil {
+		return Config{}, fmt.Errorf("APP_TIMEZONE is invalid: %w", err)
+	}
 	c := Config{
 		Environment:               envString("ENVIRONMENT", "development"),
 		AppName:                   envString("APP_NAME", "梧桐墙"),
@@ -135,8 +141,6 @@ func Load() (Config, error) {
 		SessionSliding:            time.Duration(slidingDays) * 24 * time.Hour,
 		SessionAbsolute:           time.Duration(absoluteDays) * 24 * time.Hour,
 		SessionRotation:           time.Duration(rotationHours) * time.Hour,
-		UploadDir:                 envString("UPLOAD_DIR", filepath.Join(cwd, "uploads")),
-		BackupDir:                 envString("BACKUP_DIR", filepath.Join(cwd, "backups")),
 		MaxUploadBytes:            int64(maxUploadMB) * 1024 * 1024,
 		SMTPHost:                  envString("SMTP_HOST", ""),
 		SMTPPort:                  smtpPort,
@@ -159,6 +163,8 @@ func Load() (Config, error) {
 		S3BackupBucket:            envString("S3_BACKUP_BUCKET", "wutong-backups"),
 		S3PublicBaseURL:           strings.TrimRight(envString("S3_PUBLIC_BASE_URL", "http://127.0.0.1:9000/wutong-public"), "/"),
 		S3UsePathStyle:            s3PathStyle,
+		CSPMediaOrigins:           mediaOrigins,
+		AppTimezone:               appTimezone,
 		MarketReservationTTL:      time.Duration(reservationHours) * time.Hour,
 		MarketReviewBlindTTL:      time.Duration(reviewBlindDays) * 24 * time.Hour,
 	}
@@ -220,6 +226,12 @@ func Load() (Config, error) {
 		}
 		if !strings.HasPrefix(c.S3Endpoint, "https://") || !strings.HasPrefix(c.S3PublicBaseURL, "https://") {
 			missing = append(missing, "S3_ENDPOINT/S3_PUBLIC_BASE_URL（HTTPS）")
+		}
+		for _, mediaOrigin := range c.CSPMediaOrigins {
+			if !strings.HasPrefix(mediaOrigin, "https://") {
+				missing = append(missing, "CSP_MEDIA_ORIGINS")
+				break
+			}
 		}
 		if len(missing) > 0 {
 			return Config{}, fmt.Errorf("生产配置缺失：%s", strings.Join(missing, "、"))
@@ -317,6 +329,23 @@ func parseCIDRs(key, value string) ([]netip.Prefix, error) {
 
 func validCookieName(value string) bool {
 	return regexp.MustCompile(`^[!#$%&'*+.^_` + "`" + `|~0-9A-Za-z-]+$`).MatchString(value)
+}
+
+func parseOrigins(key, value string) ([]string, error) {
+	var origins []string
+	seen := map[string]struct{}{}
+	for _, raw := range strings.Fields(value) {
+		parsed, err := url.ParseRequestURI(raw)
+		if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" || parsed.Path != "" || parsed.RawQuery != "" || parsed.Fragment != "" {
+			return nil, fmt.Errorf("%s contains an invalid origin", key)
+		}
+		origin := parsed.Scheme + "://" + parsed.Host
+		if _, ok := seen[origin]; !ok {
+			seen[origin] = struct{}{}
+			origins = append(origins, origin)
+		}
+	}
+	return origins, nil
 }
 
 func csvSet(value string) map[string]struct{} {

@@ -34,7 +34,7 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
     if (csrf) headers.set('X-CSRF-Token', csrf)
   }
   const response = await fetch(`${appConfig().api_prefix}${path}`, { ...init, headers, credentials: 'include' })
-  if (response.status === 204) { const empty: any = undefined; return empty }
+  if (response.status === 204) return undefined as T
   const data = await response.json().catch(() => ({}))
   if (!response.ok) throw new ApiError(response.status, data)
   return data

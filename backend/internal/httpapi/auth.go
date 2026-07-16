@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"math/big"
+	"mime"
 	"net"
 	"net/http"
 	"regexp"
@@ -66,10 +67,24 @@ func (s *Server) registerRoutes(r chi.Router) {
 	s.registerMeAdminRoutes(r)
 }
 
+const maxJSONBodyBytes int64 = 2 << 20
+
 func decodeBody(r *http.Request, value any) *APIError {
-	decoder := json.NewDecoder(io.LimitReader(r.Body, 2<<20))
+	mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	if err != nil || !strings.EqualFold(mediaType, "application/json") {
+		return validation("content_type", "Content-Type must be application/json")
+	}
+	limited := &io.LimitedReader{R: r.Body, N: maxJSONBodyBytes + 1}
+	decoder := json.NewDecoder(limited)
+	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(value); err != nil {
 		return &APIError{Status: 422, Code: "VALIDATION_ERROR", Message: "提交内容不符合要求", FieldErrors: map[string]string{"request": "请求正文无效"}}
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		return validation("request", "Request body must contain one JSON value")
+	}
+	if limited.N == 0 {
+		return validation("request", "Request body exceeds the maximum size")
 	}
 	return nil
 }
@@ -108,7 +123,7 @@ func (s *Server) requestCode(w http.ResponseWriter, r *http.Request) error {
 	if body.Purpose == "" {
 		body.Purpose = "register"
 	}
-	if len(body.Email) < 5 || len(body.Email) > 320 {
+	if runeLen(body.Email) < 5 || runeLen(body.Email) > 320 {
 		return validation("email", "String should have at least 5 characters")
 	}
 	if body.Purpose != "register" && body.Purpose != "reset_password" && body.Purpose != "change_email" {
@@ -183,13 +198,14 @@ func (s *Server) register(w http.ResponseWriter, r *http.Request) error {
 	if !sixDigits.MatchString(body.Code) {
 		fields["code"] = "String should match pattern '^\\d{6}$'"
 	}
-	if len(body.Password) < 10 || len(body.Password) > 128 {
+	if rawRuneLen(body.Password) < 10 || rawRuneLen(body.Password) > 128 {
 		fields["password"] = "String should have at least 10 characters"
 	}
-	if runeLen(strings.TrimSpace(body.Nickname)) < 2 || runeLen(strings.TrimSpace(body.Nickname)) > 20 {
+	if runeLen(body.Nickname) < 2 || runeLen(body.Nickname) > 20 {
 		fields["nickname"] = "String should have at least 2 characters"
 	}
-	if body.AgreedTermsVersion == "" || len(body.AgreedTermsVersion) > 30 {
+	body.AgreedTermsVersion = strings.TrimSpace(body.AgreedTermsVersion)
+	if body.AgreedTermsVersion == "" || runeLen(body.AgreedTermsVersion) > 30 {
 		fields["agreed_terms_version"] = "Field required"
 	}
 	if len(fields) > 0 {
@@ -267,7 +283,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) error {
 	if err := decodeBody(r, &body); err != nil {
 		return err
 	}
-	if body.Password == "" || len(body.Password) > 128 {
+	if strings.TrimSpace(body.Password) == "" || rawRuneLen(body.Password) > 128 {
 		return validation("password", "String should have at least 1 character")
 	}
 	email := domain.NormalizeEmail(body.Email)
@@ -323,7 +339,7 @@ func (s *Server) resetPassword(w http.ResponseWriter, r *http.Request) error {
 	if !sixDigits.MatchString(body.Code) {
 		return validation("code", "String should match pattern '^\\d{6}$'")
 	}
-	if len(body.NewPassword) < 10 || len(body.NewPassword) > 128 {
+	if rawRuneLen(body.NewPassword) < 10 || rawRuneLen(body.NewPassword) > 128 {
 		return validation("new_password", "String should have at least 10 characters")
 	}
 	email, apiErr := s.campusEmail(body.Email)
@@ -446,10 +462,11 @@ func (s *Server) currentUser(w http.ResponseWriter, r *http.Request, required bo
 		}
 		return User{}, Session{}, nil
 	}
+	currentTokenHash := security.TokenHash(s.Config.SecretKey, cookie.Value)
 	row := s.DB.QueryRow(r.Context(), `SELECT s.id,s.user_id,s.csrf_token,s.expires_at,s.absolute_expires_at,s.last_seen_at,
 		u.id,u.email,u.password_hash,u.nickname,u.alias,u.campus_identity,u.role,u.status,u.credit,u.xp,u.avatar_path,u.dm_stranger_off,u.hide_online,u.verified_at,u.created_at
 		FROM sessions s JOIN users u ON u.id=s.user_id
-		WHERE s.token_hash=$1 AND s.revoked_at IS NULL AND s.expires_at>now() AND s.absolute_expires_at>now()`, security.TokenHash(s.Config.SecretKey, cookie.Value))
+		WHERE s.token_hash=$1 AND s.revoked_at IS NULL AND s.expires_at>now() AND s.absolute_expires_at>now()`, currentTokenHash)
 	var session Session
 	var user User
 	scanArgs := []any{&session.ID, &session.UserID, &session.CSRFToken, &session.ExpiresAt, &session.AbsoluteExpiresAt, &session.LastSeenAt}
@@ -480,12 +497,22 @@ func (s *Server) currentUser(w http.ResponseWriter, r *http.Request, required bo
 		if expires.After(session.AbsoluteExpiresAt) {
 			expires = session.AbsoluteExpiresAt
 		}
-		_, err = s.DB.Exec(r.Context(), "UPDATE sessions SET token_hash=$1,csrf_token=$2,last_seen_at=now(),expires_at=$3 WHERE id=$4", security.TokenHash(s.Config.SecretKey, raw), csrf, expires, session.ID)
+		tag, updateErr := s.DB.Exec(r.Context(), "UPDATE sessions SET token_hash=$1,csrf_token=$2,last_seen_at=now(),expires_at=$3 WHERE id=$4 AND token_hash=$5", security.TokenHash(s.Config.SecretKey, raw), csrf, expires, session.ID, currentTokenHash)
+		if updateErr != nil {
+			return User{}, Session{}, updateErr
+		}
+		if tag.RowsAffected() == 1 {
+			session.CSRFToken, session.ExpiresAt, session.LastSeenAt = csrf, expires, time.Now().UTC()
+			s.setSessionCookies(w, raw, session)
+			return user, session, nil
+		}
+		// Another response won the rotation race. It owns the browser cookie update.
+		err = s.DB.QueryRow(r.Context(), `SELECT csrf_token,expires_at,absolute_expires_at,last_seen_at
+			FROM sessions WHERE id=$1 AND user_id=$2 AND revoked_at IS NULL AND expires_at>now() AND absolute_expires_at>now()`, session.ID, user.ID).
+			Scan(&session.CSRFToken, &session.ExpiresAt, &session.AbsoluteExpiresAt, &session.LastSeenAt)
 		if err != nil {
 			return User{}, Session{}, err
 		}
-		session.CSRFToken, session.ExpiresAt, session.LastSeenAt = csrf, expires, time.Now().UTC()
-		s.setSessionCookies(w, raw, session)
 	}
 	return user, session, nil
 }
@@ -560,7 +587,8 @@ func validation(field, message string) *APIError {
 func validationFields(fields map[string]string) *APIError {
 	return &APIError{Status: 422, Code: "VALIDATION_ERROR", Message: "提交内容不符合要求", FieldErrors: fields}
 }
-func runeLen(v string) int { return len([]rune(v)) }
+func runeLen(v string) int    { return len([]rune(strings.TrimSpace(v))) }
+func rawRuneLen(v string) int { return len([]rune(v)) }
 func truncate(v string, n int) string {
 	if len(v) <= n {
 		return v

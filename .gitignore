@@ -24,3 +24,4 @@ certbot/
 .tools/
 backend/bin/
 backend/coverage.out
+backend/wutong.exe

@@ -1,0 +1,23 @@
+groups:
+  - name: campus-wall
+    rules:
+      - alert: ApiReadinessFailed
+        expr: up{job="campus-wall-api"} == 0
+        for: 2m
+        labels: { severity: critical }
+        annotations: { summary: "Campus Wall API is unavailable" }
+      - alert: WorkerHeartbeatStale
+        expr: time() - worker_last_success_timestamp_seconds > 120
+        for: 2m
+        labels: { severity: critical }
+        annotations: { summary: "A Worker loop has not completed recently" }
+      - alert: OutboxFailures
+        expr: increase(email_outbox_retry_total[15m]) > 10
+        for: 5m
+        labels: { severity: warning }
+        annotations: { summary: "Email delivery retries are elevated" }
+      - alert: ApiServerErrors
+        expr: sum(rate(http_requests_total{status=~"5.."}[5m])) / clamp_min(sum(rate(http_requests_total[5m])), 1) > 0.02
+        for: 5m
+        labels: { severity: warning }
+        annotations: { summary: "API 5xx ratio exceeds 2 percent" }

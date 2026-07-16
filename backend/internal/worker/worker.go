@@ -19,6 +19,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -26,39 +27,105 @@ import (
 
 	domain "github.com/yatools/wutong-campus-wall/backend/internal/app"
 	"github.com/yatools/wutong-campus-wall/backend/internal/config"
+	"github.com/yatools/wutong-campus-wall/backend/internal/metrics"
 	"github.com/yatools/wutong-campus-wall/backend/internal/security"
 	storagepkg "github.com/yatools/wutong-campus-wall/backend/internal/storage"
 )
 
-const advisoryLockID int64 = 846208411
+const (
+	emailLockID       int64 = 846208411
+	teamLockID        int64 = 846208412
+	maintenanceLockID int64 = 846208413
+	backupLockID      int64 = 846208414
+)
+
+const emailLease = 5 * time.Minute
 
 func Run(ctx context.Context, cfg config.Config, pool *pgxpool.Pool) error {
-	ticker := time.NewTicker(cfg.WorkerPoll)
+	instanceID := workerInstanceID()
+	jobs := workerJobs(cfg)
+	var wg sync.WaitGroup
+	for _, job := range jobs {
+		job := job
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			runLoop(ctx, cfg.WorkerPoll, pool, instanceID, job)
+		}()
+	}
+	<-ctx.Done()
+	wg.Wait()
+	return nil
+}
+
+type workerJob struct {
+	name string
+	lock int64
+	run  func(context.Context, *pgxpool.Conn, string) error
+}
+
+func workerJobs(cfg config.Config) []workerJob {
+	return []workerJob{
+		{"email", emailLockID, func(ctx context.Context, conn *pgxpool.Conn, workerID string) error {
+			return processEmail(ctx, cfg, conn, workerID)
+		}},
+		{"team", teamLockID, func(ctx context.Context, conn *pgxpool.Conn, _ string) error { return processTeamRunsTx(ctx, conn) }},
+		{"maintenance", maintenanceLockID, func(ctx context.Context, conn *pgxpool.Conn, _ string) error { return cleanupTx(ctx, cfg, conn) }},
+		{"backup", backupLockID, func(ctx context.Context, conn *pgxpool.Conn, _ string) error { return processBackup(ctx, cfg, conn) }},
+	}
+}
+
+func Cycle(ctx context.Context, cfg config.Config, pool *pgxpool.Pool) error {
+	instanceID := workerInstanceID()
+	for _, job := range workerJobs(cfg) {
+		if err := runJob(ctx, pool, instanceID, job); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func workerInstanceID() string {
+	instanceID, _ := os.Hostname()
+	if instanceID == "" {
+		return "worker"
+	}
+	return instanceID
+}
+
+func runLoop(ctx context.Context, interval time.Duration, pool *pgxpool.Pool, instanceID string, job workerJob) {
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
-		if err := Cycle(ctx, cfg, pool); err != nil && ctx.Err() == nil {
-			slog.Error("worker_cycle_failed", "error", err)
+		if err := runJob(ctx, pool, instanceID, job); err != nil && ctx.Err() == nil {
+			slog.Error("worker_job_failed", "job", job.name, "error", err)
 		}
 		select {
 		case <-ctx.Done():
-			return nil
+			return
 		case <-ticker.C:
 		}
 	}
 }
 
-func Cycle(ctx context.Context, cfg config.Config, pool *pgxpool.Pool) (cycleErr error) {
-	instanceID, _ := os.Hostname()
-	if instanceID == "" {
-		instanceID = "worker"
-	}
-	_, _ = pool.Exec(ctx, `INSERT INTO worker_heartbeats(worker_name,instance_id,last_seen_at,last_error) VALUES('background',$1,now(),'') ON CONFLICT(worker_name,instance_id) DO UPDATE SET last_seen_at=now()`, instanceID)
+func runJob(ctx context.Context, pool *pgxpool.Pool, instanceID string, job workerJob) (jobErr error) {
+	started := time.Now()
 	defer func() {
-		lastError := ""
-		if cycleErr != nil {
-			lastError = truncate(cycleErr.Error(), 2000)
+		metrics.Default.Observe(fmt.Sprintf("worker_job_duration_seconds{job=\"%s\"}", job.name), time.Since(started))
+		if jobErr != nil {
+			metrics.Default.Inc(fmt.Sprintf("worker_job_failures_total{job=\"%s\"}", job.name))
+		} else {
+			metrics.Default.Inc(fmt.Sprintf("worker_job_success_total{job=\"%s\"}", job.name))
+			metrics.Default.Set(fmt.Sprintf("worker_last_success_timestamp_seconds{job=\"%s\"}", job.name), float64(time.Now().Unix()))
 		}
-		_, _ = pool.Exec(context.Background(), `INSERT INTO worker_heartbeats(worker_name,instance_id,last_seen_at,last_success_at,last_error) VALUES('background',$1,now(),CASE WHEN $2='' THEN now() ELSE NULL END,$2) ON CONFLICT(worker_name,instance_id) DO UPDATE SET last_seen_at=now(),last_success_at=CASE WHEN $2='' THEN now() ELSE worker_heartbeats.last_success_at END,last_error=$2`, instanceID, lastError)
+	}()
+	_, _ = pool.Exec(ctx, `INSERT INTO worker_heartbeats(worker_name,instance_id,last_seen_at,last_error) VALUES($1,$2,now(),'') ON CONFLICT(worker_name,instance_id) DO UPDATE SET last_seen_at=now()`, job.name, instanceID)
+	defer func() {
+		message := ""
+		if jobErr != nil {
+			message = truncate(jobErr.Error(), 2000)
+		}
+		_, _ = pool.Exec(context.Background(), `INSERT INTO worker_heartbeats(worker_name,instance_id,last_seen_at,last_success_at,last_error) VALUES($1,$2,now(),CASE WHEN $3='' THEN now() ELSE NULL END,$3) ON CONFLICT(worker_name,instance_id) DO UPDATE SET last_seen_at=now(),last_success_at=CASE WHEN $3='' THEN now() ELSE worker_heartbeats.last_success_at END,last_error=$3`, job.name, instanceID, message)
 	}()
 	conn, err := pool.Acquire(ctx)
 	if err != nil {
@@ -66,31 +133,38 @@ func Cycle(ctx context.Context, cfg config.Config, pool *pgxpool.Pool) (cycleErr
 	}
 	defer conn.Release()
 	var locked bool
-	if err := conn.QueryRow(ctx, "SELECT pg_try_advisory_lock($1)", advisoryLockID).Scan(&locked); err != nil {
+	if err := conn.QueryRow(ctx, "SELECT pg_try_advisory_lock($1)", job.lock).Scan(&locked); err != nil {
 		return err
 	}
 	if !locked {
 		return nil
 	}
-	defer conn.Exec(context.Background(), "SELECT pg_advisory_unlock($1)", advisoryLockID)
+	defer conn.Exec(context.Background(), "SELECT pg_advisory_unlock($1)", job.lock)
+	return job.run(ctx, conn, instanceID+":"+job.name)
+}
+
+func processTeamRunsTx(ctx context.Context, conn *pgxpool.Conn) error {
 	tx, err := conn.Begin(ctx)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(ctx)
-	if err := processEmail(ctx, cfg, tx); err != nil {
-		return err
-	}
 	if err := processTeamRuns(ctx, tx); err != nil {
 		return err
 	}
+	return tx.Commit(ctx)
+}
+
+func cleanupTx(ctx context.Context, cfg config.Config, conn *pgxpool.Conn) error {
+	tx, err := conn.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
 	if err := cleanup(ctx, cfg, tx); err != nil {
 		return err
 	}
-	if err := tx.Commit(ctx); err != nil {
-		return err
-	}
-	return processBackup(ctx, cfg, conn)
+	return tx.Commit(ctx)
 }
 
 type outbox struct {
@@ -99,40 +173,75 @@ type outbox struct {
 	Attempts          int
 }
 
-func processEmail(ctx context.Context, cfg config.Config, tx pgx.Tx) error {
-	rows, err := tx.Query(ctx, `SELECT id,to_email,subject,body,attempts FROM email_outbox WHERE status='pending' AND next_attempt_at<=now() ORDER BY id LIMIT 10 FOR UPDATE SKIP LOCKED`)
+func processEmail(ctx context.Context, cfg config.Config, conn *pgxpool.Conn, workerID string) error {
+	tx, err := conn.Begin(ctx)
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
+	defer tx.Rollback(ctx)
+	rows, err := tx.Query(ctx, `SELECT id,to_email,subject,body,attempts FROM email_outbox
+		WHERE (status='pending' AND next_attempt_at<=now()) OR (status='processing' AND lease_until<=now())
+		ORDER BY id LIMIT 10 FOR UPDATE SKIP LOCKED`)
+	if err != nil {
+		return err
+	}
 	var messages []outbox
 	for rows.Next() {
 		var row outbox
 		if err := rows.Scan(&row.ID, &row.To, &row.Subject, &row.Body, &row.Attempts); err != nil {
+			rows.Close()
 			return err
 		}
 		messages = append(messages, row)
 	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
 	rows.Close()
 	for _, row := range messages {
-		if err := sendEmail(cfg, row); err != nil {
+		if _, err := tx.Exec(ctx, `UPDATE email_outbox SET status='processing',worker_id=$1,processing_at=now(),lease_until=now()+$2::interval,last_error='' WHERE id=$3`, workerID, fmt.Sprintf("%d seconds", int(emailLease.Seconds())), row.ID); err != nil {
+			return err
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+
+	for _, row := range messages {
+		if sendErr := sendEmail(cfg, row); sendErr != nil {
 			attempts := row.Attempts + 1
 			status := "pending"
 			if attempts >= 5 {
 				status = "failed"
 			}
 			delay := time.Duration(1<<attempts) * time.Minute
-			_, dbErr := tx.Exec(ctx, "UPDATE email_outbox SET attempts=$1,status=$2,last_error=$3,next_attempt_at=now()+$4::interval WHERE id=$5", attempts, status, truncate(err.Error(), 2000), fmt.Sprintf("%d seconds", int(delay.Seconds())), row.ID)
-			if dbErr != nil {
-				return dbErr
-			}
-		} else {
-			if _, err := tx.Exec(ctx, "UPDATE email_outbox SET status='sent',sent_at=now(),body='[邮件正文发送后已清除]',last_error='' WHERE id=$1", row.ID); err != nil {
+			if err := finalizeEmailFailure(ctx, conn, workerID, row.ID, attempts, status, delay, sendErr); err != nil {
 				return err
 			}
+			continue
+		}
+		if err := finalizeEmailSuccess(ctx, conn, workerID, row.ID); err != nil {
+			return err
 		}
 	}
 	return nil
+}
+
+func finalizeEmailSuccess(ctx context.Context, conn *pgxpool.Conn, workerID string, id int64) error {
+	_, err := conn.Exec(ctx, `UPDATE email_outbox SET status='sent',sent_at=now(),body='[sent message body removed]',last_error='',lease_until=NULL,worker_id=NULL WHERE id=$1 AND status='processing' AND worker_id=$2`, id, workerID)
+	if err == nil {
+		metrics.Default.Inc("email_outbox_sent_total")
+	}
+	return err
+}
+
+func finalizeEmailFailure(ctx context.Context, conn *pgxpool.Conn, workerID string, id int64, attempts int, status string, delay time.Duration, sendErr error) error {
+	_, err := conn.Exec(ctx, `UPDATE email_outbox SET attempts=$1,status=$2,last_error=$3,next_attempt_at=now()+$4::interval,lease_until=NULL,worker_id=NULL WHERE id=$5 AND status='processing' AND worker_id=$6`, attempts, status, truncate(sendErr.Error(), 2000), fmt.Sprintf("%d seconds", int(delay.Seconds())), id, workerID)
+	if err == nil {
+		metrics.Default.Inc("email_outbox_retry_total")
+	}
+	return err
 }
 
 func sendEmail(cfg config.Config, row outbox) error {
@@ -144,19 +253,21 @@ func sendEmail(cfg config.Config, row outbox) error {
 		return err
 	}
 	hostPort := net.JoinHostPort(cfg.SMTPHost, fmt.Sprint(cfg.SMTPPort))
-	headers := map[string]string{"From": cfg.SMTPFrom, "To": row.To, "Subject": row.Subject, "MIME-Version": "1.0", "Content-Type": "text/plain; charset=UTF-8"}
+	headers := map[string]string{"From": cfg.SMTPFrom, "To": row.To, "Subject": row.Subject, "MIME-Version": "1.0", "Content-Type": "text/plain; charset=UTF-8", "Message-ID": fmt.Sprintf("<outbox-%d@wutong.local>", row.ID)}
 	var builder strings.Builder
-	for _, key := range []string{"From", "To", "Subject", "MIME-Version", "Content-Type"} {
+	for _, key := range []string{"From", "To", "Subject", "MIME-Version", "Content-Type", "Message-ID"} {
 		builder.WriteString(key + ": " + headers[key] + "\r\n")
 	}
 	builder.WriteString("\r\n" + row.Body)
 	auth := smtp.PlainAuth("", cfg.SMTPUsername, cfg.SMTPPassword, cfg.SMTPHost)
 	if cfg.SMTPUseSSL {
-		conn, err := tls.Dial("tcp", hostPort, &tls.Config{ServerName: cfg.SMTPHost, MinVersion: tls.VersionTLS12})
+		dialer := &net.Dialer{Timeout: 20 * time.Second}
+		conn, err := tls.DialWithDialer(dialer, "tcp", hostPort, &tls.Config{ServerName: cfg.SMTPHost, MinVersion: tls.VersionTLS12})
 		if err != nil {
 			return err
 		}
 		defer conn.Close()
+		_ = conn.SetDeadline(time.Now().Add(30 * time.Second))
 		client, err := smtp.NewClient(conn, cfg.SMTPHost)
 		if err != nil {
 			return err
@@ -168,6 +279,7 @@ func sendEmail(cfg config.Config, row outbox) error {
 	if err != nil {
 		return err
 	}
+	_ = conn.SetDeadline(time.Now().Add(30 * time.Second))
 	client, err := smtp.NewClient(conn, cfg.SMTPHost)
 	if err != nil {
 		return err

@@ -94,7 +94,7 @@ func TestCycleQueuesTeamReminderAfterClosingMemberRows(t *testing.T) {
 	}()
 	targetURL := *parsed
 	targetURL.Path = "/" + name
-	cfg := config.Config{DatabaseURL: targetURL.String(), DBPoolSize: 2, UploadDir: t.TempDir(), BackupDir: t.TempDir()}
+	cfg := config.Config{DatabaseURL: targetURL.String(), DBPoolSize: 2, AppTimezone: "Asia/Shanghai"}
 	if endpoint := os.Getenv("TEST_S3_ENDPOINT"); endpoint != "" {
 		cfg.S3Endpoint = endpoint
 		cfg.S3Region = "us-east-1"
@@ -163,6 +163,21 @@ func TestCycleQueuesTeamReminderAfterClosingMemberRows(t *testing.T) {
 	}
 	if notifications != 1 || emails != 1 || sentAt == nil {
 		t.Fatalf("reminder was not queued exactly once: notifications=%d emails=%d sent_at=%v", notifications, emails, sentAt)
+	}
+	if _, err := pool.Exec(context.Background(), "UPDATE email_outbox SET status='processing',worker_id='crashed-worker',processing_at=now()-interval '10 minutes',lease_until=now()-interval '1 minute' WHERE to_email='worker@test.edu.cn'"); err != nil {
+		t.Fatal(err)
+	}
+	if err := Cycle(context.Background(), cfg, pool); err != nil {
+		t.Fatal(err)
+	}
+	var leaseStatus string
+	var attempts int
+	var workerID *string
+	if err := pool.QueryRow(context.Background(), "SELECT status,attempts,worker_id FROM email_outbox WHERE to_email='worker@test.edu.cn'").Scan(&leaseStatus, &attempts, &workerID); err != nil {
+		t.Fatal(err)
+	}
+	if leaseStatus != "pending" || attempts != 1 || workerID != nil {
+		t.Fatalf("expired email lease was not reclaimed: status=%s attempts=%d worker=%v", leaseStatus, attempts, workerID)
 	}
 	if _, err := exec.LookPath("pg_dump"); err == nil && cfg.S3Endpoint != "" {
 		var backupID int64

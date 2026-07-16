@@ -24,6 +24,9 @@ func TestDevelopmentDefaultsAreValidated(t *testing.T) {
 	if cfg.APIPrefix != "/api/v1" || cfg.DBPoolSize != 10 || cfg.WorkerPoll.Seconds() != 10 {
 		t.Fatalf("unexpected defaults: %#v", cfg)
 	}
+	if cfg.AppTimezone != "Asia/Shanghai" {
+		t.Fatalf("unexpected application timezone: %s", cfg.AppTimezone)
+	}
 	if len(cfg.TrustedProxyCIDRs) != 2 || !cfg.TrustedProxyCIDRs[0].Contains(netip.MustParseAddr("127.0.0.1")) {
 		t.Fatalf("unexpected trusted proxies: %#v", cfg.TrustedProxyCIDRs)
 	}
@@ -142,6 +145,8 @@ func TestRejectsInvalidDependencyConfiguration(t *testing.T) {
 		{"bad bucket", map[string]string{"S3_PUBLIC_BUCKET": "Bad_Bucket"}, "S3_PUBLIC_BUCKET"},
 		{"log level", map[string]string{"LOG_LEVEL": "TRACE"}, "LOG_LEVEL"},
 		{"partial smtp", map[string]string{"SMTP_HOST": "smtp.test"}, "必须同时配置"},
+		{"bad timezone", map[string]string{"APP_TIMEZONE": "Mars/Olympus"}, "APP_TIMEZONE"},
+		{"bad media origin", map[string]string{"CSP_MEDIA_ORIGINS": "https://media.test/path"}, "CSP_MEDIA_ORIGINS"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

@@ -8,6 +8,7 @@ import (
 	"image/color"
 	"image/draw"
 	"image/png"
+	"io"
 	"mime/multipart"
 	"net/http"
 	"net/http/cookiejar"
@@ -16,12 +17,18 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/yatools/wutong-campus-wall/backend/internal/config"
 	"github.com/yatools/wutong-campus-wall/backend/internal/database"
+	generated "github.com/yatools/wutong-campus-wall/backend/internal/openapi"
 	"github.com/yatools/wutong-campus-wall/backend/internal/security"
+
+	"github.com/getkin/kin-openapi/openapi3"
+	"github.com/getkin/kin-openapi/openapi3filter"
+	"github.com/getkin/kin-openapi/routers/legacy"
 )
 
 func TestPostgresAuthAndTreeholeWorkflow(t *testing.T) {
@@ -29,7 +36,7 @@ func TestPostgresAuthAndTreeholeWorkflow(t *testing.T) {
 	if dsn == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
 	}
-	cfg := config.Config{Environment: "test", APIPrefix: "/api/v1", PublicOrigin: "http://localhost:5173", SecretKey: "test-secret-key-that-is-long-enough-for-ci", DatabaseURL: dsn, DBPoolSize: 5, AllowedCampusEmailDomains: map[string]struct{}{"test.edu.cn": {}}, SessionCookieName: "wutong_session", CSRFCookieName: "wutong_csrf", SessionSliding: 7 * 24 * time.Hour, SessionAbsolute: 30 * 24 * time.Hour, SessionRotation: 24 * time.Hour, UploadDir: t.TempDir(), BackupDir: t.TempDir(), MaxUploadBytes: 8 << 20, DocsEnabled: true, TrustedHosts: map[string]struct{}{"127.0.0.1": {}, "localhost": {}}}
+	cfg := config.Config{Environment: "test", APIPrefix: "/api/v1", PublicOrigin: "http://localhost:5173", SecretKey: "test-secret-key-that-is-long-enough-for-ci", DatabaseURL: dsn, DBPoolSize: 5, AllowedCampusEmailDomains: map[string]struct{}{"test.edu.cn": {}}, SessionCookieName: "wutong_session", CSRFCookieName: "wutong_csrf", SessionSliding: 7 * 24 * time.Hour, SessionAbsolute: 30 * 24 * time.Hour, SessionRotation: 24 * time.Hour, AppTimezone: "Asia/Shanghai", MaxUploadBytes: 8 << 20, DocsEnabled: true, TrustedHosts: map[string]struct{}{"127.0.0.1": {}, "localhost": {}}}
 	if endpoint := os.Getenv("TEST_S3_ENDPOINT"); endpoint != "" {
 		cfg.S3Endpoint = endpoint
 		cfg.S3Region = "us-east-1"
@@ -76,6 +83,7 @@ func TestPostgresAuthAndTreeholeWorkflow(t *testing.T) {
 	if register.StatusCode != http.StatusCreated {
 		t.Fatalf("register: %d %s", register.StatusCode, readResponse(register))
 	}
+	assertOpenAPIResponse(t, register)
 	var csrf string
 	for _, cookie := range jar.Cookies(register.Request.URL) {
 		if cookie.Name == cfg.CSRFCookieName {
@@ -84,6 +92,65 @@ func TestPostgresAuthAndTreeholeWorkflow(t *testing.T) {
 	}
 	if csrf == "" {
 		t.Fatal("missing CSRF cookie")
+	}
+	csrfMissing := requestJSON(t, client, http.MethodPost, server.URL+"/api/v1/posts", map[string]any{"title": "CSRF check", "body": "This request must be rejected without a CSRF token.", "identity_mode": "nickname", "visibility": "forever", "allow_comments": true}, "")
+	if csrfMissing.StatusCode != http.StatusForbidden {
+		t.Fatalf("missing CSRF token: %d %s", csrfMissing.StatusCode, readResponse(csrfMissing))
+	}
+	csrfMissing.Body.Close()
+	memberDeniedAdmin, err := client.Get(server.URL + "/api/v1/admin/users")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if memberDeniedAdmin.StatusCode != http.StatusForbidden {
+		t.Fatalf("member accessed admin endpoint: %d %s", memberDeniedAdmin.StatusCode, readResponse(memberDeniedAdmin))
+	}
+	memberDeniedAdmin.Body.Close()
+	if _, err := pool.Exec(context.Background(), "UPDATE sessions SET last_seen_at=now()-interval '25 hours' WHERE user_id=(SELECT id FROM users WHERE email=$1)", email); err != nil {
+		t.Fatal(err)
+	}
+	start := make(chan struct{})
+	statuses := make(chan int, 2)
+	errors := make(chan error, 2)
+	var wait sync.WaitGroup
+	for range 2 {
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			<-start
+			response, err := client.Get(server.URL + "/api/v1/me")
+			if err != nil {
+				errors <- err
+				return
+			}
+			statuses <- response.StatusCode
+			response.Body.Close()
+		}()
+	}
+	close(start)
+	wait.Wait()
+	close(statuses)
+	close(errors)
+	for err := range errors {
+		t.Fatal(err)
+	}
+	for status := range statuses {
+		if status != http.StatusOK {
+			t.Fatalf("concurrent session rotation returned %d", status)
+		}
+	}
+	afterRotation, err := client.Get(server.URL + "/api/v1/me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if afterRotation.StatusCode != http.StatusOK {
+		t.Fatalf("rotated session was not retained: %d %s", afterRotation.StatusCode, readResponse(afterRotation))
+	}
+	afterRotation.Body.Close()
+	for _, cookie := range jar.Cookies(register.Request.URL) {
+		if cookie.Name == cfg.CSRFCookieName {
+			csrf = cookie.Value
+		}
 	}
 	if _, err := exec.LookPath("vipsthumbnail"); err == nil && cfg.S3Endpoint != "" {
 		upload := uploadTestPNG(t, client, server.URL+"/api/v1/uploads/images", csrf, "image/png")
@@ -133,6 +200,14 @@ func TestPostgresAuthAndTreeholeWorkflow(t *testing.T) {
 	if post.StatusCode != http.StatusCreated {
 		t.Fatalf("create post: %d %s", post.StatusCode, readResponse(post))
 	}
+	assertOpenAPIResponse(t, post)
+	post.Body.Close()
+	unknownField := requestJSON(t, client, http.MethodPost, server.URL+"/api/v1/posts", map[string]any{"title": "Contract validation", "body": "The unknown field must cause a documented validation error.", "identity_mode": "nickname", "visibility": "forever", "allow_comments": true, "unexpected": true}, csrf)
+	if unknownField.StatusCode != http.StatusUnprocessableEntity {
+		t.Fatalf("unknown JSON field: %d %s", unknownField.StatusCode, readResponse(unknownField))
+	}
+	assertOpenAPIResponse(t, unknownField)
+	unknownField.Body.Close()
 	list, err := client.Get(server.URL + "/api/v1/posts")
 	if err != nil {
 		t.Fatal(err)
@@ -289,6 +364,37 @@ func requestJSON(t *testing.T, client *http.Client, method, url string, body any
 		t.Fatal(err)
 	}
 	return response
+}
+
+func assertOpenAPIResponse(t *testing.T, response *http.Response) {
+	t.Helper()
+	body, err := io.ReadAll(response.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	response.Body = io.NopCloser(bytes.NewReader(body))
+	spec, err := generated.GetSpec()
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec.Servers = nil
+	router, err := legacy.NewRouter(spec, openapi3.AllowExtraSiblingFields("contentMediaType", "contentEncoding"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	route, pathParams, err := router.FindRoute(response.Request)
+	if err != nil {
+		t.Fatalf("find OpenAPI route for %s %s: %v", response.Request.Method, response.Request.URL.Path, err)
+	}
+	input := &openapi3filter.ResponseValidationInput{
+		RequestValidationInput: &openapi3filter.RequestValidationInput{Request: response.Request, PathParams: pathParams, Route: route},
+		Status:                 response.StatusCode,
+		Header:                 response.Header,
+	}
+	if err := openapi3filter.ValidateResponse(response.Request.Context(), input.SetBodyBytes(body)); err != nil {
+		t.Fatalf("OpenAPI response contract for %s %s: %v", response.Request.Method, response.Request.URL.Path, err)
+	}
 }
 
 func uploadTestPNG(t *testing.T, client *http.Client, url, csrf, declaredType string) *http.Response {

@@ -7,37 +7,16 @@ import BaseModal from '../components/BaseModal.vue'
 import CommentThread from '../components/CommentThread.vue'
 import RichEditor from '../components/RichEditor.vue'
 import RichText from '../components/RichText.vue'
+import ExploreAnnouncements from '../features/explore/ExploreAnnouncements.vue'
+import { exploreEndpoints, exploreSectionInfo, isExploreSection, type ExploreSection } from '../features/explore/registry'
 import { useAuthStore } from '../stores/auth'
-import type { CampusService, CampusServiceRating, MarketListing, MarketOptions, MarketTransaction, Page } from '../types'
+import type { Announcement, CampusService, CampusServiceRating, MarketListing, MarketOptions, MarketTransaction, Page } from '../types'
 import { formatPrice, marketTransactionActions } from '../market'
 
 const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
 
-const sectionNames = ['questions', 'handbook', 'courses', 'listings', 'activities', 'lost', 'observe', 'governance', 'announcements']
-const sectionInfo: Record<string, { icon: string; title: string; subtitle: string }> = {
-  questions: { icon: '🙋', title: '打听 · 求助', subtitle: '悬赏提问 · 采纳加经验 · 高赞回答可转入生存手册' },
-  handbook: { icon: '📖', title: '生存手册', subtitle: '老登经验合集 · 积分与「被收藏 / 被采纳 / 加精 / 长期有效」绑定，拒绝灌水' },
-  courses: { icon: '🎓', title: '课程评价', subtitle: '基于课程体验 · 同一课程同一学期限评一次 · 需达到信用门槛' },
-  listings: { icon: '🛒', title: '二手集市', subtitle: '仅支持私信联系与校内线下面交 · 平台不经手资金' },
-  activities: { icon: '🎪', title: '校园活动', subtitle: '组织与搭子的聚集地' },
-  lost: { icon: '🧣', title: '失物招领', subtitle: '捡到/丢失 · 地点 · 时间 · 图片 · 认领状态' },
-  observe: { icon: '🔍', title: '校园文明观察台', subtitle: '只描述事件，不曝光个人 · 涉及具体个人/组织必须先人工审核 · 发帖需达到信用门槛' },
-  governance: { icon: '⚖️', title: '社区治理公示', subtitle: '处罚记录 · 规则判例库 · 违规案例说明（账号一律匿名化）' },
-  announcements: { icon: '📢', title: '公告中心', subtitle: '规则更新 / 停服维护 / 处罚规范变更 = 强提醒' },
-}
-const endpoints: Record<string, string> = {
-  questions: '/questions?page_size=50',
-  handbook: '/handbook?page_size=50',
-  courses: '/course-offerings',
-  listings: '/listings?page_size=50',
-  activities: '/activities',
-  lost: '/lost-items',
-  observe: '/observe-posts?page_size=50',
-  governance: '/penalties',
-  announcements: '/announcements',
-}
 const handbookCategories = [
   ['🎒', '新生入学指南'], ['🗓️', '选课指南'], ['🛏️', '宿舍避坑'], ['🍜', '食堂/外卖评价'],
   ['🗺️', '校园地图与隐藏地点'], ['🧪', '实验室/办事流程'], ['🏆', '奖学金/竞赛/保研/考研'],
@@ -45,9 +24,12 @@ const handbookCategories = [
 ] as const
 const activityCategories = ['全部', '社团招新', '讲座信息', '比赛组队', '拼车/拼单', '自习搭子', '运动搭子', '饭搭子', '实验招募', '问卷互填']
 
-const section = computed(() => sectionNames.includes(String(route.params.section)) ? String(route.params.section) : 'questions')
+const section = computed<ExploreSection>(() => {
+  const value = String(route.params.section)
+  return isExploreSection(value) ? value : 'questions'
+})
 const currentInfo = computed(() => {
-  const info = sectionInfo[section.value]
+  const info = exploreSectionInfo[section.value]
   if (section.value === 'courses') return { ...info, subtitle: `基于课程体验 · 同一课程同一学期限评一次 · 需信用 ≥ ${auth.creditRule('threshold.course_review')}` }
   if (section.value === 'observe') return { ...info, subtitle: `只描述事件，不曝光个人 · 涉及具体个人/组织必须先人工审核 · 发帖需信用 ≥ ${auth.creditRule('threshold.observe_publish')}` }
   return info
@@ -99,7 +81,7 @@ async function load() {
   loading.value = true
   error.value = ''
   try {
-    const base = endpoints[section.value]
+    const base = exploreEndpoints[section.value]
     const [response, services] = await Promise.all([
       api<Page<any>>(`${base}${base.includes('?') ? '&' : '?'}page=${currentPage.value}`),
       section.value === 'handbook' ? api<{ items: CampusService[] }>('/campus-services') : Promise.resolve({ items: [] as CampusService[] }),
@@ -207,7 +189,7 @@ async function accept(answer: any) { await api(`/answers/${answer.id}/accept`, j
 async function favorite(item: any) { if (auth.requireLogin()) { await api(`/entities/${item.id}/favorite`, { method: 'PUT' }); await load() } }
 async function activityJoin(item: any) { if (auth.requireLogin()) { await api(`/activities/${item.id}/membership`, { method: item.joined ? 'DELETE' : 'PUT' }); await load() } }
 async function cancelActivity(item: any) { if (confirm('确定取消活动并通知所有成员？')) { await api(`/activities/${item.id}/cancel`, json('POST')); await load() } }
-async function markRead(item: any) { if (auth.requireLogin()) { await api(`/announcements/${item.id}/read`, { method: 'PUT' }); item.read = true } }
+async function markRead(item: Announcement) { if (auth.requireLogin()) { await api(`/announcements/${item.id}/read`, { method: 'PUT' }); item.read = true } }
 async function messageSeller(item: any) {
   if (!auth.requireLogin()) return
   const text = prompt('给卖家发送第一条消息：', `你好，请问“${item.title}”还在吗？`)
@@ -354,8 +336,7 @@ onMounted(async () => { await load(); await consumeCreate() })
     </template>
 
     <template v-else-if="section === 'announcements'">
-      <p v-if="!items.length" class="empty-state">暂无公告。</p>
-      <article v-for="item in items" :key="item.id" class="card announcement-card-v4" :class="{ strong: item.level === 'strong' }"><h3>{{ item.title }} <span class="tag" :class="item.level === 'strong' ? 'red' : 'gray'">{{ item.level === 'strong' ? '强提醒' : '普通公告' }}</span></h3><RichText :content="item.body" /><p class="muted">{{ local(item.published_at) }} · 已读确认：<b class="mono">{{ item.read_count }}</b> 人 <button v-if="!item.read" class="btn ghost sm" @click="markRead(item)">我已阅读</button><span v-else class="tag green">✓ 已确认</span></p></article>
+      <ExploreAnnouncements :items="items" :format-date="local" @read="markRead" />
     </template>
 
     <div v-if="total > pageSize" class="v4-pagination"><button class="btn ghost sm" :disabled="currentPage === 1" @click="currentPage--; load()">上一页</button><span>第 {{ currentPage }} 页 · 共 {{ total }} 条</span><button class="btn ghost sm" :disabled="currentPage * pageSize >= total" @click="currentPage++; load()">下一页</button></div>

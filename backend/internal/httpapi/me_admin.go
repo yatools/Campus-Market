@@ -188,7 +188,7 @@ func (s *Server) changePassword(w http.ResponseWriter, r *http.Request) error {
 	if !security.VerifyPassword(body.Old, user.PasswordHash) {
 		return apiError(400, "OLD_PASSWORD_INVALID", "原密码错误")
 	}
-	if len(body.New) < 10 || len(body.New) > 128 {
+	if runeLen(body.New) < 10 || runeLen(body.New) > 128 {
 		return validation("new_password", "String should have at least 10 characters")
 	}
 	hash, err := security.HashPassword(body.New)
@@ -570,7 +570,7 @@ func (s *Server) adminUpdateUser(w http.ResponseWriter, r *http.Request) error {
 	if value, ok := raw["reason"]; ok {
 		_ = json.Unmarshal(value, &reason)
 	}
-	if runeLen(strings.TrimSpace(reason)) < 2 || len(reason) > 1000 {
+	if runeLen(strings.TrimSpace(reason)) < 2 || runeLen(strings.TrimSpace(reason)) > 1000 {
 		return validation("reason", "String should have at least 2 characters")
 	}
 	tx, err := s.DB.Begin(r.Context())
@@ -1039,7 +1039,7 @@ func (s *Server) adminUpdateSetting(w http.ResponseWriter, r *http.Request) erro
 	if err := decodeBody(r, &body); err != nil {
 		return err
 	}
-	if len(body.Value) > 20000 {
+	if runeLen(body.Value) > 20000 {
 		return validation("value", "String should have at most 20000 characters")
 	}
 	if key == "anonymous_nickname_pool" {

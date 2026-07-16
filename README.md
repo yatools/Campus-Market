@@ -142,7 +142,7 @@ cp .env.example .env
 chmod 600 .env
 export TLS_EMAIL=admin@example.edu.cn
 sh deploy/bootstrap-tls.sh
-sh deploy/deploy.sh
+sh deploy/deploy.sh ghcr.io/owner/repo/api@sha256:CI_DIGEST ghcr.io/owner/repo/worker@sha256:CI_DIGEST ghcr.io/owner/repo/web@sha256:CI_DIGEST
 ```
 
 创建首位管理员：
@@ -163,7 +163,7 @@ Staging 使用独立 Compose project、数据库和对象命名空间：
 ```bash
 cp .env.staging.example .env.staging
 chmod 600 .env.staging
-sh deploy/staging.sh
+sh deploy/staging.sh ghcr.io/owner/repo/api@sha256:CI_DIGEST ghcr.io/owner/repo/worker@sha256:CI_DIGEST ghcr.io/owner/repo/web@sha256:CI_DIGEST
 ```
 
 ## 备份与恢复
@@ -191,4 +191,14 @@ sh deploy/restore.sh /secure/path/wutong-backup-YYYYMMDD-HHMMSS.zip
 - `create-admin`：创建管理员。
 - `verify-config`：严格验证配置。
 - `verify-storage-manifest`：从标准输入校验对象清单。
+
+## 运行指标与告警
+
+`GET /metrics` 仅由内部网络抓取，不经 Nginx 对公网暴露。它提供 HTTP 延迟与状态、数据库连接池、Worker 作业、邮件 Outbox 和图片处理指标。`deploy/prometheus-alerts.yml` 包含 readiness、Worker 心跳、邮件失败、5xx 和备份失败的初始告警规则，阈值应按实际服务等级调整。查询性能基线及复测命令见 `deploy/query-plan-baselines.md`。
+
+部署只接受 CI 已扫描并发布的不可变镜像 digest。`deploy/deploy.sh` 会将上一个 digest 保存到 `.deploy-state/previous.env`，并在新的 API 未通过 readiness 时恢复上一版本。
+
+## 许可与适用范围
+
+本项目使用 [PolyForm Noncommercial License 1.0.0](LICENSE)。个人学习、研究、测试以及非商业组织（包括教育机构）的使用以该许可原文为准；本项目不是 OSI 定义的开源软件。任何商业化部署、托管、再销售或超出该许可范围的使用，必须在使用前通过 [yatools](https://github.com/yatools) 取得著作权人的书面授权。
 

@@ -126,10 +126,10 @@ func (s *Server) createObserve(w http.ResponseWriter, r *http.Request) error {
 	if err := decodeBody(r, &body); err != nil {
 		return err
 	}
-	if runeLen(strings.TrimSpace(body.Title)) < 4 || len(body.Title) > 160 {
+	if runeLen(strings.TrimSpace(body.Title)) < 4 || runeLen(strings.TrimSpace(body.Title)) > 160 {
 		return validation("title", "String should have at least 4 characters")
 	}
-	if runeLen(strings.TrimSpace(body.Body)) < 10 || len(body.Body) > 10000 {
+	if runeLen(strings.TrimSpace(body.Body)) < 10 || runeLen(strings.TrimSpace(body.Body)) > 10000 {
 		return validation("body", "String should have at least 10 characters")
 	}
 	tx, err := s.DB.Begin(r.Context())
@@ -176,7 +176,7 @@ func (s *Server) respondObserve(w http.ResponseWriter, r *http.Request) error {
 	if err := decodeBody(r, &body); err != nil {
 		return err
 	}
-	if runeLen(strings.TrimSpace(body.Body)) < 2 || len(body.Body) > 5000 {
+	if runeLen(strings.TrimSpace(body.Body)) < 2 || runeLen(strings.TrimSpace(body.Body)) > 5000 {
 		return validation("body", "String should have at least 2 characters")
 	}
 	tx, err := s.DB.Begin(r.Context())
@@ -251,7 +251,7 @@ func (s *Server) appealPenalty(w http.ResponseWriter, r *http.Request) error {
 	if err := decodeBody(r, &body); err != nil {
 		return err
 	}
-	if runeLen(strings.TrimSpace(body.Reason)) < 10 || len(body.Reason) > 5000 {
+	if runeLen(strings.TrimSpace(body.Reason)) < 10 || runeLen(strings.TrimSpace(body.Reason)) > 5000 {
 		return validation("reason", "String should have at least 10 characters")
 	}
 	tx, err := s.DB.Begin(r.Context())
@@ -370,7 +370,7 @@ func (s *Server) createConversation(w http.ResponseWriter, r *http.Request) erro
 	if !valid[body.ContextType] {
 		return validation("context_type", "Value error, 会话上下文无效")
 	}
-	if strings.TrimSpace(body.FirstMessage) == "" || len(body.FirstMessage) > 2000 {
+	if strings.TrimSpace(body.FirstMessage) == "" || runeLen(strings.TrimSpace(body.FirstMessage)) > 2000 {
 		return validation("first_message", "String should have at least 1 character")
 	}
 	tx, err := s.DB.Begin(r.Context())
@@ -530,7 +530,7 @@ func (s *Server) sendMessage(w http.ResponseWriter, r *http.Request) error {
 	if err := decodeBody(r, &body); err != nil {
 		return err
 	}
-	if strings.TrimSpace(body.Body) == "" || len(body.Body) > 2000 {
+	if strings.TrimSpace(body.Body) == "" || runeLen(strings.TrimSpace(body.Body)) > 2000 {
 		return validation("body", "String should have at least 1 character")
 	}
 	tx, err := s.DB.Begin(r.Context())
@@ -746,7 +746,7 @@ func (s *Server) listNotifications(w http.ResponseWriter, r *http.Request) error
 	return rows.Err()
 }
 func (s *Server) notificationStream(w http.ResponseWriter, r *http.Request) error {
-	user, session, err := s.currentUser(w, r, true)
+	user, _, err := s.currentUser(w, r, true)
 	if err != nil {
 		return err
 	}
@@ -754,37 +754,45 @@ func (s *Server) notificationStream(w http.ResponseWriter, r *http.Request) erro
 	if !ok {
 		return fmt.Errorf("streaming unsupported")
 	}
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	ticker := time.NewTicker(15 * time.Second)
-	defer ticker.Stop()
-	last, lastMessages := -1, -1
-	for {
-		var active bool
-		if err := s.DB.QueryRow(r.Context(), "SELECT EXISTS(SELECT 1 FROM sessions WHERE id=$1 AND revoked_at IS NULL AND expires_at>now() AND absolute_expires_at>now())", session.ID).Scan(&active); err != nil || !active {
-			return nil
-		}
+	events, unsubscribe := s.Hub.subscribe(user.ID)
+	defer unsubscribe()
+	writeUnread := func() error {
 		var count, messages int
 		if err := s.DB.QueryRow(r.Context(), "SELECT count(*) FILTER(WHERE read_at IS NULL),count(*) FILTER(WHERE read_at IS NULL AND type='message') FROM notifications WHERE user_id=$1", user.ID).Scan(&count, &messages); err != nil {
 			return err
 		}
-		if count != last || messages != lastMessages {
-			fmt.Fprintf(w, "event: unread\ndata: {\"count\":%d,\"messages\":%d}\n\n", count, messages)
-			last, lastMessages = count, messages
-		} else {
-			fmt.Fprint(w, ": keepalive\n\n")
-		}
+		_, err := fmt.Fprintf(w, "event: unread\ndata: {\"count\":%d,\"messages\":%d}\n\n", count, messages)
 		flusher.Flush()
+		return err
+	}
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	if err := writeUnread(); err != nil {
+		return err
+	}
+	heartbeat := time.NewTicker(30 * time.Second)
+	defer heartbeat.Stop()
+	for {
 		select {
 		case <-r.Context().Done():
 			return nil
-		case <-ticker.C:
+		case <-heartbeat.C:
+			fmt.Fprint(w, ": keepalive\n\n")
+			flusher.Flush()
+		case <-events:
+			if err := writeUnread(); err != nil {
+				return err
+			}
 		}
 	}
 }
+
 func (s *Server) readNotification(w http.ResponseWriter, r *http.Request) error {
-	id, _ := pathID(r, "notificationID")
+	id, err := pathID(r, "notificationID")
+	if err != nil {
+		return err
+	}
 	user, _, err := s.currentUser(w, r, true)
 	if err != nil {
 		return err
@@ -794,23 +802,24 @@ func (s *Server) readNotification(w http.ResponseWriter, r *http.Request) error 
 		return err
 	}
 	if tag.RowsAffected() == 0 {
-		return apiError(404, "NOTIFICATION_NOT_FOUND", "通知不存在")
+		return apiError(404, "NOTIFICATION_NOT_FOUND", "Notification not found")
 	}
 	writeJSON(w, 200, map[string]any{"ok": true})
 	return nil
 }
+
 func (s *Server) readAllNotifications(w http.ResponseWriter, r *http.Request) error {
 	user, _, err := s.currentUser(w, r, true)
 	if err != nil {
 		return err
 	}
-	_, err = s.DB.Exec(r.Context(), "UPDATE notifications SET read_at=now() WHERE user_id=$1 AND read_at IS NULL", user.ID)
-	if err != nil {
+	if _, err := s.DB.Exec(r.Context(), "UPDATE notifications SET read_at=now() WHERE user_id=$1 AND read_at IS NULL", user.ID); err != nil {
 		return err
 	}
 	writeJSON(w, 200, map[string]any{"ok": true})
 	return nil
 }
+
 func (s *Server) listAnnouncements(w http.ResponseWriter, r *http.Request) error {
 	viewer, _, err := s.currentUser(w, r, false)
 	if err != nil {
@@ -820,16 +829,28 @@ func (s *Server) listAnnouncements(w http.ResponseWriter, r *http.Request) error
 	if err != nil {
 		return err
 	}
-	where := "audience='all'"
-	args := []any{}
+	where := "a.audience='all'"
+	visibilityArgs := []any{}
 	if viewer.ID != 0 {
-		where = "audience='all' OR audience=$1"
-		args = append(args, viewer.CampusIdentity)
+		where = "a.audience='all' OR a.audience=$1"
+		visibilityArgs = append(visibilityArgs, viewer.CampusIdentity)
 	}
 	var total int
-	_ = s.DB.QueryRow(r.Context(), "SELECT count(*) FROM announcements WHERE "+where, args...).Scan(&total)
+	if err := s.DB.QueryRow(r.Context(), "SELECT count(*) FROM announcements a WHERE "+where, visibilityArgs...).Scan(&total); err != nil {
+		return err
+	}
+	selectWhere := where
+	if viewer.ID != 0 {
+		selectWhere = "a.audience='all' OR a.audience=$2"
+	}
+	args := append([]any{viewer.ID}, visibilityArgs...)
 	args = append(args, size, (page-1)*size)
-	rows, err := s.DB.Query(r.Context(), fmt.Sprintf("SELECT id,title,body,level,audience,published_at FROM announcements WHERE %s ORDER BY published_at DESC LIMIT $%d OFFSET $%d", where, len(args)-1, len(args)), args...)
+	rows, err := s.DB.Query(r.Context(), fmt.Sprintf(`SELECT a.id,a.title,a.body,a.level,a.audience,a.published_at,
+		vr.user_id IS NOT NULL AS read,COALESCE(rc.read_count,0) AS read_count
+		FROM announcements a
+		LEFT JOIN announcement_reads vr ON vr.announcement_id=a.id AND vr.user_id=$1
+		LEFT JOIN (SELECT announcement_id,count(*) AS read_count FROM announcement_reads GROUP BY announcement_id) rc ON rc.announcement_id=a.id
+		WHERE %s ORDER BY a.published_at DESC LIMIT $%d OFFSET $%d`, selectWhere, len(args)-1, len(args)), args...)
 	if err != nil {
 		return err
 	}
@@ -839,20 +860,20 @@ func (s *Server) listAnnouncements(w http.ResponseWriter, r *http.Request) error
 		var id int64
 		var title, body, level, audience string
 		var published time.Time
-		if err := rows.Scan(&id, &title, &body, &level, &audience, &published); err != nil {
+		var read bool
+		var count int
+		if err := rows.Scan(&id, &title, &body, &level, &audience, &published, &read, &count); err != nil {
 			return err
 		}
-		read := false
-		if viewer.ID != 0 {
-			_ = s.DB.QueryRow(r.Context(), "SELECT EXISTS(SELECT 1 FROM announcement_reads WHERE announcement_id=$1 AND user_id=$2)", id, viewer.ID).Scan(&read)
-		}
-		var count int
-		_ = s.DB.QueryRow(r.Context(), "SELECT count(*) FROM announcement_reads WHERE announcement_id=$1", id).Scan(&count)
 		items = append(items, map[string]any{"id": id, "title": title, "body": body, "level": level, "audience": audience, "read": read, "read_count": count, "published_at": published})
 	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
 	writeJSON(w, 200, pagePayload(items, page, size, total))
-	return rows.Err()
+	return nil
 }
+
 func (s *Server) readAnnouncement(w http.ResponseWriter, r *http.Request) error {
 	id, _ := pathID(r, "announcementID")
 	user, _, err := s.currentUser(w, r, true)
@@ -1038,7 +1059,7 @@ func (s *Server) respondCampusServiceRating(w http.ResponseWriter, r *http.Reque
 	if err := decodeBody(r, &body); err != nil {
 		return err
 	}
-	if runeLen(strings.TrimSpace(body.Body)) < 2 || len(body.Body) > 2000 {
+	if runeLen(strings.TrimSpace(body.Body)) < 2 || runeLen(strings.TrimSpace(body.Body)) > 2000 {
 		return validation("body", "String should have at least 2 characters")
 	}
 	tx, err := s.DB.Begin(r.Context())
