@@ -35,6 +35,7 @@ type contextKey string
 var redocBundle []byte
 
 // ReDoc 2.5.3, bundled under the MIT license.
+//
 //go:embed assets/REDOC-LICENSE
 var redocLicense []byte
 

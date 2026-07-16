@@ -7,24 +7,23 @@ ALTER TABLE email_outbox
 CREATE INDEX ix_email_outbox_claim
     ON email_outbox (status, next_attempt_at, lease_until, id);
 
+-- +goose StatementBegin
 CREATE FUNCTION notify_notification_change() RETURNS trigger AS $$
 BEGIN
     PERFORM pg_notify('wutong_notifications', NEW.user_id::text);
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
+-- +goose StatementEnd
 
 CREATE TRIGGER trg_notifications_changed
     AFTER INSERT OR UPDATE OF read_at ON notifications
     FOR EACH ROW EXECUTE FUNCTION notify_notification_change();
 
-CREATE INDEX ix_posts_title_trgm ON posts USING gin (title gin_trgm_ops);
 CREATE INDEX ix_posts_body_trgm ON posts USING gin (body gin_trgm_ops);
-CREATE INDEX ix_questions_title_trgm ON questions USING gin (title gin_trgm_ops);
 CREATE INDEX ix_questions_body_trgm ON questions USING gin (body gin_trgm_ops);
 CREATE INDEX ix_handbook_articles_title_trgm ON handbook_articles USING gin (title gin_trgm_ops);
 CREATE INDEX ix_handbook_articles_body_trgm ON handbook_articles USING gin (body gin_trgm_ops);
-CREATE INDEX ix_listings_title_trgm ON listings USING gin (title gin_trgm_ops);
 CREATE INDEX ix_listings_description_trgm ON listings USING gin (description gin_trgm_ops);
 CREATE INDEX ix_activities_title_trgm ON activities USING gin (title gin_trgm_ops);
 CREATE INDEX ix_activities_body_trgm ON activities USING gin (body gin_trgm_ops);
@@ -39,13 +38,10 @@ DROP INDEX IF EXISTS ix_lost_items_name_trgm;
 DROP INDEX IF EXISTS ix_activities_body_trgm;
 DROP INDEX IF EXISTS ix_activities_title_trgm;
 DROP INDEX IF EXISTS ix_listings_description_trgm;
-DROP INDEX IF EXISTS ix_listings_title_trgm;
 DROP INDEX IF EXISTS ix_handbook_articles_body_trgm;
 DROP INDEX IF EXISTS ix_handbook_articles_title_trgm;
 DROP INDEX IF EXISTS ix_questions_body_trgm;
-DROP INDEX IF EXISTS ix_questions_title_trgm;
 DROP INDEX IF EXISTS ix_posts_body_trgm;
-DROP INDEX IF EXISTS ix_posts_title_trgm;
 DROP INDEX IF EXISTS ix_email_outbox_claim;
 ALTER TABLE email_outbox
     DROP COLUMN processing_at,
