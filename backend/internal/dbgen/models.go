@@ -223,6 +223,9 @@ type EmailOutbox struct {
 	SentAt        pgtype.Timestamptz `json:"sent_at"`
 	LastError     string             `json:"last_error"`
 	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+	LeaseUntil    pgtype.Timestamptz `json:"lease_until"`
+	WorkerID      pgtype.Text        `json:"worker_id"`
+	ProcessingAt  pgtype.Timestamptz `json:"processing_at"`
 }
 
 type Favorite struct {
@@ -461,17 +464,19 @@ type Report struct {
 }
 
 type Session struct {
-	ID                int64              `json:"id"`
-	UserID            int64              `json:"user_id"`
-	TokenHash         string             `json:"token_hash"`
-	CsrfToken         string             `json:"csrf_token"`
-	IpAddress         string             `json:"ip_address"`
-	UserAgent         string             `json:"user_agent"`
-	ExpiresAt         pgtype.Timestamptz `json:"expires_at"`
-	AbsoluteExpiresAt pgtype.Timestamptz `json:"absolute_expires_at"`
-	LastSeenAt        pgtype.Timestamptz `json:"last_seen_at"`
-	RevokedAt         pgtype.Timestamptz `json:"revoked_at"`
-	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	ID                     int64              `json:"id"`
+	UserID                 int64              `json:"user_id"`
+	TokenHash              string             `json:"token_hash"`
+	CsrfToken              string             `json:"csrf_token"`
+	IpAddress              string             `json:"ip_address"`
+	UserAgent              string             `json:"user_agent"`
+	ExpiresAt              pgtype.Timestamptz `json:"expires_at"`
+	AbsoluteExpiresAt      pgtype.Timestamptz `json:"absolute_expires_at"`
+	LastSeenAt             pgtype.Timestamptz `json:"last_seen_at"`
+	RevokedAt              pgtype.Timestamptz `json:"revoked_at"`
+	CreatedAt              pgtype.Timestamptz `json:"created_at"`
+	PreviousTokenHash      pgtype.Text        `json:"previous_token_hash"`
+	PreviousTokenExpiresAt pgtype.Timestamptz `json:"previous_token_expires_at"`
 }
 
 type Setting struct {

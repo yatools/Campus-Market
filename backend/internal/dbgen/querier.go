@@ -12,7 +12,7 @@ import (
 
 type Querier interface {
 	CountUnreadNotifications(ctx context.Context, userID int64) (int64, error)
-	GetSessionByTokenHash(ctx context.Context, tokenHash string) (Session, error)
+	GetSessionByTokenHash(ctx context.Context, tokenHash string) (GetSessionByTokenHashRow, error)
 	GetUserByEmail(ctx context.Context, email pgtype.Text) (GetUserByEmailRow, error)
 }
 

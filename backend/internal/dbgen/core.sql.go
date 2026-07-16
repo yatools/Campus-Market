@@ -31,9 +31,23 @@ FROM sessions
 WHERE token_hash = $1
 `
 
-func (q *Queries) GetSessionByTokenHash(ctx context.Context, tokenHash string) (Session, error) {
+type GetSessionByTokenHashRow struct {
+	ID                int64              `json:"id"`
+	UserID            int64              `json:"user_id"`
+	TokenHash         string             `json:"token_hash"`
+	CsrfToken         string             `json:"csrf_token"`
+	IpAddress         string             `json:"ip_address"`
+	UserAgent         string             `json:"user_agent"`
+	ExpiresAt         pgtype.Timestamptz `json:"expires_at"`
+	AbsoluteExpiresAt pgtype.Timestamptz `json:"absolute_expires_at"`
+	LastSeenAt        pgtype.Timestamptz `json:"last_seen_at"`
+	RevokedAt         pgtype.Timestamptz `json:"revoked_at"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+}
+
+func (q *Queries) GetSessionByTokenHash(ctx context.Context, tokenHash string) (GetSessionByTokenHashRow, error) {
 	row := q.db.QueryRow(ctx, getSessionByTokenHash, tokenHash)
-	var i Session
+	var i GetSessionByTokenHashRow
 	err := row.Scan(
 		&i.ID,
 		&i.UserID,
