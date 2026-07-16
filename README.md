@@ -4,27 +4,22 @@
 
 ## 前端演示
 ### 移动端
-<img width="509" height="1134" alt="image" src="https://github.com/user-attachments/assets/c30b440b-6077-490c-8f19-942047f383bf" />
-### 桌面端
-<img width="2510" height="1223" alt="image" src="https://github.com/user-attachments/assets/5dee3c27-8c46-45aa-ba36-d55d896618d4" />
-<img width="1284" height="976" alt="image" src="https://github.com/user-attachments/assets/f29b9400-d327-46ee-80e2-2951aec4b70b" />
-<img width="1276" height="835" alt="image" src="https://github.com/user-attachments/assets/efe8f166-652a-4d2e-9df9-5ebcd90ad6f8" />
-<img width="1269" height="886" alt="image" src="https://github.com/user-attachments/assets/d64d62ed-c630-4ff8-98ea-277f6ad9f86c" />
-<img width="1284" height="889" alt="image" src="https://github.com/user-attachments/assets/b747e5bc-9629-4646-ba34-ee0316292fca" />
-<img width="1288" height="864" alt="image" src="https://github.com/user-attachments/assets/f0914b3f-8ed2-4a7f-b1b6-b5980224fe52" />
-<img width="1284" height="866" alt="image" src="https://github.com/user-attachments/assets/987b25de-af3a-4c68-ae9f-a15f926a3e0d" />
-<img width="1279" height="869" alt="image" src="https://github.com/user-attachments/assets/4d50a28f-eb9f-4dd8-b347-d8cbd8c92f3a" />
-文明观察台按理说按之前的原型要有个信用分大于多少且勾选【吃瓜不扩散协议】是能去码查看的，不过此处觉得有点问题还没做好，以后再说吧
-<img width="1283" height="875" alt="image" src="https://github.com/user-attachments/assets/4251dac3-2509-4d7b-92c4-cf3d34aeeb13" />
-<img width="1300" height="862" alt="image" src="https://github.com/user-attachments/assets/b0e6216a-0010-40cf-a6dc-028431f09b9a" />
-<img width="1271" height="883" alt="image" src="https://github.com/user-attachments/assets/a79a0d50-ac6c-43e9-885a-811a7a20910b" />
-<img width="1281" height="877" alt="image" src="https://github.com/user-attachments/assets/f3ee2d56-b78a-490e-8591-1cc4c53109c1" />
-<img width="1281" height="898" alt="image" src="https://github.com/user-attachments/assets/39e9b042-85a0-4d40-9a72-d7aa268d9d54" />
-<img width="1274" height="1032" alt="image" src="https://github.com/user-attachments/assets/166f2db8-b5a0-4628-a173-81e2d04ba3c4" />
-<img width="1626" height="397" alt="image" src="https://github.com/user-attachments/assets/17fd1155-b6da-4324-949e-f0cc0b62d4be" />
-<img width="1271" height="883" alt="image" src="https://github.com/user-attachments/assets/ea1f0e52-3ddb-4f0f-8bd3-fb9d5c110b4a" />
-<img width="1284" height="889" alt="image" src="https://github.com/user-attachments/assets/626ea73d-9bf8-4f6c-9413-d88d5153ba55" />
+<img width="509" height="1134" alt="image" src="https://github.com/user-attachments/assets/9ae94436-9fd0-45bd-ae5c-0dc53179fa4b" />
 
+### 桌面端
+<img width="2510" height="1223" alt="image" src="https://github.com/user-attachments/assets/90ae5c33-8266-46c2-adae-d3a584f3e16a" />
+<img width="1284" height="976" alt="image" src="https://github.com/user-attachments/assets/25645297-706d-4ab5-8dab-8fce03b9749b" />
+<img width="1276" height="835" alt="image" src="https://github.com/user-attachments/assets/09c95177-80ec-455d-8b24-783bf4c67acc" />
+<img width="1269" height="886" alt="image" src="https://github.com/user-attachments/assets/579d2d72-ea95-4ed3-bae6-a1c99d46e4ad" />
+<img width="1288" height="864" alt="image" src="https://github.com/user-attachments/assets/03a61014-981f-45d7-9f25-9551c024d318" />
+<img width="1279" height="869" alt="image" src="https://github.com/user-attachments/assets/ffb5c32d-45e0-46eb-a734-84486e6eeb7d" />
+
+文明观察台按理说按之前的原型要有个信用分大于多少且勾选【吃瓜不扩散协议】是能去码查看的，不过此处觉得有点问题还没做好，以后再说吧
+
+<img width="1274" height="1032" alt="image" src="https://github.com/user-attachments/assets/fcb34640-d8f6-48b3-8de0-58b6d5d7f31f" />
+<img width="1626" height="397" alt="image" src="https://github.com/user-attachments/assets/9d8e40ea-3275-411a-acbf-ce6ea1d2c628" />
+
+其他功能就不放图了，自行部署测试吧
 
 ## 主要能力
 
