@@ -466,7 +466,8 @@ func (s *Server) currentUser(w http.ResponseWriter, r *http.Request, required bo
 	row := s.DB.QueryRow(r.Context(), `SELECT s.id,s.user_id,s.csrf_token,s.expires_at,s.absolute_expires_at,s.last_seen_at,
 		u.id,u.email,u.password_hash,u.nickname,u.alias,u.campus_identity,u.role,u.status,u.credit,u.xp,u.avatar_path,u.dm_stranger_off,u.hide_online,u.verified_at,u.created_at
 		FROM sessions s JOIN users u ON u.id=s.user_id
-		WHERE s.token_hash=$1 AND s.revoked_at IS NULL AND s.expires_at>now() AND s.absolute_expires_at>now()`, currentTokenHash)
+		WHERE (s.token_hash=$1 OR (s.previous_token_hash=$1 AND s.previous_token_expires_at>now()))
+		  AND s.revoked_at IS NULL AND s.expires_at>now() AND s.absolute_expires_at>now()`, currentTokenHash)
 	var session Session
 	var user User
 	scanArgs := []any{&session.ID, &session.UserID, &session.CSRFToken, &session.ExpiresAt, &session.AbsoluteExpiresAt, &session.LastSeenAt}
@@ -489,20 +490,19 @@ func (s *Server) currentUser(w http.ResponseWriter, r *http.Request, required bo
 		if tokenErr != nil {
 			return User{}, Session{}, tokenErr
 		}
-		csrf, tokenErr := security.RandomToken(32)
-		if tokenErr != nil {
-			return User{}, Session{}, tokenErr
-		}
 		expires := time.Now().UTC().Add(s.Config.SessionSliding)
 		if expires.After(session.AbsoluteExpiresAt) {
 			expires = session.AbsoluteExpiresAt
 		}
-		tag, updateErr := s.DB.Exec(r.Context(), "UPDATE sessions SET token_hash=$1,csrf_token=$2,last_seen_at=now(),expires_at=$3 WHERE id=$4 AND token_hash=$5", security.TokenHash(s.Config.SecretKey, raw), csrf, expires, session.ID, currentTokenHash)
+		tag, updateErr := s.DB.Exec(r.Context(), `UPDATE sessions
+			SET previous_token_hash=token_hash,previous_token_expires_at=now()+interval '30 seconds',
+				token_hash=$1,last_seen_at=now(),expires_at=$2
+			WHERE id=$3 AND token_hash=$4`, security.TokenHash(s.Config.SecretKey, raw), expires, session.ID, currentTokenHash)
 		if updateErr != nil {
 			return User{}, Session{}, updateErr
 		}
 		if tag.RowsAffected() == 1 {
-			session.CSRFToken, session.ExpiresAt, session.LastSeenAt = csrf, expires, time.Now().UTC()
+			session.ExpiresAt, session.LastSeenAt = expires, time.Now().UTC()
 			s.setSessionCookies(w, raw, session)
 			return user, session, nil
 		}

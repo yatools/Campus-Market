@@ -45,12 +45,13 @@ test -f "$TMP/database.dump" || { echo "备份包缺少 database.dump" >&2; exit
 test -f "$TMP/SHA256SUMS" || { echo "备份包缺少完整性校验文件" >&2; exit 1; }
 (cd "$TMP" && sha256sum -c SHA256SUMS)
 compose up -d db
+EXPECTED_VERSION=$(compose exec -T db psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atqc "SELECT COALESCE(max(version_id),0) FROM goose_db_version WHERE is_applied=true")
 compose exec -T db pg_restore --list < "$TMP/database.dump" >/dev/null
 compose exec -T db createdb -U "$POSTGRES_USER" "$RESTORE_DB"
 compose exec -T db pg_restore -U "$POSTGRES_USER" -d "$RESTORE_DB" --exit-on-error --no-owner --no-privileges < "$TMP/database.dump"
 
 VERSION=$(compose exec -T db psql -U "$POSTGRES_USER" -d "$RESTORE_DB" -Atqc "SELECT COALESCE(max(version_id),0) FROM goose_db_version WHERE is_applied=true")
-test "$VERSION" = "1" || { echo "恢复库迁移版本不匹配：$VERSION" >&2; exit 1; }
+test "$VERSION" = "$EXPECTED_VERSION" || { echo "恢复库迁移版本不匹配：$VERSION（期望 $EXPECTED_VERSION）" >&2; exit 1; }
 compose exec -T db psql -U "$POSTGRES_USER" -d "$RESTORE_DB" -v ON_ERROR_STOP=1 -Atqc "SET CONSTRAINTS ALL IMMEDIATE; SELECT 1" >/dev/null
 if [ -f "$TMP/TABLE_COUNTS.tsv" ]; then
   while IFS="$(printf '\t')" read -r table expected; do

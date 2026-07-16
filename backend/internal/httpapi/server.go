@@ -329,7 +329,9 @@ func (s *Server) csrfProtection(next http.Handler) http.Handler {
 		var stored string
 		var valid bool
 		if err == nil && csrfCookie.Value != "" && header != "" {
-			err = s.DB.QueryRow(r.Context(), `SELECT csrf_token FROM sessions WHERE token_hash=$1 AND revoked_at IS NULL AND expires_at>now() AND absolute_expires_at>now()`, security.TokenHash(s.Config.SecretKey, sessionCookie.Value)).Scan(&stored)
+			err = s.DB.QueryRow(r.Context(), `SELECT csrf_token FROM sessions
+				WHERE (token_hash=$1 OR (previous_token_hash=$1 AND previous_token_expires_at>now()))
+				  AND revoked_at IS NULL AND expires_at>now() AND absolute_expires_at>now()`, security.TokenHash(s.Config.SecretKey, sessionCookie.Value)).Scan(&stored)
 			valid = err == nil && subtle.ConstantTimeCompare([]byte(csrfCookie.Value), []byte(header)) == 1 && subtle.ConstantTimeCompare([]byte(stored), []byte(header)) == 1
 		}
 		if !valid {
