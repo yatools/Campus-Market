@@ -119,6 +119,7 @@ ROLLED_BACK=$(compose exec -T db psql -U wutong -d wutong -Atqc "SELECT name FRO
 test "$ROLLED_BACK" = "live-state"
 sed -i 's#^PUBLIC_ORIGIN=.*#PUBLIC_ORIGIN=http://127.0.0.1:8080#' "$ENV_FILE"
 compose up -d api worker
+compose restart web
 wait_ready http://127.0.0.1:8080
 
 echo "restore success and readiness-failure rollback verified"

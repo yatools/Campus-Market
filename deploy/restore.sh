@@ -7,6 +7,10 @@ cd "$(dirname "$0")/.."
 CONFIG_FILE=${ENV_FILE:-.env}
 test -f "$CONFIG_FILE" || { echo "配置文件不存在：$CONFIG_FILE" >&2; exit 1; }
 compose() { docker compose --env-file "$CONFIG_FILE" "$@"; }
+restart_app() {
+  compose up -d api worker
+  compose restart web
+}
 wait_ready() {
   origin=$1
   attempts=30
@@ -62,11 +66,11 @@ compose exec -T db psql -U "$POSTGRES_USER" -d postgres -v ON_ERROR_STOP=1 -c "S
 compose exec -T db psql -U "$POSTGRES_USER" -d postgres -v ON_ERROR_STOP=1 -c "ALTER DATABASE \"$POSTGRES_DB\" RENAME TO \"$ROLLBACK_DB\";"
 if ! compose exec -T db psql -U "$POSTGRES_USER" -d postgres -v ON_ERROR_STOP=1 -c "ALTER DATABASE \"$RESTORE_DB\" RENAME TO \"$POSTGRES_DB\";"; then
   compose exec -T db psql -U "$POSTGRES_USER" -d postgres -v ON_ERROR_STOP=1 -c "ALTER DATABASE \"$ROLLBACK_DB\" RENAME TO \"$POSTGRES_DB\";"
-  compose up -d api worker
+  restart_app
   exit 1
 fi
 SWAPPED=1
-compose up -d api worker
+restart_app
 ORIGIN=$(grep '^PUBLIC_ORIGIN=' "$CONFIG_FILE" | tail -n 1 | cut -d= -f2-)
 if ! wait_ready "$ORIGIN"; then
   echo "新数据库健康检查失败，正在自动回滚" >&2
@@ -74,7 +78,7 @@ if ! wait_ready "$ORIGIN"; then
   compose exec -T db psql -U "$POSTGRES_USER" -d postgres -v ON_ERROR_STOP=1 -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname IN ('$POSTGRES_DB','$ROLLBACK_DB') AND pid<>pg_backend_pid();"
   compose exec -T db psql -U "$POSTGRES_USER" -d postgres -v ON_ERROR_STOP=1 -c "ALTER DATABASE \"$POSTGRES_DB\" RENAME TO \"$FAILED_DB\";"
   compose exec -T db psql -U "$POSTGRES_USER" -d postgres -v ON_ERROR_STOP=1 -c "ALTER DATABASE \"$ROLLBACK_DB\" RENAME TO \"$POSTGRES_DB\";"
-  compose up -d api worker
+  restart_app
   exit 1
 fi
 compose exec -T db dropdb -U "$POSTGRES_USER" --if-exists "$ROLLBACK_DB"
