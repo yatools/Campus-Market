@@ -12,10 +12,21 @@ compose() {
 }
 
 cleanup() {
+  status=$?
+  trap - EXIT INT TERM
+  if [ "$status" -ne 0 ]; then
+    echo "restore drill failed; container status follows" >&2
+    compose ps -a >&2 || true
+    echo "restore drill service logs follow" >&2
+    compose logs --no-color minio minio-init migrate api >&2 || true
+  fi
   compose down --volumes --remove-orphans >/dev/null 2>&1 || true
   rm -rf "$TMP"
+  exit "$status"
 }
-trap cleanup EXIT INT TERM
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 cat >"$ENV_FILE" <<'EOF'
 ENVIRONMENT=development
