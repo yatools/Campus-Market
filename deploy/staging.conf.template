@@ -30,7 +30,14 @@ server {
         proxy_read_timeout 90s;
     }
 
-    location /health/ { proxy_pass http://wutong_staging_api; access_log off; }
+    location /health/ {
+        proxy_pass http://wutong_staging_api;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Forwarded-Proto http;
+        access_log off;
+    }
     location = /app-config.json { proxy_pass http://wutong_staging_api; access_log off; }
     location /uploads/ {
         proxy_pass http://wutong_staging_api;

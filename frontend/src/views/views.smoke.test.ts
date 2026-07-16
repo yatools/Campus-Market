@@ -204,4 +204,26 @@ describe('major views', () => {
     expect(useAuthStore().authOpen).toBe(true)
     wrapper.unmount()
   })
+
+  it('opens a team from the dashboard ranking', async () => {
+    apiMock.mockImplementation(async (path: string) => {
+      if (path === '/hot') {
+        return {
+          ...emptyPage,
+          items: [{ id: 1, type: 'team', title: 'Ranked team', score: 42, comments: 2, favorites: 3 }],
+        }
+      }
+      if (path.startsWith('/feed?')) return { ...emptyPage, watermark: 'initial' }
+      if (path.startsWith('/announcements')) return emptyPage
+      return emptyPage
+    })
+
+    const wrapper = await mountAt(DashboardView, '/')
+    const rankedTeam = wrapper.get('.sticky-note')
+    expect(rankedTeam.text()).toContain('Ranked team')
+    await rankedTeam.trigger('click')
+    await flushPromises()
+    expect(wrapper.vm.$route.fullPath).toBe('/teams')
+    wrapper.unmount()
+  })
 })
