@@ -443,7 +443,9 @@ test('private dispute evidence freezes a transaction until an administrator deci
 
   await page.goto('/explore/listings')
   await page.getByRole('button', { name: '我的买卖' }).click()
-  await page.locator('#market-evidence').setInputFiles({ name: 'evidence.png', mimeType: 'image/png', buffer: Buffer.from('89504e470d0a1a0a', 'hex') })
+  // Evidence inputs are per-transaction since the shared #market-evidence field caused
+  // evidence to be attached to the wrong dispute.
+  await page.locator('#market-evidence-1').setInputFiles({ name: 'evidence.png', mimeType: 'image/png', buffer: Buffer.from('89504e470d0a1a0a', 'hex') })
   page.once('dialog', (dialog) => dialog.accept('商品现场情况与描述明显不符'))
   await page.getByRole('button', { name: '发起纠纷' }).click()
   await expect.poll(() => evidenceUploaded).toBe(true)

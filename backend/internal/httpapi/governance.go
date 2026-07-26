@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -18,7 +20,10 @@ func (s *Server) registerGovernanceRoutes(r chi.Router) {
 	r.Get("/observe-posts", s.handle(s.listObserve))
 	r.Post("/observe-posts", s.handle(s.createObserve))
 	r.Post("/observe-posts/{observeID}/response", s.handle(s.respondObserve))
-	r.Get("/observe-posts/{observeID}/reveal", s.handle(s.revealObserve))
+	// POST, not GET: revealing writes an audit record, and a side-effecting GET is exempt
+	// from CSRF checks — a cross-site link could otherwise forge "user X unmasked post Y"
+	// entries in the very log the 不扩散 agreement relies on for accountability.
+	r.Post("/observe-posts/{observeID}/reveal", s.handle(s.revealObserve))
 	r.Get("/penalties", s.handle(s.listPenalties))
 	r.Post("/penalties/{penaltyID}/appeals", s.handle(s.appealPenalty))
 	r.Get("/conversations", s.handle(s.listConversations))
@@ -118,8 +123,11 @@ func (s *Server) listObserve(w http.ResponseWriter, r *http.Request) error {
 		}
 		items = append(items, map[string]any{"id": id, "title": title, "body": body, "status": status, "response": response, "admin_note": note, "mine": viewer.ID != 0 && viewer.ID == ownerID, "respondent": viewer.ID != 0 && respondent != nil && viewer.ID == *respondent, "can_unmask": canUnmask, "unmask_threshold": unmaskThreshold, "created_at": created, "updated_at": updated, "attachments": attachments})
 	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
 	writeJSON(w, 200, pagePayload(items, page, size, total))
-	return rows.Err()
+	return nil
 }
 func (s *Server) createObserve(w http.ResponseWriter, r *http.Request) error {
 	user, _, err := s.participatingUser(w, r)
@@ -208,8 +216,14 @@ func (s *Server) respondObserve(w http.ResponseWriter, r *http.Request) error {
 	if _, err := tx.Exec(r.Context(), "UPDATE observe_posts SET response=$1,response_at=$2 WHERE entity_id=$3", o.Response, now, id); err != nil {
 		return err
 	}
-	if err := s.attachUploads(r.Context(), tx, user.ID, id, body.AttachmentIDs); err != nil {
-		return err
+	// attachUploads replaces the entity's whole public attachment set, and the respondent
+	// is a different person from the observe post's author. Calling it unconditionally
+	// would detach the author's images on every reply, after which the cleanup worker
+	// deletes them (and their objects) 24 hours later.
+	if len(body.AttachmentIDs) > 0 {
+		if err := s.attachUploads(r.Context(), tx, user.ID, id, body.AttachmentIDs); err != nil {
+			return err
+		}
 	}
 	_, _ = tx.Exec(r.Context(), "UPDATE content_entities SET updated_at=now() WHERE id=$1", id)
 	actor := user.ID
@@ -243,8 +257,11 @@ func (s *Server) listPenalties(w http.ResponseWriter, r *http.Request) error {
 		}
 		items = append(items, map[string]any{"id": id, "user": user, "violation_type": kind, "result": result, "rule": rule, "created_at": created})
 	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
 	writeJSON(w, 200, pagePayload(items, page, size, total))
-	return rows.Err()
+	return nil
 }
 func (s *Server) appealPenalty(w http.ResponseWriter, r *http.Request) error {
 	id, _ := pathID(r, "penaltyID")
@@ -277,13 +294,18 @@ func (s *Server) appealPenalty(w http.ResponseWriter, r *http.Request) error {
 	}
 	var appealID int64
 	var status string
-	err = tx.QueryRow(r.Context(), "SELECT id,status FROM appeals WHERE penalty_id=$1 AND user_id=$2", id, user.ID).Scan(&appealID, &status)
-	if err == pgx.ErrNoRows {
-		err = tx.QueryRow(r.Context(), "INSERT INTO appeals(penalty_id,user_id,reason,status,admin_note,created_at) VALUES($1,$2,$3,'pending','',now()) RETURNING id,status", id, user.ID, strings.TrimSpace(body.Reason)).Scan(&appealID, &status)
-	}
+	// ON CONFLICT rather than check-then-insert: a double-clicked "submit appeal" used to
+	// have both transactions see no existing row and the loser hit uq_appeal, which
+	// surfaced as a 500 on what should be an idempotent action.
+	err = tx.QueryRow(r.Context(), `INSERT INTO appeals(penalty_id,user_id,reason,status,admin_note,created_at)
+		VALUES($1,$2,$3,'pending','',now())
+		ON CONFLICT(penalty_id,user_id) DO UPDATE SET penalty_id=EXCLUDED.penalty_id
+		RETURNING id,status`, id, user.ID, strings.TrimSpace(body.Reason)).Scan(&appealID, &status)
 	if err != nil {
 		return err
 	}
+	actor := user.ID
+	_ = auditSQL(r.Context(), tx, &actor, "appeal.create", "appeal", appealID, "", nil, nil, requestID(r.Context()))
 	if err := tx.Commit(r.Context()); err != nil {
 		return err
 	}
@@ -300,7 +322,9 @@ func (s *Server) revealObserve(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	user, _, err := s.currentUser(w, r, true)
+	// participatingUser, not currentUser: a user restricted for abusing this very feature
+	// would otherwise keep full access to it.
+	user, _, err := s.participatingUser(w, r)
 	if err != nil {
 		return err
 	}
@@ -320,19 +344,49 @@ func (s *Server) revealObserve(w http.ResponseWriter, r *http.Request) error {
 		if user.Credit < threshold {
 			return apiError(403, "CREDIT_REQUIRED", fmt.Sprintf("查看观察帖原文需要信用分不低于 %d", threshold))
 		}
-		var agreed bool
-		_ = s.DB.QueryRow(r.Context(), "SELECT EXISTS(SELECT 1 FROM observe_unmask_agreements WHERE user_id=$1)", user.ID).Scan(&agreed)
+		agreed, err := s.observeUnmaskAgreed(r.Context(), user.ID)
+		if err != nil {
+			return err
+		}
 		if !agreed {
 			return apiError(403, "UNMASK_AGREEMENT_REQUIRED", "请先签署《吃瓜不扩散协议》")
 		}
+		// Per-viewer throttle. Without it a single qualifying account could walk the whole
+		// id range and export every observe post in minutes; the audit log would only record
+		// the exfiltration after the fact.
+		if err := s.rateLimit(r.Context(), "observe_unmask_hour", strconv.FormatInt(user.ID, 10), 10, 60); err != nil {
+			return err
+		}
+		if err := s.rateLimit(r.Context(), "observe_unmask_day", strconv.FormatInt(user.ID, 10), 30, 24*60); err != nil {
+			return err
+		}
 	}
-	if tx, txErr := s.DB.Begin(r.Context()); txErr == nil {
-		actor := user.ID
-		_ = auditSQL(r.Context(), tx, &actor, "observe.unmask", "observe", id, "", nil, nil, requestID(r.Context()))
-		_ = tx.Commit(r.Context())
+	// Fail closed: the audit entry is the entire accountability story behind 不扩散, so if
+	// it cannot be written the raw body is not handed out either.
+	tx, err := s.DB.Begin(r.Context())
+	if err != nil {
+		return err
 	}
+	defer tx.Rollback(r.Context())
+	actor := user.ID
+	if err := auditSQL(r.Context(), tx, &actor, "observe.unmask", "observe", id, "", nil, map[string]any{"credit": user.Credit, "moderator": isMod}, requestID(r.Context())); err != nil {
+		return err
+	}
+	if err := tx.Commit(r.Context()); err != nil {
+		return err
+	}
+	w.Header().Set("Cache-Control", "private, no-store")
 	writeJSON(w, 200, map[string]any{"id": id, "body": raw, "unmasked": true})
 	return nil
+}
+
+// observeUnmaskAgreed reports whether the user has accepted the *current* version of the
+// 《吃瓜不扩散协议》. Checking only for the row's existence made the version column
+// decorative: bumping the protocol text would not have forced anyone to re-consent.
+func (s *Server) observeUnmaskAgreed(ctx context.Context, userID int64) (bool, error) {
+	var agreed bool
+	err := s.DB.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM observe_unmask_agreements WHERE user_id=$1 AND agreed_version=$2)", userID, observeUnmaskAgreementVersion).Scan(&agreed)
+	return agreed, err
 }
 
 func (s *Server) observePayload(ctx context.Context, q queryer, e Entity, o Observe, viewer *User) (map[string]any, error) {
@@ -349,12 +403,30 @@ func (s *Server) observePayload(ctx context.Context, q queryer, e Entity, o Obse
 	return map[string]any{"id": e.ID, "title": o.Title, "body": body, "status": e.Status, "response": o.Response, "admin_note": o.AdminNote, "mine": viewer != nil && viewer.ID == e.OwnerID, "respondent": viewer != nil && o.Respondent != nil && viewer.ID == *o.Respondent, "can_unmask": canUnmask, "created_at": e.CreatedAt, "updated_at": e.UpdatedAt, "attachments": files}, nil
 }
 
-var digitMask = regexp.MustCompile(`\b\d{6,18}\b`)
-var phoneMask = regexp.MustCompile(`1[3-9]\d{9}`)
+// Masking patterns for observe posts. Order matters: the more specific patterns run first
+// so a phone number is not swallowed by the generic digit rule before it can be matched.
+//
+// The previous version only replaced runs of 6-18 digits, which meant a body like
+// "张伟，微信 zhangwei_1998，邮箱 a@stu.edu.cn，电话 138-1234-5678，QQ 12345" came through
+// entirely in the clear — and the masked body is what anonymous visitors see, so that leak
+// sat in front of the credit/agreement gate rather than behind it.
+var (
+	phoneMask = regexp.MustCompile(`1[3-9]\d[-\s]?\d{4}[-\s]?\d{4}`)
+	emailMask = regexp.MustCompile(`[\w.+-]+@[\w-]+(?:\.[\w-]+)+`)
+	// 拉丁标签必须整词匹配（\b…\b），否则 "wxyz12345" 会被拆成 wx + yz12345 误遮；
+	// 中文标签不受 \b 影响（Go 的 \b 是 ASCII 词边界），单独列出并允许「微信号」写法。
+	imAccount   = regexp.MustCompile(`(?i)((?:微信|威信|扣扣)号?|\b(?:weixin|wechat|wx|qq)\b)\s*[:：是]?\s*[A-Za-z0-9_-]{5,20}`)
+	idCardMask  = regexp.MustCompile(`\b\d{17}[\dXx]\b`)
+	digitMask   = regexp.MustCompile(`\d{5,18}`)
+	maskedToken = "▓▓▓▓▓▓"
+)
 
 func maskObserve(v string) string {
-	v = digitMask.ReplaceAllString(v, "▓▓▓▓▓▓")
-	return phoneMask.ReplaceAllString(v, "1**********")
+	v = emailMask.ReplaceAllString(v, maskedToken)
+	v = idCardMask.ReplaceAllString(v, maskedToken)
+	v = phoneMask.ReplaceAllString(v, "1**********")
+	v = imAccount.ReplaceAllString(v, "${1} "+maskedToken)
+	return digitMask.ReplaceAllString(v, maskedToken)
 }
 
 // Private messaging.
@@ -400,8 +472,11 @@ func (s *Server) listConversations(w http.ResponseWriter, r *http.Request) error
 		}
 		items = append(items, map[string]any{"id": id, "context_type": kind, "context_id": contextID, "other_user": other, "last_message": truncateRunes(lastBody, 100), "last_message_at": lastAt, "unread": unread, "blocked_by_me": blockedByMe})
 	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
 	writeJSON(w, 200, pagePayload(items, page, size, total))
-	return rows.Err()
+	return nil
 }
 func (s *Server) createConversation(w http.ResponseWriter, r *http.Request) error {
 	user, _, err := s.participatingUser(w, r)
@@ -512,6 +587,7 @@ func (s *Server) listMessages(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
+	defer rows.Close()
 	items := []any{}
 	for rows.Next() {
 		var mid, sender int64
@@ -521,6 +597,11 @@ func (s *Server) listMessages(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 		items = append(items, map[string]any{"id": mid, "body": body, "sender_id": sender, "mine": sender == user.ID, "created_at": created})
+	}
+	// Without this check a mid-stream failure looks like "the conversation ended here":
+	// the client gets a 200 with a silently truncated message list.
+	if err := rows.Err(); err != nil {
+		return err
 	}
 	rows.Close()
 	if _, err := tx.Exec(r.Context(), "UPDATE conversation_members SET last_read_at=now() WHERE id=$1", membership); err != nil {
@@ -688,27 +769,29 @@ func (s *Server) contextContactAllowed(ctx context.Context, q queryer, sender, r
 	}
 	return false, nil
 }
+
+// findConversation locates the existing two-party conversation between a and b, if any.
+//
+// This used to walk every conversation of the given kind and issue a follow-up query per
+// row. On a pgx.Tx that is a single connection, so the inner query ran while the outer
+// result set was still open and failed with "conn busy" — i.e. starting a second direct
+// conversation site-wide always returned 500. It was also O(all conversations) per call.
 func findConversation(ctx context.Context, q queryer, a, b int64, kind string, contextID *int64) (int64, time.Time, error) {
-	rows, err := q.Query(ctx, "SELECT id,created_at FROM conversations WHERE context_type=$1 AND context_id IS NOT DISTINCT FROM $2", kind, contextID)
+	var id int64
+	var created time.Time
+	err := q.QueryRow(ctx, `SELECT c.id,c.created_at FROM conversations c
+		JOIN conversation_members m1 ON m1.conversation_id=c.id AND m1.user_id=$3
+		JOIN conversation_members m2 ON m2.conversation_id=c.id AND m2.user_id=$4
+		WHERE c.context_type=$1 AND c.context_id IS NOT DISTINCT FROM $2
+		  AND (SELECT count(*) FROM conversation_members x WHERE x.conversation_id=c.id)=2
+		ORDER BY c.id LIMIT 1`, kind, contextID, a, b).Scan(&id, &created)
+	if err == pgx.ErrNoRows {
+		return 0, time.Time{}, nil
+	}
 	if err != nil {
 		return 0, time.Time{}, err
 	}
-	defer rows.Close()
-	for rows.Next() {
-		var id int64
-		var created time.Time
-		if err := rows.Scan(&id, &created); err != nil {
-			return 0, time.Time{}, err
-		}
-		ids, err := int64Rows(ctx, q, "SELECT user_id FROM conversation_members WHERE conversation_id=$1 ORDER BY user_id", id)
-		if err != nil {
-			return 0, time.Time{}, err
-		}
-		if len(ids) == 2 && ((ids[0] == a && ids[1] == b) || (ids[0] == b && ids[1] == a)) {
-			return id, created, nil
-		}
-	}
-	return 0, time.Time{}, rows.Err()
+	return id, created, nil
 }
 func (s *Server) addMessage(ctx context.Context, tx pgx.Tx, conversationID int64, sender User, body string) (int64, time.Time, error) {
 	if err := checkRateLimitSQL(ctx, tx, "message_send_minute", strconv.FormatInt(sender.ID, 10), 30, 1); err != nil {
@@ -796,8 +879,11 @@ func (s *Server) listNotifications(w http.ResponseWriter, r *http.Request) error
 		}
 		items = append(items, map[string]any{"id": id, "type": kind, "title": title, "body": body, "link": link, "read_at": read, "created_at": created})
 	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
 	writeJSON(w, 200, pagePayload(items, page, size, total))
-	return rows.Err()
+	return nil
 }
 func (s *Server) notificationStream(w http.ResponseWriter, r *http.Request) error {
 	user, _, err := s.currentUser(w, r, true)
@@ -812,7 +898,12 @@ func (s *Server) notificationStream(w http.ResponseWriter, r *http.Request) erro
 	// write deadline is not reset by the 30s heartbeat, so without this every SSE
 	// connection is severed ~90s after it opens, degrading realtime notifications to
 	// a reconnect-driven poll (and dropping events in each reconnect gap).
-	_ = http.NewResponseController(w).SetWriteDeadline(time.Time{})
+	// Clear the server's WriteTimeout for this connection: an SSE stream is long-lived by
+	// design and would otherwise be cut every 90 seconds. Log on failure — a silently
+	// discarded error here is exactly how this fix went unnoticed the first time.
+	if err := http.NewResponseController(w).SetWriteDeadline(time.Time{}); err != nil {
+		slog.Warn("sse_write_deadline_unsupported", "error", err, "request_id", requestID(r.Context()))
+	}
 	events, unsubscribe := s.Hub.subscribe(user.ID)
 	defer unsubscribe()
 	writeUnread := func() error {
@@ -827,6 +918,9 @@ func (s *Server) notificationStream(w http.ResponseWriter, r *http.Request) erro
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
+	// Tell nginx not to buffer this response; with buffering on, events sit in the proxy
+	// until the buffer fills and the stream stops being real time.
+	w.Header().Set("X-Accel-Buffering", "no")
 	if err := writeUnread(); err != nil {
 		return err
 	}
@@ -837,7 +931,11 @@ func (s *Server) notificationStream(w http.ResponseWriter, r *http.Request) erro
 		case <-r.Context().Done():
 			return nil
 		case <-heartbeat.C:
-			fmt.Fprint(w, ": keepalive\n\n")
+			// A failed heartbeat write means the peer is gone; returning releases the
+			// subscription instead of looping on a dead connection.
+			if _, err := fmt.Fprint(w, ": keepalive\n\n"); err != nil {
+				return nil
+			}
 			flusher.Flush()
 		case <-events:
 			if err := writeUnread(); err != nil {
@@ -1036,8 +1134,11 @@ func (s *Server) listCampusServices(w http.ResponseWriter, r *http.Request) erro
 		managed := viewer.ID != 0 && ((service.Manager != nil && *service.Manager == viewer.ID) || viewer.Role == "moderator" || viewer.Role == "admin")
 		items = append(items, map[string]any{"id": service.ID, "name": service.Name, "category": service.Category, "score": score, "rating_count": count, "managed_by_me": managed, "next_rating_at": next})
 	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
 	writeJSON(w, 200, map[string]any{"items": items, "total": len(items)})
-	return rows.Err()
+	return nil
 }
 func (s *Server) getCampusService(w http.ResponseWriter, r *http.Request) error {
 	id, _ := pathID(r, "serviceID")
@@ -1081,7 +1182,11 @@ func (s *Server) rateCampusService(w http.ResponseWriter, r *http.Request) error
 		return err
 	}
 	defer tx.Rollback(r.Context())
-	service, err := scanCampusService(tx.QueryRow(r.Context(), "SELECT id,name,category,manager_user_id,active,created_at,updated_at FROM campus_services WHERE id=$1", id))
+	// FOR UPDATE serialises concurrent ratings of the same service on the service row.
+	// campus_service_ratings has no uniqueness constraint (unlike every sibling rating
+	// table), so without it two simultaneous submissions both read "no previous rating"
+	// and both pass the 30-day cooldown.
+	service, err := scanCampusService(tx.QueryRow(r.Context(), "SELECT id,name,category,manager_user_id,active,created_at,updated_at FROM campus_services WHERE id=$1 FOR UPDATE", id))
 	if err != nil || !service.Active {
 		return apiError(404, "CAMPUS_SERVICE_NOT_FOUND", "校园服务不存在")
 	}
@@ -1299,6 +1404,9 @@ func (s *Server) campusServicePayload(ctx context.Context, q queryer, service Ca
 		if err != nil {
 			return nil, err
 		}
+		// defer Close so an error mid-iteration cannot leak the pooled connection; without
+		// it every failing request permanently shrank the pool.
+		defer rows.Close()
 		ratings := []any{}
 		for rows.Next() {
 			var id int64
@@ -1310,6 +1418,9 @@ func (s *Server) campusServicePayload(ctx context.Context, q queryer, service Ca
 				return nil, err
 			}
 			ratings = append(ratings, map[string]any{"id": id, "rating": rating, "body": body, "author": author, "response": response, "responder": responder, "created_at": created, "responded_at": responded})
+		}
+		if err := rows.Err(); err != nil {
+			return nil, err
 		}
 		rows.Close()
 		p["ratings"] = ratings
@@ -1359,10 +1470,7 @@ func (s *Server) updateCreditRules(w http.ResponseWriter, r *http.Request) error
 		return err
 	}
 	var body struct {
-		Rules []struct {
-			Key   string `json:"key"`
-			Value int    `json:"value"`
-		} `json:"rules"`
+		Rules []creditRuleUpdate `json:"rules"`
 	}
 	if err := decodeBody(r, &body); err != nil {
 		return err
@@ -1381,7 +1489,13 @@ func (s *Server) updateCreditRules(w http.ResponseWriter, r *http.Request) error
 	seen := map[string]bool{}
 	before := map[string]int{}
 	after := map[string]int{}
-	for _, item := range body.Rules {
+	rules := make([]creditRuleUpdate, len(body.Rules))
+	copy(rules, body.Rules)
+	// Lock rows in a deterministic order. Two admins submitting overlapping key sets in
+	// different orders would otherwise take the same row locks in opposite order and
+	// deadlock, aborting one of them with a 500.
+	sort.Slice(rules, func(i, j int) bool { return rules[i].Key < rules[j].Key })
+	for _, item := range rules {
 		if seen[item.Key] {
 			return validation("rules", "Value error, 信用规则键不能重复")
 		}
@@ -1409,6 +1523,22 @@ func (s *Server) updateCreditRules(w http.ResponseWriter, r *http.Request) error
 		before[item.Key] = old
 		after[item.Key] = item.Value
 	}
+	// The unmask gate is only a gate if it sits strictly above the credit every new account
+	// starts with. Leaving them equal (both defaulted to 800) meant a freshly registered
+	// user could sign the agreement and read every observe post in the clear.
+	//
+	// Only enforced when this request actually touches one of the two keys: an existing
+	// deployment may still hold the old 800/800 pair, and rejecting every unrelated rule
+	// change until it is fixed would be a surprising way to find that out.
+	if seen["baseline.initial_credit"] || seen["threshold.observe_unmask"] {
+		var initialCredit, unmaskThreshold int
+		if err := tx.QueryRow(r.Context(), "SELECT (SELECT value FROM credit_rules WHERE key='baseline.initial_credit'),(SELECT value FROM credit_rules WHERE key='threshold.observe_unmask')").Scan(&initialCredit, &unmaskThreshold); err != nil {
+			return err
+		}
+		if unmaskThreshold <= initialCredit {
+			return apiError(400, "CREDIT_RULE_CONFLICT", "观察台去码门槛必须高于新用户初始信用")
+		}
+	}
 	actor := admin.ID
 	_ = auditSQLText(r.Context(), tx, &actor, "credit_rules.update", "credit_rules", "global", "", before, after, requestID(r.Context()))
 	p, err := s.creditRulesPayload(r.Context(), tx)
@@ -1422,13 +1552,18 @@ func (s *Server) updateCreditRules(w http.ResponseWriter, r *http.Request) error
 	return nil
 }
 
+type creditRuleUpdate struct {
+	Key   string `json:"key"`
+	Value int    `json:"value"`
+}
+
 type creditRuleDef struct {
 	Label, Kind string
 	Value       int
 	Description string
 }
 
-var creditRuleDefs = map[string]creditRuleDef{"baseline.initial_credit": {"新用户初始信用", "baseline", 800, "仅影响新注册用户"}, "threshold.anonymous_post": {"完全匿名发帖", "threshold", 600, "树洞完全匿名发帖门槛"}, "threshold.team_create": {"创建游戏车队", "threshold", 600, "发布开车门槛"}, "threshold.course_review": {"评价课程", "threshold", 600, "提交课程评价门槛"}, "threshold.listing_publish": {"发布交易帖", "threshold", 700, "二手集市发布门槛"}, "threshold.contact_publish": {"发布联系方式", "threshold", 700, "公开联系方式门槛"}, "threshold.observe_publish": {"观察台发帖", "threshold", 750, "校园文明观察台发帖门槛"}, "threshold.observe_unmask": {"观察台去码查看", "threshold", 800, "满足信用分并签署吃瓜不扩散协议后可查看观察帖原文"}, "threshold.high_credit": {"高信用用户", "threshold", 800, "高信用身份标签门槛"}, "threshold.dm_unlimited": {"私信不限量", "threshold", 850, "解除新用户私信频率限制"}, "reward.team_check_in": {"车队准时签到", "reward", 2, "每场车队首次有效签到奖励"}, "reward.lost_claim": {"失物成功认领", "reward", 5, "失主确认认领完成奖励"}, "reward.feedback_accepted": {"反馈被采纳", "reward", 5, "管理员采纳有效反馈奖励"}, "penalty.team_late_leave": {"临近发车退出", "penalty", -20, "发车前半小时内未请假退出扣分"}}
+var creditRuleDefs = map[string]creditRuleDef{"baseline.initial_credit": {"新用户初始信用", "baseline", 800, "仅影响新注册用户"}, "threshold.anonymous_post": {"完全匿名发帖", "threshold", 600, "树洞完全匿名发帖门槛"}, "threshold.team_create": {"创建游戏车队", "threshold", 600, "发布开车门槛"}, "threshold.course_review": {"评价课程", "threshold", 600, "提交课程评价门槛"}, "threshold.listing_publish": {"发布交易帖", "threshold", 700, "二手集市发布门槛"}, "threshold.contact_publish": {"发布联系方式", "threshold", 700, "公开联系方式门槛"}, "threshold.observe_publish": {"观察台发帖", "threshold", 750, "校园文明观察台发帖门槛"}, "threshold.observe_unmask": {"观察台去码查看", "threshold", 900, "满足信用分并签署吃瓜不扩散协议后可查看观察帖原文"}, "threshold.high_credit": {"高信用用户", "threshold", 800, "高信用身份标签门槛"}, "threshold.dm_unlimited": {"私信不限量", "threshold", 850, "解除新用户私信频率限制"}, "reward.team_check_in": {"车队准时签到", "reward", 2, "每场车队首次有效签到奖励"}, "reward.lost_claim": {"失物成功认领", "reward", 5, "失主确认认领完成奖励"}, "reward.feedback_accepted": {"反馈被采纳", "reward", 5, "管理员采纳有效反馈奖励"}, "penalty.team_late_leave": {"临近发车退出", "penalty", -20, "发车前半小时内未请假退出扣分"}}
 
 func ensureCreditRulesSQL(ctx context.Context, tx pgx.Tx) error {
 	for key, def := range creditRuleDefs {

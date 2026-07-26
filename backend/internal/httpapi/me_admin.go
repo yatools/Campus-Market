@@ -64,8 +64,11 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request) error {
 	p["unread_notifications"] = unread
 	p["unread_messages"] = unreadMessages
 	p["active_sessions"] = sessions
-	var unmaskAgreed bool
-	_ = s.DB.QueryRow(r.Context(), "SELECT EXISTS(SELECT 1 FROM observe_unmask_agreements WHERE user_id=$1)", user.ID).Scan(&unmaskAgreed)
+	// Version-aware: the client must re-consent when the protocol text changes.
+	unmaskAgreed, err := s.observeUnmaskAgreed(r.Context(), user.ID)
+	if err != nil {
+		return err
+	}
 	p["observe_unmask_agreed"] = unmaskAgreed
 	p["observe_unmask_threshold"] = s.creditThreshold(r.Context(), s.DB, "threshold.observe_unmask")
 	writeJSON(w, 200, p)
@@ -77,15 +80,30 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request) error {
 const observeUnmaskAgreementVersion = "v1"
 
 // agreeObserveUnmask records the caller's consent to the《吃瓜不扩散协议》, a
-// prerequisite (together with the credit threshold) for revealing observe-post
-// originals. Idempotent — re-signing just refreshes the version and timestamp.
+// prerequisite (together with the credit threshold) for revealing observe-post originals.
+// Idempotent: re-signing the same version is a no-op, and only an actual version change
+// moves agreed_at. Refreshing the timestamp unconditionally let a user who had already
+// leaked content re-sign afterwards and erase the evidence of when they had consented.
 func (s *Server) agreeObserveUnmask(w http.ResponseWriter, r *http.Request) error {
-	user, _, err := s.currentUser(w, r, true)
+	user, _, err := s.participatingUser(w, r)
 	if err != nil {
 		return err
 	}
-	if _, err := s.DB.Exec(r.Context(), `INSERT INTO observe_unmask_agreements(user_id,agreed_version,agreed_at) VALUES($1,$2,now())
-		ON CONFLICT(user_id) DO UPDATE SET agreed_version=EXCLUDED.agreed_version,agreed_at=now()`, user.ID, observeUnmaskAgreementVersion); err != nil {
+	tx, err := s.DB.Begin(r.Context())
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(r.Context())
+	if _, err := tx.Exec(r.Context(), `INSERT INTO observe_unmask_agreements(user_id,agreed_version,agreed_at) VALUES($1,$2,now())
+		ON CONFLICT(user_id) DO UPDATE SET agreed_version=EXCLUDED.agreed_version,agreed_at=now()
+		WHERE observe_unmask_agreements.agreed_version<>EXCLUDED.agreed_version`, user.ID, observeUnmaskAgreementVersion); err != nil {
+		return err
+	}
+	actor := user.ID
+	if err := auditSQL(r.Context(), tx, &actor, "observe.unmask_agree", "user", user.ID, observeUnmaskAgreementVersion, nil, nil, requestID(r.Context())); err != nil {
+		return err
+	}
+	if err := tx.Commit(r.Context()); err != nil {
 		return err
 	}
 	writeJSON(w, 200, map[string]any{"observe_unmask_agreed": true, "agreed_version": observeUnmaskAgreementVersion})
@@ -251,6 +269,12 @@ func (s *Server) changeEmail(w http.ResponseWriter, r *http.Request) error {
 	if apiErr != nil {
 		return apiErr
 	}
+	// 与 register / resetPassword 一致：先在独立事务里为这枚验证码计一次尝试。
+	// consumeCode 失败会回滚整个请求事务，任何记在里面的计数都会消失，
+	// 因此 6 位码在 10 分钟有效期内可被反复穷举。
+	if err := s.guardCode(r.Context(), email, "change_email"); err != nil {
+		return err
+	}
 	tx, err := s.DB.Begin(r.Context())
 	if err != nil {
 		return err
@@ -302,8 +326,11 @@ func (s *Server) mySessions(w http.ResponseWriter, r *http.Request) error {
 		}
 		items = append(items, map[string]any{"id": id, "ip_address": ip, "user_agent": agent, "last_seen_at": seen, "expires_at": expires, "revoked": revoked != nil})
 	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
 	writeJSON(w, 200, pagePayload(items, page, size, total))
-	return rows.Err()
+	return nil
 }
 func (s *Server) revokeSession(w http.ResponseWriter, r *http.Request) error {
 	id, _ := pathID(r, "sessionID")
@@ -363,8 +390,11 @@ func (s *Server) myContent(w http.ResponseWriter, r *http.Request) error {
 		}
 		items = append(items, map[string]any{"id": e.ID, "type": e.Type, "title": title, "status": e.Status, "created_at": e.CreatedAt, "updated_at": e.UpdatedAt})
 	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
 	writeJSON(w, 200, pagePayload(items, page, size, total))
-	return rows.Err()
+	return nil
 }
 func (s *Server) myFavorites(w http.ResponseWriter, r *http.Request) error {
 	user, _, err := s.currentUser(w, r, true)
@@ -403,8 +433,11 @@ func (s *Server) myFavorites(w http.ResponseWriter, r *http.Request) error {
 		}
 		items = append(items, map[string]any{"id": id, "type": kind, "title": title, "favorited_at": created})
 	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
 	writeJSON(w, 200, pagePayload(items, page, size, total))
-	return rows.Err()
+	return nil
 }
 func (s *Server) myReports(w http.ResponseWriter, r *http.Request) error {
 	user, _, err := s.currentUser(w, r, true)
@@ -459,8 +492,11 @@ func (s *Server) simpleUserQueue(w http.ResponseWriter, r *http.Request, table, 
 		}
 		items = append(items, item)
 	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
 	writeJSON(w, 200, pagePayload(items, page, size, total))
-	return rows.Err()
+	return nil
 }
 func (s *Server) deactivateAccount(w http.ResponseWriter, r *http.Request) error {
 	user, _, err := s.currentUser(w, r, true)
@@ -580,8 +616,11 @@ func (s *Server) adminUsers(w http.ResponseWriter, r *http.Request) error {
 		}
 		items = append(items, userPayload(u))
 	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
 	writeJSON(w, 200, pagePayload(items, page, size, total))
-	return rows.Err()
+	return nil
 }
 func (s *Server) adminUpdateUser(w http.ResponseWriter, r *http.Request) error {
 	admin, err := s.adminUser(w, r)
@@ -686,37 +725,59 @@ func (s *Server) adminModerationCases(w http.ResponseWriter, r *http.Request) er
 		return err
 	}
 	defer rows.Close()
-	items := []any{}
+	// Drain the cursor before running the per-case follow-up queries. Issuing them while
+	// the outer result set is open holds an extra pooled connection for the whole page and
+	// would fail outright if this ever ran on a transaction instead of the pool.
+	type moderationRow struct {
+		caseID, entityID                int64
+		kind, source, status, caseNotes string
+		created                         time.Time
+	}
+	cases := []moderationRow{}
 	for rows.Next() {
-		var caseID, entityID int64
-		var kind, source, status, notes string
-		var created time.Time
-		if err := rows.Scan(&caseID, &entityID, &kind, &source, &status, &notes, &created); err != nil {
+		var row moderationRow
+		if err := rows.Scan(&row.caseID, &row.entityID, &row.kind, &row.source, &row.status, &row.caseNotes, &row.created); err != nil {
 			return err
 		}
-		title, preview, err := contentTitlePreview(r.Context(), s.DB, entityID, kind)
+		cases = append(cases, row)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	rows.Close()
+	items := []any{}
+	for _, row := range cases {
+		title, preview, err := contentTitlePreview(r.Context(), s.DB, row.entityID, row.kind)
 		if err != nil {
 			return err
 		}
-		reportRows, err := s.DB.Query(r.Context(), "SELECT id,reporter_id,reason,detail,created_at FROM reports WHERE entity_id=$1 AND status='pending'", entityID)
+		reports, err := s.pendingReports(r.Context(), row.entityID)
 		if err != nil {
 			return err
 		}
-		reports := []any{}
-		for reportRows.Next() {
-			var id, reporter int64
-			var reason, detail string
-			var at time.Time
-			if err := reportRows.Scan(&id, &reporter, &reason, &detail, &at); err != nil {
-				return err
-			}
-			reports = append(reports, map[string]any{"id": id, "reporter_id": reporter, "reason": reason, "detail": detail, "created_at": at})
-		}
-		reportRows.Close()
-		items = append(items, map[string]any{"id": caseID, "entity_id": entityID, "entity_type": kind, "title": title, "preview": preview, "source": source, "status": status, "notes": notes, "reports": reports, "created_at": created})
+		items = append(items, map[string]any{"id": row.caseID, "entity_id": row.entityID, "entity_type": row.kind, "title": title, "preview": preview, "source": row.source, "status": row.status, "notes": row.caseNotes, "reports": reports, "created_at": row.created})
 	}
 	writeJSON(w, 200, pagePayload(items, page, size, total))
-	return rows.Err()
+	return nil
+}
+
+func (s *Server) pendingReports(ctx context.Context, entityID int64) ([]any, error) {
+	rows, err := s.DB.Query(ctx, "SELECT id,reporter_id,reason,detail,created_at FROM reports WHERE entity_id=$1 AND status='pending' ORDER BY id", entityID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	reports := []any{}
+	for rows.Next() {
+		var id, reporter int64
+		var reason, detail string
+		var at time.Time
+		if err := rows.Scan(&id, &reporter, &reason, &detail, &at); err != nil {
+			return nil, err
+		}
+		reports = append(reports, map[string]any{"id": id, "reporter_id": reporter, "reason": reason, "detail": detail, "created_at": at})
+	}
+	return reports, rows.Err()
 }
 func (s *Server) adminReports(w http.ResponseWriter, r *http.Request) error {
 	if _, err := s.moderatorUser(w, r); err != nil {
@@ -755,8 +816,11 @@ func (s *Server) adminReports(w http.ResponseWriter, r *http.Request) error {
 		}
 		items = append(items, map[string]any{"id": id, "entity_id": entity, "entity_type": kind, "title": title, "preview": preview, "reporter_id": reporter, "reason": reason, "detail": detail, "status": status, "created_at": created})
 	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
 	writeJSON(w, 200, pagePayload(items, page, size, total))
-	return rows.Err()
+	return nil
 }
 func (s *Server) adminDecideModeration(w http.ResponseWriter, r *http.Request) error {
 	moderator, err := s.moderatorUser(w, r)
@@ -859,6 +923,25 @@ func (s *Server) adminCreatePenalty(w http.ResponseWriter, r *http.Request) erro
 	if body.Delta > 0 || body.Delta < -1000 {
 		return validation("credit_delta", "Input should be between -1000 and 0")
 	}
+	// Bound the text fields to their column widths (violation_type VARCHAR(120),
+	// rule VARCHAR(160)); over-long input otherwise fails with 22001 and surfaces as a 500
+	// rather than a validation error.
+	body.Violation = strings.TrimSpace(body.Violation)
+	body.Result = strings.TrimSpace(body.Result)
+	body.Rule = strings.TrimSpace(body.Rule)
+	fields := map[string]string{}
+	if runeLen(body.Violation) < 2 || runeLen(body.Violation) > 120 {
+		fields["violation"] = "String should have at least 2 characters"
+	}
+	if runeLen(body.Result) < 2 || runeLen(body.Result) > 2000 {
+		fields["result"] = "String should have at least 2 characters"
+	}
+	if runeLen(body.Rule) < 2 || runeLen(body.Rule) > 160 {
+		fields["rule"] = "String should have at least 2 characters"
+	}
+	if len(fields) > 0 {
+		return validationFields(fields)
+	}
 	tx, err := s.DB.Begin(r.Context())
 	if err != nil {
 		return err
@@ -875,8 +958,10 @@ func (s *Server) adminCreatePenalty(w http.ResponseWriter, r *http.Request) erro
 	// Do NOT derive the public mask from alias: alias is the user's anonymous display
 	// name (2–20 chars) and lastRunes returned it in full when short, so the open
 	// penalties board linked a user's alias to their moderation record. Use a stable,
-	// non-reversible per-user code instead.
-	mask := "用户 " + strings.ToUpper(security.TokenHash(s.Config.SecretKey, "penalty-mask:"+strconv.FormatInt(body.UserID, 10))[:6])
+	// non-reversible per-user code instead. 10 hex digits (40 bits) rather than 6: at 24
+	// bits two users share a code with better-than-even odds by ~5k accounts, which would
+	// merge unrelated people's records on the public board.
+	mask := "用户 " + strings.ToUpper(security.TokenHash(s.Config.SecretKey, "penalty-mask:"+strconv.FormatInt(body.UserID, 10))[:10])
 	var id int64
 	if err := tx.QueryRow(r.Context(), "INSERT INTO penalties(user_id,public_mask,violation_type,result,rule,created_at) VALUES($1,$2,$3,$4,$5,now()) RETURNING id", body.UserID, mask, body.Violation, body.Result, body.Rule).Scan(&id); err != nil {
 		return err
@@ -921,8 +1006,11 @@ func (s *Server) adminAppeals(w http.ResponseWriter, r *http.Request) error {
 		}
 		items = append(items, map[string]any{"id": id, "penalty_id": penalty, "user_id": user, "reason": reason, "status": status, "admin_note": note})
 	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
 	writeJSON(w, 200, pagePayload(items, page, size, total))
-	return rows.Err()
+	return nil
 }
 func (s *Server) adminDecideAppeal(w http.ResponseWriter, r *http.Request) error {
 	moderator, err := s.moderatorUser(w, r)
@@ -1059,8 +1147,11 @@ func (s *Server) adminSettings(w http.ResponseWriter, r *http.Request) error {
 	if _, ok := values["anonymous_nickname_pool"]; !ok {
 		values["anonymous_nickname_pool"] = strings.Join(anonymousDefaults, "\n")
 	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
 	writeJSON(w, 200, values)
-	return rows.Err()
+	return nil
 }
 func (s *Server) adminUpdateSetting(w http.ResponseWriter, r *http.Request) error {
 	admin, err := s.adminUser(w, r)
@@ -1138,8 +1229,11 @@ func (s *Server) adminFeedback(w http.ResponseWriter, r *http.Request) error {
 		}
 		items = append(items, map[string]any{"id": id, "user_id": user, "type": kind, "title": title, "body": body, "status": status, "admin_note": note})
 	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
 	writeJSON(w, 200, pagePayload(items, page, size, total))
-	return rows.Err()
+	return nil
 }
 func (s *Server) adminDecideFeedback(w http.ResponseWriter, r *http.Request) error {
 	moderator, err := s.moderatorUser(w, r)
@@ -1247,8 +1341,11 @@ func (s *Server) adminBackups(w http.ResponseWriter, r *http.Request) error {
 		}
 		items = append(items, map[string]any{"id": id, "status": status, "created_at": created, "finished_at": finished, "download_url": download, "error": errorText})
 	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
 	writeJSON(w, 200, pagePayload(items, 1, 20, len(items)))
-	return rows.Err()
+	return nil
 }
 func (s *Server) adminDownloadBackup(w http.ResponseWriter, r *http.Request) error {
 	if _, err := s.adminUser(w, r); err != nil {
@@ -1294,8 +1391,11 @@ func (s *Server) adminAuditLogs(w http.ResponseWriter, r *http.Request) error {
 		}
 		items = append(items, map[string]any{"id": id, "actor_id": actor, "action": action, "target_type": kind, "target_id": target, "reason": reason, "created_at": created})
 	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
 	writeJSON(w, 200, pagePayload(items, page, size, total))
-	return rows.Err()
+	return nil
 }
 
 func contentTitlePreview(ctx context.Context, q queryer, id int64, kind string) (string, string, error) {
@@ -1341,5 +1441,3 @@ func containsControl(value string) bool {
 	}
 	return false
 }
-
-var _ = strconv.Itoa

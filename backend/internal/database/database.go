@@ -16,7 +16,7 @@ import (
 //go:embed migrations/*.sql
 var migrationFS embed.FS
 
-const LatestMigrationVersion int64 = 4
+const LatestMigrationVersion int64 = 5
 
 func Open(ctx context.Context, cfg config.Config) (*pgxpool.Pool, error) {
 	poolCfg, err := pgxpool.ParseConfig(cfg.DatabaseURL)

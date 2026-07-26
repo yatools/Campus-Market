@@ -53,11 +53,28 @@ func (r *Registry) Set(name string, value float64) {
 	r.mu.Unlock()
 }
 
+// knownMethods bounds the cardinality of the method label. Go's HTTP server accepts
+// any RFC 7230 token as a method, so an unauthenticated client could otherwise mint an
+// unbounded number of label values and grow the (never-evicted) metric maps until the
+// process is OOM-killed. Anything unexpected collapses into a single "other" series.
+var knownMethods = map[string]bool{
+	http.MethodGet: true, http.MethodHead: true, http.MethodPost: true,
+	http.MethodPut: true, http.MethodPatch: true, http.MethodDelete: true,
+	http.MethodOptions: true, http.MethodConnect: true, http.MethodTrace: true,
+}
+
+func normalizeMethod(method string) string {
+	if knownMethods[method] {
+		return method
+	}
+	return "other"
+}
+
 func (r *Registry) ObserveHTTP(method, route string, status int, elapsed time.Duration) {
 	// Escape label values per the Prometheus text exposition format. Without this a
 	// route or method containing a double quote or newline would emit a malformed
 	// exposition line and every subsequent /metrics scrape would fail to parse.
-	method = escapeLabel(method)
+	method = escapeLabel(normalizeMethod(method))
 	route = escapeLabel(route)
 	key := fmt.Sprintf("http_requests_total{method=\"%s\",route=\"%s\",status=\"%d\"}", method, route, status)
 	r.Inc(key)
@@ -65,38 +82,52 @@ func (r *Registry) ObserveHTTP(method, route string, status int, elapsed time.Du
 }
 
 func escapeLabel(value string) string {
-	return strings.NewReplacer("\\", `\\`, "\"", `\"`, "\n", `\n`).Replace(value)
+	return strings.NewReplacer("\\", `\\`, "\"", `\"`, "\n", `\n`, "\r", `\r`).Replace(value)
+}
+
+// snapshot copies the registry under the lock so the (potentially slow, back-pressured)
+// response write happens without holding it. Writing to the socket while holding r.mu
+// would let one slow scraper block every in-flight request that records a metric.
+func (r *Registry) snapshot() (map[string]uint64, map[string]duration, map[string]float64) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	counters := make(map[string]uint64, len(r.counters))
+	for key, value := range r.counters {
+		counters[key] = value
+	}
+	durations := make(map[string]duration, len(r.durations))
+	for key, value := range r.durations {
+		durations[key] = value
+	}
+	gauges := make(map[string]float64, len(r.gauges))
+	for key, value := range r.gauges {
+		gauges[key] = value
+	}
+	return counters, durations, gauges
+}
+
+func sortedKeys[V any](values map[string]V) []string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 func (r *Registry) ServeHTTP(pool *pgxpool.Pool, w http.ResponseWriter, request *http.Request) {
-	r.mu.Lock()
-	counterKeys := make([]string, 0, len(r.counters))
-	for key := range r.counters {
-		counterKeys = append(counterKeys, key)
-	}
-	sort.Strings(counterKeys)
-	durationKeys := make([]string, 0, len(r.durations))
-	for key := range r.durations {
-		durationKeys = append(durationKeys, key)
-	}
-	sort.Strings(durationKeys)
-	gaugeKeys := make([]string, 0, len(r.gauges))
-	for key := range r.gauges {
-		gaugeKeys = append(gaugeKeys, key)
-	}
-	sort.Strings(gaugeKeys)
+	counters, durations, gauges := r.snapshot()
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
-	for _, key := range counterKeys {
-		fmt.Fprintf(w, "%s %d\n", key, r.counters[key])
+	for _, key := range sortedKeys(counters) {
+		fmt.Fprintf(w, "%s %d\n", key, counters[key])
 	}
-	for _, key := range durationKeys {
-		value := r.durations[key]
+	for _, key := range sortedKeys(durations) {
+		value := durations[key]
 		fmt.Fprintf(w, "%s %.6f\n%s %d\n", withSuffix(key, "_sum"), value.sum, withSuffix(key, "_count"), value.count)
 	}
-	for _, key := range gaugeKeys {
-		fmt.Fprintf(w, "%s %.6f\n", key, r.gauges[key])
+	for _, key := range sortedKeys(gauges) {
+		fmt.Fprintf(w, "%s %.6f\n", key, gauges[key])
 	}
-	r.mu.Unlock()
 	if pool == nil {
 		return
 	}
@@ -115,6 +146,22 @@ func (r *Registry) ServeHTTP(pool *pgxpool.Pool, w http.ResponseWriter, request 
 	var backupTimestamp float64
 	if err := pool.QueryRow(ctx, `SELECT COALESCE(extract(epoch FROM max(finished_at)),0) FROM backup_jobs WHERE status='ready'`).Scan(&backupTimestamp); err == nil {
 		fmt.Fprintf(w, "backup_last_success_timestamp_seconds %.0f\n", backupTimestamp)
+	}
+	// The worker runs as a separate process without an HTTP listener, so its in-process
+	// counters are never scraped. Export the heartbeat it persists to PostgreSQL here so
+	// alerting on a dead worker is actually possible.
+	if rows, err := pool.Query(ctx, `SELECT worker_name,COALESCE(extract(epoch FROM max(last_success_at)),0),COALESCE(extract(epoch FROM max(last_seen_at)),0) FROM worker_heartbeats GROUP BY worker_name`); err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var name string
+			var success, seen float64
+			if err := rows.Scan(&name, &success, &seen); err != nil {
+				break
+			}
+			label := escapeLabel(name)
+			fmt.Fprintf(w, "worker_heartbeat_last_success_timestamp_seconds{worker=\"%s\"} %.0f\n", label, success)
+			fmt.Fprintf(w, "worker_heartbeat_last_seen_timestamp_seconds{worker=\"%s\"} %.0f\n", label, seen)
+		}
 	}
 }
 

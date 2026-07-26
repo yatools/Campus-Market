@@ -98,6 +98,7 @@ type BackupJob struct {
 	Error         string             `json:"error"`
 	CreatedAt     pgtype.Timestamptz `json:"created_at"`
 	FinishedAt    pgtype.Timestamptz `json:"finished_at"`
+	LeaseUntil    pgtype.Timestamptz `json:"lease_until"`
 }
 
 type Block struct {
@@ -404,6 +405,12 @@ type ObservePost struct {
 	Response     string             `json:"response"`
 	ResponseAt   pgtype.Timestamptz `json:"response_at"`
 	AdminNote    string             `json:"admin_note"`
+}
+
+type ObserveUnmaskAgreement struct {
+	UserID        int64              `json:"user_id"`
+	AgreedVersion string             `json:"agreed_version"`
+	AgreedAt      pgtype.Timestamptz `json:"agreed_at"`
 }
 
 type Penalty struct {

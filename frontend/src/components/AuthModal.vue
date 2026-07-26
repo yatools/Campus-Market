@@ -18,10 +18,21 @@ const subtitle = computed(() => mode.value === 'login' ? '欢迎回来' : mode.v
 watch(() => props.initialMode, (value) => { mode.value = value })
 
 async function sendCode(purpose: 'register' | 'reset_password') {
+  if (busy.value) return
+  busy.value = true
   error.value = ''
-  const payload: VerificationCodeRequest = { email: form.email, purpose }
-  await api('/auth/request-code', json('POST', payload))
-  message.value = '验证码已发送，请检查校园邮箱（10 分钟内有效）。'
+  message.value = ''
+  try {
+    const payload: VerificationCodeRequest = { email: form.email, purpose }
+    await api('/auth/request-code', json('POST', payload))
+    message.value = '验证码已发送，请检查校园邮箱（10 分钟内有效）。'
+  } catch (e) {
+    // Without this the whole failure path was silent: a non-campus address or a rate-limit
+    // rejection left the UI unchanged, so users just kept clicking (adding to the counter).
+    error.value = e instanceof Error ? e.message : '验证码发送失败，请稍后重试。'
+  } finally {
+    busy.value = false
+  }
 }
 
 async function submit() {

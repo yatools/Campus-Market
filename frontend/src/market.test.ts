@@ -35,4 +35,15 @@ describe('market presentation policy', () => {
     expect(marketTransactionActions(transaction('disputed'), 10)).toEqual([])
     expect(marketTransactionActions(transaction('reserved'), 999)).toEqual([])
   })
+
+  it('hides confirm for the party that already confirmed', () => {
+    const buyerConfirmed = { ...transaction('reserved'), buyer_confirmed_at: '2026-07-01T00:00:00Z' }
+    expect(marketTransactionActions(buyerConfirmed, 20)).toEqual(['cancel', 'dispute'])
+    // The seller has not confirmed yet, so it is still their turn.
+    expect(marketTransactionActions(buyerConfirmed, 10)).toEqual(['confirm', 'cancel', 'dispute'])
+
+    const sellerConfirmed = { ...transaction('reserved'), seller_confirmed_at: '2026-07-01T00:00:00Z' }
+    expect(marketTransactionActions(sellerConfirmed, 10)).toEqual(['cancel', 'dispute'])
+    expect(marketTransactionActions(sellerConfirmed, 20)).toEqual(['confirm', 'cancel', 'dispute'])
+  })
 })

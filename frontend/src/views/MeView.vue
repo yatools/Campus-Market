@@ -33,14 +33,16 @@ async function loadContent(reset = false) {
 }
 async function saveProfile() { await api('/me/profile', json('PATCH', { nickname: profile.nickname, alias: profile.alias })); await api('/me/privacy', json('PATCH', { dm_stranger_off: profile.dm_stranger_off, hide_online: profile.hide_online })); success.value = '资料与隐私设置已保存'; await auth.load() }
 async function avatar(event: Event) { const file = (event.target as HTMLInputElement).files?.[0]; if (!file) return; const upload = await uploadImage(file); await api('/me/profile', json('PATCH', { avatar_attachment_id: upload.id })); await auth.load() }
-async function changePassword() { await api('/me/password', json('POST', password)); auth.user = null; success.value = '密码已修改，所有设备需要重新登录。'; auth.openAuth('login') }
+// clearSession(), not `auth.user = null`: the latter leaves the notification EventSource
+// open, so the browser keeps reconnecting to a stream that now 401s on every attempt.
+async function changePassword() { await api('/me/password', json('POST', password)); auth.clearSession(); Object.assign(password, { old_password: '', new_password: '' }); success.value = '密码已修改，所有设备需要重新登录。'; auth.openAuth('login') }
 async function sendEmailCode() { await api('/auth/request-code', json('POST', { email: email.new_email, purpose: 'change_email' })); success.value = '验证码已发送到新校园邮箱。' }
 async function changeEmail() { await api('/me/email', json('POST', email)); success.value = '校园邮箱已更换'; await auth.load() }
 async function remove(item: any) { if (confirm('确定删除这条内容？')) { await api(`/entities/${item.id}`, { method: 'DELETE' }); await load() } }
 async function publishDraft(item: any) { await api(`/handbook/${item.id}/publish`, json('POST')); success.value = '草稿已提交发布'; await load() }
 async function read(item: any) { await api(`/notifications/${item.id}/read`, json('POST')); item.read_at = new Date().toISOString() }
 async function revoke(item: any) { await api(`/me/sessions/${item.id}`, { method: 'DELETE' }); await load() }
-async function deactivateNow() { if (!confirm('账号将立即退出，30 天后清除个人资料。确定继续？')) return; await api('/me/deactivate', json('POST', deactivate)); auth.user = null }
+async function deactivateNow() { if (!confirm('账号将立即退出，30 天后清除个人资料。确定继续？')) return; await api('/me/deactivate', json('POST', deactivate)); auth.clearSession() }
 function run(task: () => Promise<void>) { error.value = ''; success.value = ''; task().catch((e) => { error.value = e instanceof Error ? e.message : '操作失败' }) }
 onMounted(() => run(load))
 </script>

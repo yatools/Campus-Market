@@ -168,8 +168,11 @@ func (s *Server) listQuestions(w http.ResponseWriter, r *http.Request) error {
 		}
 		items = append(items, map[string]any{"id": id, "title": title, "body": body, "category": category, "tags": splitCSV(tags), "bounty_xp": bounty, "accepted_answer_id": acceptedID, "author": author, "answer_count": answerCount, "mine": viewer.ID != 0 && viewer.ID == ownerID, "status": status, "created_at": created, "updated_at": updated, "attachments": attachments, "answers": answers})
 	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
 	writeJSON(w, 200, pagePayload(items, page, size, total))
-	return rows.Err()
+	return nil
 }
 func (s *Server) createQuestion(w http.ResponseWriter, r *http.Request) error {
 	user, _, err := s.participatingUser(w, r)
@@ -224,7 +227,7 @@ func (s *Server) createQuestion(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	tags := strings.Join(cleanStrings(body.Tags, 80), ",")
+	tags := joinTags(body.Tags, 80, 300) // questions.tags is VARCHAR(300)
 	if _, err := tx.Exec(r.Context(), `INSERT INTO questions(entity_id,title,body,category,tags,bounty_xp,bounty_settled) VALUES($1,$2,$3,$4,$5,$6,false)`, e.ID, strings.TrimSpace(body.Title), strings.TrimSpace(body.Body), strings.TrimSpace(body.Category), tags, body.Bounty); err != nil {
 		return err
 	}
@@ -271,6 +274,7 @@ func (s *Server) updateQuestion(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return apiError(404, "QUESTION_NOT_FOUND", "问题不存在")
 	}
+	previousTitle, previousBody := q.Title, q.Body
 	if e.OwnerID != user.ID {
 		return apiError(403, "NOT_OWNER", "只有提问者可以编辑问题")
 	}
@@ -307,17 +311,22 @@ func (s *Server) updateQuestion(w http.ResponseWriter, r *http.Request) error {
 		if json.Unmarshal(v, &x) != nil || len(x) > 8 {
 			return validation("tags", "List should have at most 8 items")
 		}
-		q.Tags = strings.Join(cleanStrings(x, 80), ",")
+		q.Tags = joinTags(x, 80, 300) // questions.tags is VARCHAR(300)
 		changed = true
 	}
 	var attachments []int64
+	attachmentsProvided := false
 	if v, ok := raw["attachment_ids"]; ok {
 		if json.Unmarshal(v, &attachments) != nil || len(attachments) > 9 {
 			return validation("attachment_ids", "List should have at most 9 items")
 		}
+		attachmentsProvided = true
 	}
 	if changed {
-		if err := recordRevision(r.Context(), tx, e, user.ID, q.Title, q.Body); err != nil {
+		// Snapshot the values as they were *before* this edit. Passing the already-updated
+		// struct stored the new text as "revision N", so the original was never kept
+		// anywhere — content edited after a report left no trace for moderators to review.
+		if err := recordRevision(r.Context(), tx, e, user.ID, previousTitle, previousBody); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(r.Context(), "UPDATE questions SET title=$1,body=$2,category=$3,tags=$4 WHERE entity_id=$5", q.Title, q.Body, q.Category, q.Tags, id); err != nil {
@@ -327,8 +336,12 @@ func (s *Server) updateQuestion(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 	}
-	if err := s.attachUploads(r.Context(), tx, user.ID, id, attachments); err != nil {
-		return err
+	// attachUploads replaces the entity's whole attachment set, so only run it when the
+	// client actually submitted the field.
+	if attachmentsProvided {
+		if err := s.attachUploads(r.Context(), tx, user.ID, id, attachments); err != nil {
+			return err
+		}
 	}
 	_, _ = tx.Exec(r.Context(), "UPDATE content_entities SET updated_at=now() WHERE id=$1", id)
 	actor := user.ID
@@ -468,6 +481,12 @@ func (s *Server) acceptAnswer(w http.ResponseWriter, r *http.Request) error {
 	if questionEntity.OwnerID != user.ID {
 		return apiError(403, "ASKER_REQUIRED", "只有提问者可以采纳")
 	}
+	// The answer's status was checked but the question's was not: after deleting their own
+	// question (which already refunds the bounty and marks it settled) the asker could
+	// still accept an answer to it and hand out the 20 XP base reward again.
+	if questionEntity.Status != "published" {
+		return apiError(409, "QUESTION_NOT_PUBLISHED", "问题已删除或不可见，无法采纳")
+	}
 	if answerEntity.OwnerID == user.ID {
 		return apiError(400, "SELF_ACCEPT_NOT_ALLOWED", "不能采纳自己的回答")
 	}
@@ -516,21 +535,36 @@ func (s *Server) questionPayload(ctx context.Context, qry queryer, e Entity, q Q
 	if err != nil {
 		return nil, err
 	}
-	answers := []any{}
+	defer rows.Close()
+	// Read the whole cursor before deriving anything from it. answerPayload issues further
+	// queries, and when qry is a pgx.Tx those share one connection with this still-open
+	// result set: PATCH on a question that already had an answer failed with "conn busy"
+	// and returned 500 every time.
+	type answerRow struct {
+		e Entity
+		a Answer
+	}
+	collected := []answerRow{}
 	for rows.Next() {
-		var ae Entity
-		var a Answer
-		args := append(entityScan(&ae), &a.ID, &a.QuestionID, &a.Body)
+		var row answerRow
+		args := append(entityScan(&row.e), &row.a.ID, &row.a.QuestionID, &row.a.Body)
 		if err := rows.Scan(args...); err != nil {
 			return nil, err
 		}
-		p, err := s.answerPayload(ctx, qry, ae, a, viewer)
+		collected = append(collected, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	rows.Close()
+	answers := []any{}
+	for _, row := range collected {
+		p, err := s.answerPayload(ctx, qry, row.e, row.a, viewer)
 		if err != nil {
 			return nil, err
 		}
 		answers = append(answers, p)
 	}
-	rows.Close()
 	author, err := s.authorName(ctx, qry, e, "nickname", e.ID)
 	if err != nil {
 		return nil, err
@@ -619,8 +653,11 @@ func (s *Server) listHandbook(w http.ResponseWriter, r *http.Request) error {
 		}
 		items = append(items, map[string]any{"id": id, "category": category, "title": title, "body": body, "featured": featured != nil, "author": author, "mine": viewer.ID != 0 && viewer.ID == ownerID, "status": status, "favorite_count": favorites, "attachments": attachments, "created_at": created, "updated_at": updated})
 	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
 	writeJSON(w, 200, pagePayload(items, page, size, total))
-	return rows.Err()
+	return nil
 }
 func (s *Server) createHandbook(w http.ResponseWriter, r *http.Request) error {
 	user, _, err := s.participatingUser(w, r)
@@ -703,23 +740,49 @@ func (s *Server) updateHandbook(w http.ResponseWriter, r *http.Request) error {
 	if e.OwnerID != user.ID {
 		return apiError(403, "NOT_OWNER", "只有作者可以编辑手册")
 	}
+	previousTitle, previousBody := a.Title, a.Body
 	changed := false
-	for key, dest := range map[string]*string{"category": &a.Category, "title": &a.Title, "body": &a.Body} {
-		if value, ok := raw[key]; ok {
-			var x string
-			if json.Unmarshal(value, &x) != nil {
-				return validation(key, "Input should be a valid string")
-			}
-			*dest = strings.TrimSpace(x)
-			changed = true
+	// Bounds mirror handbook_articles' column widths (category VARCHAR(80),
+	// title VARCHAR(160)) and the create handler; without them an over-long value reached
+	// PostgreSQL and came back as a 500 instead of a validation error.
+	limits := map[string]struct {
+		dest     *string
+		min, max int
+	}{
+		"category": {&a.Category, 1, 80},
+		"title":    {&a.Title, 4, 160},
+		"body":     {&a.Body, 20, 30000},
+	}
+	for key, limit := range limits {
+		value, ok := raw[key]
+		if !ok {
+			continue
 		}
+		var x string
+		if json.Unmarshal(value, &x) != nil {
+			return validation(key, "Input should be a valid string")
+		}
+		x = strings.TrimSpace(x)
+		if n := runeLen(x); n < limit.min || n > limit.max {
+			return validation(key, fmt.Sprintf("String should have at least %d characters", limit.min))
+		}
+		*limit.dest = x
+		changed = true
 	}
 	var attachments []int64
+	attachmentsProvided := false
 	if v, ok := raw["attachment_ids"]; ok {
-		_ = json.Unmarshal(v, &attachments)
+		// Match the create path: reject malformed input and cap the count instead of
+		// silently ignoring a parse failure.
+		if json.Unmarshal(v, &attachments) != nil || len(attachments) > 9 {
+			return validation("attachment_ids", "List should have at most 9 items")
+		}
+		attachmentsProvided = true
 	}
 	if changed {
-		if err := recordRevision(r.Context(), tx, e, user.ID, a.Title, a.Body); err != nil {
+		// Snapshot pre-edit values (see updateQuestion): recordRevision must store what the
+		// content looked like *before* this change.
+		if err := recordRevision(r.Context(), tx, e, user.ID, previousTitle, previousBody); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(r.Context(), "UPDATE handbook_articles SET category=$1,title=$2,body=$3 WHERE entity_id=$4", a.Category, a.Title, a.Body, id); err != nil {
@@ -731,8 +794,12 @@ func (s *Server) updateHandbook(w http.ResponseWriter, r *http.Request) error {
 			}
 		}
 	}
-	if err := s.attachUploads(r.Context(), tx, user.ID, id, attachments); err != nil {
-		return err
+	// attachUploads replaces the entity's whole attachment set, so only run it when the
+	// client actually submitted the field.
+	if attachmentsProvided {
+		if err := s.attachUploads(r.Context(), tx, user.ID, id, attachments); err != nil {
+			return err
+		}
 	}
 	_, _ = tx.Exec(r.Context(), "UPDATE content_entities SET updated_at=now() WHERE id=$1", id)
 	actor := user.ID
@@ -810,6 +877,16 @@ func (s *Server) publishHandbook(w http.ResponseWriter, r *http.Request) error {
 		_, err = tx.Exec(r.Context(), "UPDATE content_entities SET publication_status=$1,moderation_status=$2,moderation_reason=$3,updated_at=now() WHERE id=$4", publicationStatus, storedModerationStatus, reason, id)
 		if err != nil {
 			return err
+		}
+		// Open a moderation case as well. Flipping the entity to hidden/pending without one
+		// left the article invisible to everyone but its author and absent from the review
+		// queue — unreachable and unappealable until someone edited the database by hand.
+		if moderationStatus == "pending" {
+			if _, err := tx.Exec(r.Context(), `INSERT INTO moderation_cases(entity_id,source,status,decision,notes,created_at)
+				VALUES($1,'publish_risk','pending','','',now())
+				ON CONFLICT(entity_id) DO UPDATE SET status='pending',source='publish_risk',assignee_id=NULL,decision='',notes='',decided_at=NULL`, id); err != nil {
+				return err
+			}
 		}
 	}
 	p, err := s.articlePayload(r.Context(), tx, e, a, &user)
@@ -942,8 +1019,11 @@ func (s *Server) listCourseOfferings(w http.ResponseWriter, r *http.Request) err
 		}
 		items = append(items, map[string]any{"id": id, "course": course, "teacher": teacher, "semester": semester, "section": section, "review_count": reviewCount, "tags": tags, "score": score, "score_hidden_reason": reason, "reviews": reviews})
 	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
 	writeJSON(w, 200, pagePayload(items, page, size, total))
-	return rows.Err()
+	return nil
 }
 func (s *Server) createCourse(w http.ResponseWriter, r *http.Request) error {
 	moderator, err := s.moderatorUser(w, r)
@@ -1070,7 +1150,7 @@ func (s *Server) createCourseReview(w http.ResponseWriter, r *http.Request) erro
 	if err != nil {
 		return err
 	}
-	if _, err := tx.Exec(r.Context(), "INSERT INTO course_reviews(entity_id,offering_id,user_id,rating,tags,body,correction) VALUES($1,$2,$3,$4,$5,$6,'')", e.ID, body.OfferingID, user.ID, body.Rating, strings.Join(cleanStrings(body.Tags, 80), ","), strings.TrimSpace(body.Body)); err != nil {
+	if _, err := tx.Exec(r.Context(), "INSERT INTO course_reviews(entity_id,offering_id,user_id,rating,tags,body,correction) VALUES($1,$2,$3,$4,$5,$6,'')", e.ID, body.OfferingID, user.ID, body.Rating, joinTags(body.Tags, 80, 300), strings.TrimSpace(body.Body)); err != nil {
 		return err
 	}
 	if err := s.attachUploads(r.Context(), tx, user.ID, e.ID, body.AttachmentIDs); err != nil {
@@ -1131,28 +1211,42 @@ func (s *Server) offeringPayload(ctx context.Context, q queryer, id, courseID in
 	if err != nil {
 		return nil, err
 	}
+	defer rows.Close()
+	// Drain first, then fetch attachments: attachmentsPayload runs another query, and on a
+	// pgx.Tx that shares the connection this cursor still holds (same failure as
+	// questionPayload — repeat-submitting a course offering returned 500).
+	type reviewRow struct {
+		id                     int64
+		rating                 int
+		tags, body, correction string
+	}
+	collected := []reviewRow{}
+	for rows.Next() {
+		var row reviewRow
+		if err := rows.Scan(&row.id, &row.rating, &row.tags, &row.body, &row.correction); err != nil {
+			return nil, err
+		}
+		collected = append(collected, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	rows.Close()
 	reviews := []any{}
 	tagCounts := map[string]int{}
 	sum, count := 0, 0
-	for rows.Next() {
-		var rid int64
-		var rating int
-		var tags, body, correction string
-		if err := rows.Scan(&rid, &rating, &tags, &body, &correction); err != nil {
-			return nil, err
-		}
-		files, err := attachmentsPayload(ctx, q, rid)
+	for _, row := range collected {
+		files, err := attachmentsPayload(ctx, q, row.id)
 		if err != nil {
 			return nil, err
 		}
-		reviews = append(reviews, map[string]any{"id": rid, "rating": rating, "tags": splitCSV(tags), "body": body, "correction": correction, "attachments": files})
-		sum += rating
+		reviews = append(reviews, map[string]any{"id": row.id, "rating": row.rating, "tags": splitCSV(row.tags), "body": row.body, "correction": row.correction, "attachments": files})
+		sum += row.rating
 		count++
-		for _, tag := range splitCSV(tags) {
+		for _, tag := range splitCSV(row.tags) {
 			tagCounts[tag]++
 		}
 	}
-	rows.Close()
 	if len(reviews) > 10 {
 		reviews = reviews[len(reviews)-10:]
 	}
@@ -1249,8 +1343,11 @@ func (s *Server) listActivities(w http.ResponseWriter, r *http.Request) error {
 		}
 		items = append(items, map[string]any{"id": id, "category": category, "title": title, "body": body, "location": location, "starts_at": starts, "ends_at": ends, "capacity": capacity, "status": status, "member_count": memberCount, "joined": joined, "mine": viewer.ID != 0 && viewer.ID == ownerID, "author": author, "attachments": attachments, "created_at": created, "updated_at": updated})
 	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
 	writeJSON(w, 200, pagePayload(items, page, size, total))
-	return rows.Err()
+	return nil
 }
 func (s *Server) createActivity(w http.ResponseWriter, r *http.Request) error {
 	user, _, err := s.participatingUser(w, r)
@@ -1272,6 +1369,12 @@ func (s *Server) createActivity(w http.ResponseWriter, r *http.Request) error {
 	}
 	if body.Ends != nil && !body.Ends.After(body.Starts) {
 		return apiError(400, "INVALID_END_TIME", "活动结束时间必须晚于开始时间")
+	}
+	// Same bounds updateActivity enforces. Without them capacity 1 (or a negative value)
+	// was accepted at creation, and since the organiser is counted as the first member the
+	// activity was full the moment it existed and nobody could ever join.
+	if body.Capacity != nil && (*body.Capacity < 2 || *body.Capacity > 10000) {
+		return validation("capacity", "Input should be between 2 and 10000")
 	}
 	tx, err := s.DB.Begin(r.Context())
 	if err != nil {
@@ -1331,16 +1434,33 @@ func (s *Server) updateActivity(w http.ResponseWriter, r *http.Request) error {
 	if a.Status != "open" || !a.Starts.After(time.Now().UTC()) {
 		return apiError(409, "ACTIVITY_NOT_EDITABLE", "活动已开始或结束，不能再编辑")
 	}
+	previousTitle, previousBody := a.Title, a.Body
 	changed := false
-	for key, dest := range map[string]*string{"category": &a.Category, "title": &a.Title, "body": &a.Body, "location": &a.Location} {
-		if v, ok := raw[key]; ok {
-			var x string
-			if json.Unmarshal(v, &x) != nil {
-				return validation(key, "Input should be a valid string")
-			}
-			*dest = strings.TrimSpace(x)
-			changed = true
+	// Bounds mirror the activities column widths (category/title/location VARCHAR(60|160)).
+	limits := map[string]struct {
+		dest     *string
+		min, max int
+	}{
+		"category": {&a.Category, 1, 60},
+		"title":    {&a.Title, 2, 160},
+		"body":     {&a.Body, 1, 10000},
+		"location": {&a.Location, 1, 160},
+	}
+	for key, limit := range limits {
+		v, ok := raw[key]
+		if !ok {
+			continue
 		}
+		var x string
+		if json.Unmarshal(v, &x) != nil {
+			return validation(key, "Input should be a valid string")
+		}
+		x = strings.TrimSpace(x)
+		if n := runeLen(x); n < limit.min || n > limit.max {
+			return validation(key, fmt.Sprintf("String should have at least %d characters", limit.min))
+		}
+		*limit.dest = x
+		changed = true
 	}
 	if v, ok := raw["starts_at"]; ok {
 		if json.Unmarshal(v, &a.Starts) != nil {
@@ -1383,11 +1503,18 @@ func (s *Server) updateActivity(w http.ResponseWriter, r *http.Request) error {
 		}
 	}
 	var attachments []int64
+	attachmentsProvided := false
 	if v, ok := raw["attachment_ids"]; ok {
-		_ = json.Unmarshal(v, &attachments)
+		// Match the create path: reject malformed input and cap the count instead of
+		// silently ignoring a parse failure.
+		if json.Unmarshal(v, &attachments) != nil || len(attachments) > 9 {
+			return validation("attachment_ids", "List should have at most 9 items")
+		}
+		attachmentsProvided = true
 	}
 	if changed {
-		if err := recordRevision(r.Context(), tx, e, user.ID, a.Title, a.Body); err != nil {
+		// Snapshot pre-edit values (see updateQuestion).
+		if err := recordRevision(r.Context(), tx, e, user.ID, previousTitle, previousBody); err != nil {
 			return err
 		}
 		_, err = tx.Exec(r.Context(), "UPDATE activities SET category=$1,title=$2,body=$3,location=$4,starts_at=$5,ends_at=$6,capacity=$7 WHERE entity_id=$8", a.Category, a.Title, a.Body, a.Location, a.Starts, a.Ends, a.Capacity, id)
@@ -1398,8 +1525,12 @@ func (s *Server) updateActivity(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 	}
-	if err := s.attachUploads(r.Context(), tx, user.ID, id, attachments); err != nil {
-		return err
+	// attachUploads replaces the entity's whole attachment set, so only run it when the
+	// client actually submitted the field.
+	if attachmentsProvided {
+		if err := s.attachUploads(r.Context(), tx, user.ID, id, attachments); err != nil {
+			return err
+		}
 	}
 	_, _ = tx.Exec(r.Context(), "UPDATE content_entities SET updated_at=now() WHERE id=$1", id)
 	actor := user.ID
@@ -1590,8 +1721,11 @@ func (s *Server) listLostItems(w http.ResponseWriter, r *http.Request) error {
 		}
 		items = append(items, map[string]any{"id": id, "kind": kind, "item_name": name, "description": description, "location": location, "happened_at": happened, "status": status, "claim_count": claimCount, "mine": viewer.ID != 0 && viewer.ID == ownerID, "author": author, "attachments": attachments})
 	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
 	writeJSON(w, 200, pagePayload(items, page, size, total))
-	return rows.Err()
+	return nil
 }
 func (s *Server) createLostItem(w http.ResponseWriter, r *http.Request) error {
 	user, _, err := s.participatingUser(w, r)
@@ -1669,16 +1803,32 @@ func (s *Server) updateLostItem(w http.ResponseWriter, r *http.Request) error {
 	if item.Status != "open" {
 		return apiError(409, "LOST_ITEM_NOT_EDITABLE", "认领流程已结束，不能再编辑")
 	}
+	previousName, previousDescription := item.Name, item.Description
 	changed := false
-	for key, dest := range map[string]*string{"item_name": &item.Name, "description": &item.Description, "location": &item.Location} {
-		if v, ok := raw[key]; ok {
-			var x string
-			if json.Unmarshal(v, &x) != nil {
-				return validation(key, "Input should be a valid string")
-			}
-			*dest = strings.TrimSpace(x)
-			changed = true
+	// Bounds mirror the lost_items column widths (item_name/location VARCHAR(160)).
+	limits := map[string]struct {
+		dest     *string
+		min, max int
+	}{
+		"item_name":   {&item.Name, 2, 160},
+		"description": {&item.Description, 2, 10000},
+		"location":    {&item.Location, 2, 160},
+	}
+	for key, limit := range limits {
+		v, ok := raw[key]
+		if !ok {
+			continue
 		}
+		var x string
+		if json.Unmarshal(v, &x) != nil {
+			return validation(key, "Input should be a valid string")
+		}
+		x = strings.TrimSpace(x)
+		if n := runeLen(x); n < limit.min || n > limit.max {
+			return validation(key, fmt.Sprintf("String should have at least %d characters", limit.min))
+		}
+		*limit.dest = x
+		changed = true
 	}
 	if v, ok := raw["happened_at"]; ok {
 		if string(v) == "null" {
@@ -1693,11 +1843,18 @@ func (s *Server) updateLostItem(w http.ResponseWriter, r *http.Request) error {
 		changed = true
 	}
 	var attachments []int64
+	attachmentsProvided := false
 	if v, ok := raw["attachment_ids"]; ok {
-		_ = json.Unmarshal(v, &attachments)
+		// Match the create path: reject malformed input and cap the count instead of
+		// silently ignoring a parse failure.
+		if json.Unmarshal(v, &attachments) != nil || len(attachments) > 9 {
+			return validation("attachment_ids", "List should have at most 9 items")
+		}
+		attachmentsProvided = true
 	}
 	if changed {
-		if err := recordRevision(r.Context(), tx, e, user.ID, item.Name, item.Description); err != nil {
+		// Snapshot pre-edit values (see updateQuestion).
+		if err := recordRevision(r.Context(), tx, e, user.ID, previousName, previousDescription); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(r.Context(), "UPDATE lost_items SET item_name=$1,description=$2,location=$3,happened_at=$4 WHERE entity_id=$5", item.Name, item.Description, item.Location, item.Happened, id); err != nil {
@@ -1707,8 +1864,12 @@ func (s *Server) updateLostItem(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 	}
-	if err := s.attachUploads(r.Context(), tx, user.ID, id, attachments); err != nil {
-		return err
+	// attachUploads replaces the entity's whole attachment set, so only run it when the
+	// client actually submitted the field.
+	if attachmentsProvided {
+		if err := s.attachUploads(r.Context(), tx, user.ID, id, attachments); err != nil {
+			return err
+		}
 	}
 	_, _ = tx.Exec(r.Context(), "UPDATE content_entities SET updated_at=now() WHERE id=$1", id)
 	actor := user.ID
@@ -1803,8 +1964,11 @@ func (s *Server) listLostClaims(w http.ResponseWriter, r *http.Request) error {
 		}
 		items = append(items, map[string]any{"id": cid, "claimant_id": claimant, "claimant": name, "message": message, "status": status, "created_at": created})
 	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
 	writeJSON(w, 200, pagePayload(items, 1, 100, len(items)))
-	return rows.Err()
+	return nil
 }
 func (s *Server) decideLostClaim(w http.ResponseWriter, r *http.Request) error {
 	itemID, _ := pathID(r, "itemID")

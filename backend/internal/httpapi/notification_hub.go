@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -35,15 +36,21 @@ func (h *notificationHub) subscribe(userID int64) (<-chan struct{}, func()) {
 	operationalmetrics.Default.Set("sse_connections", float64(h.connections))
 	h.mu.Unlock()
 	h.once.Do(func() { go h.listen() })
+	var release sync.Once
+	// sync.Once because callers may invoke the cancel function on more than one path
+	// (handler return plus a deferred cleanup); a double call would decrement the gauge
+	// twice and drift it negative.
 	return channel, func() {
-		h.mu.Lock()
-		delete(h.subscribers[userID], channel)
-		h.connections--
-		operationalmetrics.Default.Set("sse_connections", float64(h.connections))
-		if len(h.subscribers[userID]) == 0 {
-			delete(h.subscribers, userID)
-		}
-		h.mu.Unlock()
+		release.Do(func() {
+			h.mu.Lock()
+			delete(h.subscribers[userID], channel)
+			h.connections--
+			operationalmetrics.Default.Set("sse_connections", float64(h.connections))
+			if len(h.subscribers[userID]) == 0 {
+				delete(h.subscribers, userID)
+			}
+			h.mu.Unlock()
+		})
 	}
 }
 
@@ -58,27 +65,48 @@ func (h *notificationHub) publish(userID int64) {
 	}
 }
 
+// listenLease bounds how long a single LISTEN connection is held before it is released
+// and re-acquired. It exists so shutdown can make progress: pgxpool.Close blocks until
+// every checked-out connection is returned, and a listener parked forever inside
+// WaitForNotification never returns one, which hung the process on SIGTERM until the
+// orchestrator escalated to SIGKILL.
+const listenLease = 30 * time.Second
+
 func (h *notificationHub) listen() {
 	for {
-		if err := h.listenUntilError(); err != nil {
-			slog.Warn("notification_listener_disconnected", "error", err)
+		err := h.listenUntilError()
+		if err == nil {
+			// Lease elapsed: reconnect immediately. PostgreSQL does not queue NOTIFY for
+			// absent listeners, so any pause here is a window in which notifications are
+			// lost outright — a one-second sleep every 30 seconds would drop ~3% of them.
+			continue
 		}
+		// The pool is only ever closed on shutdown; stop rather than log once a second.
+		if strings.Contains(err.Error(), "closed pool") {
+			return
+		}
+		slog.Warn("notification_listener_disconnected", "error", err)
 		time.Sleep(time.Second)
 	}
 }
 
 func (h *notificationHub) listenUntilError() error {
-	conn, err := h.pool.Acquire(context.Background())
+	ctx, cancel := context.WithTimeout(context.Background(), listenLease)
+	defer cancel()
+	conn, err := h.pool.Acquire(ctx)
 	if err != nil {
 		return err
 	}
 	defer conn.Release()
-	if _, err := conn.Exec(context.Background(), "LISTEN wutong_notifications"); err != nil {
+	if _, err := conn.Exec(ctx, "LISTEN wutong_notifications"); err != nil {
 		return err
 	}
 	for {
-		notification, err := conn.Conn().WaitForNotification(context.Background())
+		notification, err := conn.Conn().WaitForNotification(ctx)
 		if err != nil {
+			if ctx.Err() != nil {
+				return nil // lease elapsed: hand the connection back and take a fresh one
+			}
 			return err
 		}
 		userID, err := strconv.ParseInt(notification.Payload, 10, 64)

@@ -32,7 +32,7 @@ var CreditDefaults = map[string]CreditRuleDefault{
 	"threshold.listing_publish": {"发布交易帖", "threshold", 700, "二手集市发布门槛"},
 	"threshold.contact_publish": {"发布联系方式", "threshold", 700, "公开联系方式门槛"},
 	"threshold.observe_publish": {"观察台发帖", "threshold", 750, "校园文明观察台发帖门槛"},
-	"threshold.observe_unmask":  {"观察台去码查看", "threshold", 800, "满足信用分并签署吃瓜不扩散协议后可查看观察帖原文"},
+	"threshold.observe_unmask":  {"观察台去码查看", "threshold", 900, "满足信用分并签署吃瓜不扩散协议后可查看观察帖原文"},
 	"threshold.high_credit":     {"高信用用户", "threshold", 800, "高信用身份标签门槛"},
 	"threshold.dm_unlimited":    {"私信不限量", "threshold", 850, "解除新用户私信频率限制"},
 	"reward.team_check_in":      {"车队准时签到", "reward", 2, "每场车队首次有效签到奖励"},

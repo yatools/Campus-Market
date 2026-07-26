@@ -17,6 +17,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime/debug"
 	"sort"
 	"strings"
 	"sync"
@@ -127,6 +128,22 @@ func runJob(ctx context.Context, pool *pgxpool.Pool, instanceID string, job work
 		}
 		_, _ = pool.Exec(context.Background(), `INSERT INTO worker_heartbeats(worker_name,instance_id,last_seen_at,last_success_at,last_error) VALUES($1,$2,now(),CASE WHEN $3='' THEN now() ELSE NULL END,$3) ON CONFLICT(worker_name,instance_id) DO UPDATE SET last_seen_at=now(),last_success_at=CASE WHEN $3='' THEN now() ELSE worker_heartbeats.last_success_at END,last_error=$3`, job.name, instanceID, message)
 	}()
+	// Contain a panic to the job that raised it: each job runs in its own goroutine, so an
+	// unrecovered panic in any one of them killed the whole worker process — email
+	// delivery, reservation expiry and cleanup all stopped because of, say, one malformed
+	// DATABASE_URL in the backup path.
+	//
+	// Registered LAST so that, defers being LIFO, it runs FIRST and populates jobErr before
+	// the metrics and heartbeat defers above read it. Registering it first would have made
+	// a panicking job report success and refresh its heartbeat — precisely the blind spot
+	// the new worker_heartbeat_* metrics exist to remove.
+	defer func() {
+		if value := recover(); value != nil {
+			stack := debug.Stack()
+			jobErr = fmt.Errorf("panic: %v", value)
+			slog.Error("worker_job_panic", "job", job.name, "value", value, "stack", string(stack))
+		}
+	}()
 	conn, err := pool.Acquire(ctx)
 	if err != nil {
 		return err
@@ -161,10 +178,17 @@ func cleanupTx(ctx context.Context, cfg config.Config, conn *pgxpool.Conn) error
 		return err
 	}
 	defer tx.Rollback(ctx)
-	if err := cleanup(ctx, cfg, tx); err != nil {
+	var orphans []storedObject
+	if err := cleanup(ctx, tx, &orphans); err != nil {
 		return err
 	}
-	return tx.Commit(ctx)
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	// Object deletion happens only after the rows are durably gone. Failures here leave
+	// orphaned objects, which the storage manifest check surfaces — far better than the
+	// reverse, where a rollback resurrects a row whose object we already destroyed.
+	return removeStoredObjects(ctx, cfg, orphans)
 }
 
 type outbox struct {
@@ -339,9 +363,16 @@ func processTeamRuns(ctx context.Context, tx pgx.Tx) error {
 	for rows.Next() {
 		var r run
 		if err := rows.Scan(&r.id, &r.teamID, &r.starts, &r.game, &r.mode, &r.reminder, &r.channels, &r.recurrence, &r.retention); err != nil {
+			rows.Close()
 			return err
 		}
 		runs = append(runs, r)
+	}
+	// A truncated cursor would otherwise silently skip runs and still report success, so
+	// reminders and departures for those runs would never fire and nothing would alert.
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
 	}
 	rows.Close()
 	now := time.Now().UTC()
@@ -445,11 +476,36 @@ func ensureNextWeeklyRun(ctx context.Context, tx pgx.Tx, r struct {
 	return err
 }
 
-func cleanup(ctx context.Context, cfg config.Config, tx pgx.Tx) error {
+// storedObject identifies an object-storage item queued for deletion after commit.
+type storedObject struct {
+	scope, path string
+}
+
+func cleanup(ctx context.Context, tx pgx.Tx, orphans *[]storedObject) error {
 	if _, err := tx.Exec(ctx, `UPDATE content_entities e SET publication_status='expired',search_visible=false FROM posts p WHERE p.entity_id=e.id AND p.expires_at IS NOT NULL AND p.expires_at<=now() AND e.publication_status='published'`); err != nil {
 		return err
 	}
-	expired, err := tx.Query(ctx, `UPDATE market_transactions SET status='expired',updated_at=now() WHERE status='reserved' AND reserved_until<=now() RETURNING listing_id`)
+	// Only release reservations that neither side has confirmed. A trade where one party
+	// already confirmed the hand-over must not silently become 'expired': that state allows
+	// no dispute, no review and no admin ruling, so the other party would have been left
+	// with no recourse while the listing went straight back on sale.
+	if _, err := tx.Exec(ctx, `UPDATE market_transactions SET status='disputed',updated_at=now()
+		WHERE status='reserved' AND reserved_until<=now()
+		  AND (buyer_confirmed_at IS NOT NULL OR seller_confirmed_at IS NOT NULL)`); err != nil {
+		return err
+	}
+	// decision 与 admin_note 是 NOT NULL 且没有默认值，必须显式给空串：NOT NULL 约束在
+	// ON CONFLICT 仲裁之前求值，DO NOTHING 挡不住 23502。
+	if _, err := tx.Exec(ctx, `INSERT INTO market_disputes(transaction_id,opened_by,reason,status,decision,admin_note,created_at)
+		SELECT mt.id,CASE WHEN mt.buyer_confirmed_at IS NOT NULL THEN mt.buyer_id ELSE mt.seller_id END,
+			'预留超时且存在单方确认，系统自动转入纠纷','pending','','',now()
+		FROM market_transactions mt WHERE mt.status='disputed' AND mt.reserved_until<=now()
+		ON CONFLICT(transaction_id) DO NOTHING`); err != nil {
+		return err
+	}
+	expired, err := tx.Query(ctx, `UPDATE market_transactions SET status='expired',updated_at=now()
+		WHERE status='reserved' AND reserved_until<=now()
+		  AND buyer_confirmed_at IS NULL AND seller_confirmed_at IS NULL RETURNING listing_id`)
 	if err != nil {
 		return err
 	}
@@ -487,19 +543,20 @@ func cleanup(ctx context.Context, cfg config.Config, tx pgx.Tx) error {
 	for rows.Next() {
 		var f fileRow
 		if err := rows.Scan(&f.id, &f.path, &f.thumb, &f.scope); err != nil {
+			rows.Close()
 			return err
 		}
 		files = append(files, f)
 	}
-	rows.Close()
-	store, err := storagepkg.New(cfg)
-	if err != nil {
+	if err := rows.Err(); err != nil {
+		rows.Close()
 		return err
 	}
+	rows.Close()
 	for _, f := range files {
-		// Delete the row under a status guard FIRST, and only remove the objects when a
-		// row was actually deleted. A snapshot taken before an attach committed must not
-		// lead us to erase an object that is now referenced by a dispute or a listing.
+		// Delete the row under a status guard FIRST, and only schedule the objects for
+		// removal when a row was actually deleted. A snapshot taken before an attach
+		// committed must not lead us to erase an object now referenced by a dispute.
 		tag, err := tx.Exec(ctx, "DELETE FROM attachments WHERE id=$1 AND status='pending'", f.id)
 		if err != nil {
 			return err
@@ -507,11 +564,13 @@ func cleanup(ctx context.Context, cfg config.Config, tx pgx.Tx) error {
 		if tag.RowsAffected() == 0 {
 			continue
 		}
+		// Deleting the object here would be irreversible while the DELETE is still only a
+		// transaction-local change: any later failure in this function rolls the row back
+		// to 'pending' and a waiting attach then binds it to a dispute whose evidence no
+		// longer exists in object storage. Collect and delete after the commit instead.
 		for _, relative := range []string{f.path, f.thumb} {
 			if relative != "" {
-				if err := store.Remove(ctx, f.scope, relative); err != nil {
-					return err
-				}
+				*orphans = append(*orphans, storedObject{scope: f.scope, path: relative})
 			}
 		}
 	}
@@ -523,9 +582,16 @@ func cleanup(ctx context.Context, cfg config.Config, tx pgx.Tx) error {
 	for users.Next() {
 		var id int64
 		if err := users.Scan(&id); err != nil {
+			users.Close()
 			return err
 		}
 		ids = append(ids, id)
+	}
+	// Without this check a mid-stream failure looks like "no accounts to anonymise" and the
+	// job still reports success, so the monitoring signal is wrong too.
+	if err := users.Err(); err != nil {
+		users.Close()
+		return err
 	}
 	users.Close()
 	for _, id := range ids {
@@ -562,18 +628,28 @@ func processBackup(ctx context.Context, cfg config.Config, conn *pgxpool.Conn) e
 		return err
 	}
 	defer tx.Rollback(ctx)
+	var orphans []storedObject
 	var id int64
-	err = tx.QueryRow(ctx, "SELECT id FROM backup_jobs WHERE status='pending' ORDER BY created_at LIMIT 1 FOR UPDATE SKIP LOCKED").Scan(&id)
+	// Reclaim jobs whose lease has lapsed as well as fresh ones. Without the lease a worker
+	// killed mid-backup left the row stuck at 'running' forever: no later run would pick it
+	// up, and because the job itself kept returning "nothing to do" the heartbeat stayed
+	// green, so backups silently stopped being produced with no alert.
+	err = tx.QueryRow(ctx, `SELECT id FROM backup_jobs
+		WHERE status='pending' OR (status='running' AND (lease_until IS NULL OR lease_until<=now()))
+		ORDER BY created_at LIMIT 1 FOR UPDATE SKIP LOCKED`).Scan(&id)
 	if err == pgx.ErrNoRows {
-		if err := expireOldBackups(ctx, cfg, tx); err != nil {
+		if err := expireOldBackups(ctx, tx, &orphans); err != nil {
 			return err
 		}
-		return tx.Commit(ctx)
+		if err := tx.Commit(ctx); err != nil {
+			return err
+		}
+		return removeStoredObjects(ctx, cfg, orphans)
 	}
 	if err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, "UPDATE backup_jobs SET status='running' WHERE id=$1", id); err != nil {
+	if _, err := tx.Exec(ctx, "UPDATE backup_jobs SET status='running',lease_until=now()+interval '30 minutes' WHERE id=$1", id); err != nil {
 		return err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -587,19 +663,42 @@ func processBackup(ctx context.Context, cfg config.Config, conn *pgxpool.Conn) e
 	}
 	defer finalize.Rollback(ctx)
 	if backupErr != nil {
-		_, dbErr := finalize.Exec(ctx, "UPDATE backup_jobs SET status='failed',error=$1,finished_at=now() WHERE id=$2", truncate(backupErr.Error(), 4000), id)
+		_, dbErr := finalize.Exec(ctx, "UPDATE backup_jobs SET status='failed',error=$1,finished_at=now(),lease_until=NULL WHERE id=$2", truncate(backupErr.Error(), 4000), id)
 		if dbErr != nil {
 			return dbErr
 		}
 	} else {
-		if _, err := finalize.Exec(ctx, "UPDATE backup_jobs SET status='ready',file_path=$1,error='',finished_at=now() WHERE id=$2", archive, id); err != nil {
+		if _, err := finalize.Exec(ctx, "UPDATE backup_jobs SET status='ready',file_path=$1,error='',finished_at=now(),lease_until=NULL WHERE id=$2", archive, id); err != nil {
 			return err
 		}
 	}
-	if err := expireOldBackups(ctx, cfg, finalize); err != nil {
+	if err := expireOldBackups(ctx, finalize, &orphans); err != nil {
 		return err
 	}
-	return finalize.Commit(ctx)
+	if err := finalize.Commit(ctx); err != nil {
+		return err
+	}
+	return removeStoredObjects(ctx, cfg, orphans)
+}
+
+// removeStoredObjects deletes object-storage items whose database rows are already
+// committed as gone. Errors are logged, not returned: a stray object is recoverable via
+// the storage manifest check, whereas failing the job here would roll nothing back anyway.
+func removeStoredObjects(ctx context.Context, cfg config.Config, objects []storedObject) error {
+	if len(objects) == 0 {
+		return nil
+	}
+	store, err := storagepkg.New(cfg)
+	if err != nil {
+		return err
+	}
+	for _, object := range objects {
+		if err := store.Remove(ctx, object.scope, object.path); err != nil {
+			slog.Warn("backup_object_delete_failed", "scope", object.scope, "path", object.path, "error", err)
+			metrics.Default.Inc("storage_object_delete_failures_total")
+		}
+	}
+	return nil
 }
 
 func createBackup(ctx context.Context, cfg config.Config, jobID int64, conn *pgxpool.Conn) (string, error) {
@@ -610,14 +709,16 @@ func createBackup(ctx context.Context, cfg config.Config, jobID int64, conn *pgx
 	}
 	defer os.RemoveAll(work)
 	dump := filepath.Join(work, "database.dump")
-	parsed, err := url.Parse(cfg.DatabaseURL)
-	if err != nil {
-		return "", err
+	// Hand pg_dump the whole connection string rather than rebuilding it from parts. The
+	// manual host/port/user/dbname reconstruction dropped every query parameter, so a
+	// database configured with sslmode=verify-full was dumped over an unverified
+	// connection — and it dereferenced parsed.User, which is nil for a URL without
+	// credentials (a valid configuration), panicking the entire worker process.
+	if _, err := url.Parse(cfg.DatabaseURL); err != nil {
+		return "", fmt.Errorf("DATABASE_URL 无法解析: %w", err)
 	}
-	command := exec.CommandContext(ctx, "pg_dump", "--format=custom", "--file", dump, "--host", parsed.Hostname(), "--port", portOr(parsed, "5432"), "--username", parsed.User.Username(), "--dbname", strings.TrimPrefix(parsed.Path, "/"))
-	if password, ok := parsed.User.Password(); ok {
-		command.Env = append(os.Environ(), "PGPASSWORD="+password, "PGCONNECT_TIMEOUT=10")
-	}
+	command := exec.CommandContext(ctx, "pg_dump", "--format=custom", "--file", dump, cfg.DatabaseURL)
+	command.Env = append(os.Environ(), "PGCONNECT_TIMEOUT=10")
 	if output, err := command.CombinedOutput(); err != nil {
 		return "", fmt.Errorf("pg_dump: %w: %s", err, truncate(string(output), 1000))
 	}
@@ -791,7 +892,7 @@ func writeBackupBundle(destination, dump, uploads string, extras []string) error
 	}
 	return fileErr
 }
-func expireOldBackups(ctx context.Context, cfg config.Config, tx pgx.Tx) error {
+func expireOldBackups(ctx context.Context, tx pgx.Tx, orphans *[]storedObject) error {
 	rows, err := tx.Query(ctx, "SELECT id,file_path,finished_at FROM backup_jobs WHERE status='ready' ORDER BY finished_at DESC")
 	if err != nil {
 		return err
@@ -839,15 +940,16 @@ func expireOldBackups(ctx context.Context, cfg config.Config, tx pgx.Tx) error {
 			seen[key] = true
 		}
 	}
+	// Mark the rows expired inside the transaction, but hand the object keys back to the
+	// caller so deletion happens after commit. Deleting first and clearing file_path
+	// unconditionally meant a transient object-store outage silently lost the only record
+	// of the key, leaving the object orphaned in the bucket forever; and a failed commit
+	// after a successful delete left a "ready" backup whose download 404s.
 	for _, item := range expired {
-		store, storeErr := storagepkg.New(cfg)
-		if storeErr != nil {
-			return storeErr
-		}
-		_ = store.Remove(ctx, "backup", item.path)
 		if _, err := tx.Exec(ctx, "UPDATE backup_jobs SET status='expired',file_path='' WHERE id=$1", item.id); err != nil {
 			return err
 		}
+		*orphans = append(*orphans, storedObject{scope: "backup", path: item.path})
 	}
 	return nil
 }
@@ -869,12 +971,6 @@ func safeRemoveAbsolute(root, path string) error {
 		return err
 	}
 	return nil
-}
-func portOr(value *url.URL, fallback string) string {
-	if value.Port() != "" {
-		return value.Port()
-	}
-	return fallback
 }
 func csvSet(value string) map[string]bool {
 	result := map[string]bool{}

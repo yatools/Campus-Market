@@ -7,6 +7,9 @@ const apiMock = vi.fn()
 vi.mock('../api', () => ({
   api: (...args: unknown[]) => apiMock(...args),
   json: (method: string, body?: unknown) => ({ method, body: body === undefined ? undefined : JSON.stringify(body) }),
+  // The auth store registers a global 401 handler at setup time, so every factory mock
+  // of this module must export it or useAuthStore() throws before any test runs.
+  setUnauthorizedHandler: () => {},
 }))
 
 const user = { id: 1, email: 'user@test.edu.cn', nickname: '同学', alias: '梧桐#1', campus_identity: 'student', role: 'user', status: 'active', credit: 800, xp: 0, avatar_url: null, dm_stranger_off: false, hide_online: false, unread_notifications: 0 }

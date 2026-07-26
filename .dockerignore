@@ -1,0 +1,28 @@
+# 构建上下文是仓库根目录（frontend/Dockerfile 也用根目录作为 context）。
+# 没有这个文件时：
+#   1. 生产机上按 README 生成的 .env（含 SECRET_KEY、数据库与 S3 凭据）会被上传进
+#      docker daemon 并进入构建缓存层；
+#   2. `COPY frontend/ ./` 会用宿主机的 node_modules 覆盖镜像里 npm ci 的结果，
+#      跨平台时直接构建失败（如 @rollup/rollup-darwin-arm64 与 linux-x64 不匹配）。
+.git
+.gitignore
+.env
+.env.*
+!.env.example
+!.env.staging.example
+.deploy-state/
+**/node_modules
+**/dist
+**/coverage
+playwright-report
+test-results
+chunks/
+*.patch
+*.zip
+query-plans.json
+backend/uploads/
+backend/backups/
+postgres-data/
+certbot/
+IMPROVEMENTS.md
+AUDIT-REPORT.md

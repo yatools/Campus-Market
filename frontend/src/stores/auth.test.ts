@@ -3,9 +3,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useAuthStore } from './auth'
 
 const apiMock = vi.fn()
+// Captures the handler the store registers, so the 401 path can be exercised directly.
+let unauthorizedHandler: (() => void) | null = null
 vi.mock('../api', () => ({
   api: (...args: unknown[]) => apiMock(...args),
   json: (method: string, body?: unknown) => ({ method, body: body === undefined ? undefined : JSON.stringify(body) }),
+  // The auth store registers a global 401 handler at setup time, so every factory mock
+  // of this module must export it or useAuthStore() throws before any test runs.
+  setUnauthorizedHandler: (handler: () => void) => { unauthorizedHandler = handler },
 }))
 
 const user = {
@@ -95,5 +100,57 @@ describe('auth store', () => {
     expect(auth.authMode).toBe('login')
     auth.openAuth('reset')
     expect(auth.authMode).toBe('reset')
+  })
+
+  it('clears the session and prompts login when a request 401s mid-session', async () => {
+    apiMock.mockImplementation((path: string) => {
+      if (path === '/credit-rules') return Promise.resolve({ max_score: 1000, initial_score: 800, values: {}, rules: [] })
+      if (path === '/me') return Promise.resolve({ ...user })
+      return Promise.resolve({})
+    })
+    const store = useAuthStore()
+    await store.load()
+    expect(store.user).not.toBeNull()
+
+    unauthorizedHandler?.()
+    expect(store.user).toBeNull()
+    expect(store.authOpen).toBe(true)
+    // The notification stream must be torn down, otherwise EventSource keeps reconnecting
+    // to an endpoint that now rejects every attempt.
+    expect(EventSourceStub.instances.at(-1)?.closed).toBe(true)
+  })
+
+  it('does not open the login modal for a 401 while logged out', async () => {
+    apiMock.mockImplementation((path: string) => {
+      if (path === '/credit-rules') return Promise.resolve({ max_score: 1000, initial_score: 800, values: {}, rules: [] })
+      return Promise.reject(new Error('unauthorized'))
+    })
+    const store = useAuthStore()
+    await store.load()
+    expect(store.user).toBeNull()
+
+    unauthorizedHandler?.()
+    expect(store.authOpen).toBe(false)
+  })
+
+  it('completes logout locally even when the server rejects the request', async () => {
+    apiMock.mockImplementation((path: string) => {
+      if (path === '/credit-rules') return Promise.resolve({ max_score: 1000, initial_score: 800, values: {}, rules: [] })
+      if (path === '/me') return Promise.resolve({ ...user })
+      if (path === '/auth/logout') return Promise.reject(new Error('session expired'))
+      return Promise.resolve({})
+    })
+    const store = useAuthStore()
+    await store.load()
+
+    await store.logout()
+    expect(store.user).toBeNull()
+    // An expired session must not bounce the user into the login modal they just left.
+    expect(store.authOpen).toBe(false)
+  })
+
+  it('defaults the unmask threshold above the initial credit so the gate is real', () => {
+    const store = useAuthStore()
+    expect(store.creditRule('threshold.observe_unmask')).toBeGreaterThan(store.creditRule('baseline.initial_credit'))
   })
 })

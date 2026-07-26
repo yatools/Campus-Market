@@ -108,6 +108,13 @@ function insertEmoji(value: string) {
 function addLink() {
   const href = window.prompt('输入链接地址（https://…）：', 'https://')?.trim()
   if (!href) return
+  // Reject anything that is not plain http(s) at the point of entry. RichText's DOMPurify
+  // pass already refuses to render javascript:/data: URLs, but relying on the renderer
+  // alone means the dangerous string still gets stored and shipped to every other client.
+  if (!/^https?:\/\/\S+$/i.test(href)) {
+    window.alert('链接必须以 http:// 或 https:// 开头。')
+    return
+  }
   if (advanced.value) insertRaw(`[链接文字](${href})`)
   else editor.value?.chain().focus().extendMarkRange('link').setLink({ href }).run()
 }

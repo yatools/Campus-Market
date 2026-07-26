@@ -296,6 +296,9 @@ func TestMarketTransactionRequiresTwoPartyCompletion(t *testing.T) {
 	if err := pool.QueryRow(context.Background(), "SELECT id FROM team_games WHERE active=true ORDER BY id LIMIT 1").Scan(&gameID); err != nil {
 		t.Fatal(err)
 	}
+	// createTeamRun 要求发车时间至少提前 10 分钟，而签到窗口是「发车后 30 分钟内」，
+	// 因此这里先按未来时间建队（走正常校验），再把场次时间改到刚刚过去，
+	// 以便在同一个用例里覆盖签到与奖励幂等。
 	teamStart := time.Now().UTC().Add(15 * time.Minute)
 	teamCreated := requestJSON(t, sellerClient, http.MethodPost, server.URL+"/api/v1/teams", map[string]any{"game_id": gameID, "mode": "集成测试", "capacity": 3, "starts_at": teamStart, "recurrence": "once", "reminder_channels": []string{"in_app"}}, sellerCSRF)
 	if teamCreated.StatusCode != http.StatusCreated {
@@ -318,6 +321,11 @@ func TestMarketTransactionRequiresTwoPartyCompletion(t *testing.T) {
 	joined.Body.Close()
 	var creditBefore int
 	if err := pool.QueryRow(context.Background(), "SELECT credit FROM users WHERE id=$1", sellerID).Scan(&creditBefore); err != nil {
+		t.Fatal(err)
+	}
+	// 把发车时间挪到 5 分钟前，进入签到窗口。签到奖励只在「已发车且本场成团（≥2 人）」时
+	// 发放，此时队里已有车头与买家两人。
+	if _, err := pool.Exec(context.Background(), "UPDATE team_runs SET starts_at=now()-interval '5 minutes' WHERE id=$1", team.NextRun.ID); err != nil {
 		t.Fatal(err)
 	}
 	for i := 0; i < 2; i++ {
