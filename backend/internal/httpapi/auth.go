@@ -112,6 +112,26 @@ func (s *Server) campusEmail(value string) (string, *APIError) {
 	return email, nil
 }
 
+// rateLimit enforces a counter in its own committed transaction so the increment
+// survives even when the surrounding request later fails (e.g. a wrong password
+// or a wrong verification code). Doing the check inside the request transaction
+// lets the failure path's rollback discard the increment, which would make the
+// throttle count only successful attempts — useless against brute force.
+func (s *Server) rateLimit(ctx context.Context, action, subject string, limit, minutes int) error {
+	tx, err := s.DB.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if err := domain.CheckRateLimit(ctx, tx, action, subject, limit, minutes); err != nil {
+		if err == domain.ErrRateLimited {
+			return apiError(http.StatusTooManyRequests, "RATE_LIMITED", "操作过于频繁，请稍后再试")
+		}
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
 func (s *Server) requestCode(w http.ResponseWriter, r *http.Request) error {
 	var body struct {
 		Email   string `json:"email"`
@@ -215,17 +235,14 @@ func (s *Server) register(w http.ResponseWriter, r *http.Request) error {
 	if apiErr != nil {
 		return apiErr
 	}
+	if err := s.rateLimit(r.Context(), "register", clientIP(r), 100, 60); err != nil {
+		return err
+	}
 	tx, err := s.DB.Begin(r.Context())
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(r.Context())
-	if err := domain.CheckRateLimit(r.Context(), tx, "register", clientIP(r), 100, 60); err != nil {
-		if err == domain.ErrRateLimited {
-			return apiError(429, "RATE_LIMITED", "操作过于频繁，请稍后再试")
-		}
-		return err
-	}
 	if err := s.consumeCode(r.Context(), tx, email, "register", body.Code); err != nil {
 		return err
 	}
@@ -287,22 +304,20 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) error {
 		return validation("password", "String should have at least 1 character")
 	}
 	email := domain.NormalizeEmail(body.Email)
+	// Rate-limit counters are committed independently so failed attempts persist;
+	// counting inside the request transaction let the 401 rollback discard them,
+	// leaving online password brute force effectively unthrottled.
+	if err := s.rateLimit(r.Context(), "login_ip", clientIP(r), 300, 15); err != nil {
+		return err
+	}
+	if err := s.rateLimit(r.Context(), "login_email", email, 10, 15); err != nil {
+		return err
+	}
 	tx, err := s.DB.Begin(r.Context())
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(r.Context())
-	for _, limit := range []struct {
-		action, subject string
-		count, minutes  int
-	}{{"login_ip", clientIP(r), 300, 15}, {"login_email", email, 10, 15}} {
-		if err := domain.CheckRateLimit(r.Context(), tx, limit.action, limit.subject, limit.count, limit.minutes); err != nil {
-			if err == domain.ErrRateLimited {
-				return apiError(429, "RATE_LIMITED", "操作过于频繁，请稍后再试")
-			}
-			return err
-		}
-	}
 	user, err := scanUser(tx.QueryRow(r.Context(), `SELECT id,email,password_hash,nickname,alias,campus_identity,role,status,credit,xp,avatar_path,dm_stranger_off,hide_online,verified_at,created_at FROM users WHERE email=$1`, email))
 	if err == pgx.ErrNoRows || (err == nil && !security.VerifyPassword(body.Password, user.PasswordHash)) {
 		return apiError(401, "INVALID_CREDENTIALS", "邮箱或密码错误")
@@ -345,6 +360,14 @@ func (s *Server) resetPassword(w http.ResponseWriter, r *http.Request) error {
 	email, apiErr := s.campusEmail(body.Email)
 	if apiErr != nil {
 		return apiErr
+	}
+	// Throttle reset attempts so the single 6-digit code (valid 10 minutes) cannot
+	// be brute-forced over its ~10^6 space. Counters persist across failed guesses.
+	if err := s.rateLimit(r.Context(), "reset_password_ip", clientIP(r), 60, 60); err != nil {
+		return err
+	}
+	if err := s.rateLimit(r.Context(), "reset_password_email", email, 8, 60); err != nil {
+		return err
 	}
 	tx, err := s.DB.Begin(r.Context())
 	if err != nil {

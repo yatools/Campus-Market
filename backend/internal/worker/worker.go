@@ -254,9 +254,12 @@ func sendEmail(cfg config.Config, row outbox) error {
 	}
 	hostPort := net.JoinHostPort(cfg.SMTPHost, fmt.Sprint(cfg.SMTPPort))
 	headers := map[string]string{"From": cfg.SMTPFrom, "To": row.To, "Subject": row.Subject, "MIME-Version": "1.0", "Content-Type": "text/plain; charset=UTF-8", "Message-ID": fmt.Sprintf("<outbox-%d@wutong.local>", row.ID)}
+	// Strip CR/LF from header values so a subject like "【梧桐墙公告】" + attacker-controlled
+	// announcement title cannot inject extra headers (Bcc:, a forged body, ...).
+	stripHeader := strings.NewReplacer("\r", " ", "\n", " ").Replace
 	var builder strings.Builder
 	for _, key := range []string{"From", "To", "Subject", "MIME-Version", "Content-Type", "Message-ID"} {
-		builder.WriteString(key + ": " + headers[key] + "\r\n")
+		builder.WriteString(key + ": " + stripHeader(headers[key]) + "\r\n")
 	}
 	builder.WriteString("\r\n" + row.Body)
 	auth := smtp.PlainAuth("", cfg.SMTPUsername, cfg.SMTPPassword, cfg.SMTPHost)
@@ -469,7 +472,10 @@ func cleanup(ctx context.Context, cfg config.Config, tx pgx.Tx) error {
 			return err
 		}
 	}
-	rows, err := tx.Query(ctx, "SELECT id,path,thumbnail_path,access_scope FROM attachments WHERE status='pending' AND created_at<=now()-interval '24 hours'")
+	// Lock the stale-pending rows so a concurrent attach (dispute evidence / listing
+	// image) that takes FOR UPDATE on the same row cannot interleave: SKIP LOCKED means
+	// we never touch a row being attached right now, and rows we lock make attach wait.
+	rows, err := tx.Query(ctx, "SELECT id,path,thumbnail_path,access_scope FROM attachments WHERE status='pending' AND created_at<=now()-interval '24 hours' FOR UPDATE SKIP LOCKED")
 	if err != nil {
 		return err
 	}
@@ -491,15 +497,22 @@ func cleanup(ctx context.Context, cfg config.Config, tx pgx.Tx) error {
 		return err
 	}
 	for _, f := range files {
+		// Delete the row under a status guard FIRST, and only remove the objects when a
+		// row was actually deleted. A snapshot taken before an attach committed must not
+		// lead us to erase an object that is now referenced by a dispute or a listing.
+		tag, err := tx.Exec(ctx, "DELETE FROM attachments WHERE id=$1 AND status='pending'", f.id)
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() == 0 {
+			continue
+		}
 		for _, relative := range []string{f.path, f.thumb} {
 			if relative != "" {
 				if err := store.Remove(ctx, f.scope, relative); err != nil {
 					return err
 				}
 			}
-		}
-		if _, err := tx.Exec(ctx, "DELETE FROM attachments WHERE id=$1", f.id); err != nil {
-			return err
 		}
 	}
 	users, err := tx.Query(ctx, "SELECT id FROM users WHERE status='disabled' AND deactivated_at IS NOT NULL AND deactivated_at<=now()-interval '30 days' FOR UPDATE")
@@ -875,5 +888,8 @@ func truncate(value string, n int) string {
 	if len(value) <= n {
 		return value
 	}
-	return value[:n]
+	// Cut on a valid UTF-8 boundary so a multibyte character (Chinese error text) is
+	// never split into invalid bytes — Postgres rejects invalid UTF-8 when storing
+	// last_error, which would otherwise fail the failure-recording write in a loop.
+	return strings.ToValidUTF8(value[:n], "")
 }

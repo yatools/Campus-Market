@@ -11,7 +11,12 @@ export function marketTransactionActions(transaction: MarketTransaction, userId:
   const isSeller = transaction.seller.id === userId
   if (!isBuyer && !isSeller) return []
   if (transaction.status === 'requested') return isSeller ? ['accept', 'reject'] : ['cancel']
-  if (transaction.status === 'reserved') return ['confirm', 'cancel', 'dispute']
+  if (transaction.status === 'reserved') {
+    // Hide "confirm" for the side that has already confirmed, so the button reflects
+    // whether it is still this user's turn (backend confirm is idempotent regardless).
+    const alreadyConfirmed = (isBuyer && Boolean(transaction.buyer_confirmed_at)) || (isSeller && Boolean(transaction.seller_confirmed_at))
+    return alreadyConfirmed ? ['cancel', 'dispute'] : ['confirm', 'cancel', 'dispute']
+  }
   if (transaction.status === 'completed') return ['review']
   return []
 }

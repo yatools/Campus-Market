@@ -54,10 +54,18 @@ func (r *Registry) Set(name string, value float64) {
 }
 
 func (r *Registry) ObserveHTTP(method, route string, status int, elapsed time.Duration) {
-	route = strings.ReplaceAll(route, "\\", "_")
+	// Escape label values per the Prometheus text exposition format. Without this a
+	// route or method containing a double quote or newline would emit a malformed
+	// exposition line and every subsequent /metrics scrape would fail to parse.
+	method = escapeLabel(method)
+	route = escapeLabel(route)
 	key := fmt.Sprintf("http_requests_total{method=\"%s\",route=\"%s\",status=\"%d\"}", method, route, status)
 	r.Inc(key)
 	r.Observe(fmt.Sprintf("http_request_duration_seconds{method=\"%s\",route=\"%s\"}", method, route), elapsed)
+}
+
+func escapeLabel(value string) string {
+	return strings.NewReplacer("\\", `\\`, "\"", `\"`, "\n", `\n`).Replace(value)
 }
 
 func (r *Registry) ServeHTTP(pool *pgxpool.Pool, w http.ResponseWriter, request *http.Request) {

@@ -217,7 +217,7 @@ onBeforeUnmount(() => { if (clock) clearInterval(clock) })
             <span v-if="team.newbie_level" class="tag green">{{ team.newbie_level }}</span>
             <span v-if="team.vibe" class="tag yellow">氛围：{{ team.vibe }}</span>
           </div>
-          <div class="t-row">模式 <b>{{ team.mode }}</b> ｜ 段位 <b>{{ team.rank_requirement || '不限' }}</b> ｜ 语音 <b>{{ team.voice_name || '待车头通知' }}</b><a v-if="team.voice_link" :href="team.voice_link" target="_blank" rel="noopener">（进入频道 ↗）</a></div>
+          <div class="t-row">模式 <b>{{ team.mode }}</b> ｜ 段位 <b>{{ team.rank_requirement || '不限' }}</b> ｜ 语音 <b>{{ team.voice_name || '待车头通知' }}</b><a v-if="/^https?:\/\//i.test(team.voice_link || '')" :href="team.voice_link" target="_blank" rel="noopener noreferrer">（进入频道 ↗）</a></div>
           <div class="t-row">车头：<b>{{ team.owner.nickname }}</b> <span v-if="team.completion_rate != null" class="stamp-badge">发车率 {{ team.completion_rate }}%</span> 队友评价：<span v-for="(count, tag) in team.rating_tags" :key="tag" class="tag" :class="tag === 'skill' || tag === 'communication' ? 'blue' : 'green'">{{ ratingLabel(String(tag)) }} ×{{ count }}</span><span v-if="!Object.keys(team.rating_tags || {}).length" class="muted">暂无评价</span></div>
           <div class="t-row muted">提醒方式：{{ (team.reminder_channels || []).map(reminderLabel).join(' · ') }}（发车前 {{ team.reminder_minutes }} 分钟）</div>
         </div>

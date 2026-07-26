@@ -29,6 +29,7 @@ func (s *Server) registerMeAdminRoutes(r chi.Router) {
 	r.Get("/me/favorites", s.handle(s.myFavorites))
 	r.Get("/me/reports", s.handle(s.myReports))
 	r.Get("/me/appeals", s.handle(s.myAppeals))
+	r.Post("/me/observe-unmask-agreement", s.handle(s.agreeObserveUnmask))
 	r.Post("/me/deactivate", s.handle(s.deactivateAccount))
 	r.Get("/admin/overview", s.handle(s.adminOverview))
 	r.Get("/admin/system-health", s.handle(s.adminSystemHealth))
@@ -63,7 +64,31 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request) error {
 	p["unread_notifications"] = unread
 	p["unread_messages"] = unreadMessages
 	p["active_sessions"] = sessions
+	var unmaskAgreed bool
+	_ = s.DB.QueryRow(r.Context(), "SELECT EXISTS(SELECT 1 FROM observe_unmask_agreements WHERE user_id=$1)", user.ID).Scan(&unmaskAgreed)
+	p["observe_unmask_agreed"] = unmaskAgreed
+	p["observe_unmask_threshold"] = s.creditThreshold(r.Context(), s.DB, "threshold.observe_unmask")
 	writeJSON(w, 200, p)
+	return nil
+}
+
+// observeUnmaskAgreementVersion identifies the currently-in-force《吃瓜不扩散协议》.
+// Bump it when the protocol text changes so users must re-consent.
+const observeUnmaskAgreementVersion = "v1"
+
+// agreeObserveUnmask records the caller's consent to the《吃瓜不扩散协议》, a
+// prerequisite (together with the credit threshold) for revealing observe-post
+// originals. Idempotent — re-signing just refreshes the version and timestamp.
+func (s *Server) agreeObserveUnmask(w http.ResponseWriter, r *http.Request) error {
+	user, _, err := s.currentUser(w, r, true)
+	if err != nil {
+		return err
+	}
+	if _, err := s.DB.Exec(r.Context(), `INSERT INTO observe_unmask_agreements(user_id,agreed_version,agreed_at) VALUES($1,$2,now())
+		ON CONFLICT(user_id) DO UPDATE SET agreed_version=EXCLUDED.agreed_version,agreed_at=now()`, user.ID, observeUnmaskAgreementVersion); err != nil {
+		return err
+	}
+	writeJSON(w, 200, map[string]any{"observe_unmask_agreed": true, "agreed_version": observeUnmaskAgreementVersion})
 	return nil
 }
 func (s *Server) updateProfile(w http.ResponseWriter, r *http.Request) error {
@@ -313,8 +338,10 @@ func (s *Server) myContent(w http.ResponseWriter, r *http.Request) error {
 		where += fmt.Sprintf(" AND type=$%d", len(args))
 	}
 	if status := r.URL.Query().Get("status"); status != "" {
+		// content_entities has no `status` column — filtering on it raised
+		// "column does not exist" (500) for every "我的内容" status filter.
 		args = append(args, status)
-		where += fmt.Sprintf(" AND status=$%d", len(args))
+		where += fmt.Sprintf(" AND publication_status=$%d", len(args))
 	}
 	var total int
 	_ = s.DB.QueryRow(r.Context(), "SELECT count(*) FROM content_entities WHERE "+where, args...).Scan(&total)
@@ -777,7 +804,16 @@ func (s *Server) adminDecideModeration(w http.ResponseWriter, r *http.Request) e
 	if err != nil {
 		return err
 	}
-	_, _ = tx.Exec(r.Context(), "UPDATE content_entities SET publication_status=$1,moderation_status=$2,updated_at=now() WHERE id=$3", entityStatus, moderationStatus, entityID)
+	if e.Status == "published" || e.Status == "hidden" {
+		_, _ = tx.Exec(r.Context(), "UPDATE content_entities SET publication_status=$1,moderation_status=$2,updated_at=now() WHERE id=$3", entityStatus, moderationStatus, entityID)
+	} else {
+		// The entity was already deleted by its author or expired by the worker.
+		// Record the moderation decision but never resurrect publication_status
+		// back to 'published' — that would republish content against the author's
+		// deletion or past its expiry.
+		entityStatus = e.Status
+		_, _ = tx.Exec(r.Context(), "UPDATE content_entities SET moderation_status=$1,updated_at=now() WHERE id=$2", moderationStatus, entityID)
+	}
 	if body.Decision != "approve" {
 		var bounty int
 		if tx.QueryRow(r.Context(), `UPDATE questions SET bounty_settled=true WHERE entity_id=$1 AND bounty_settled=false AND accepted_answer_id IS NULL RETURNING bounty_xp`, entityID).Scan(&bounty) == nil {
@@ -828,16 +864,19 @@ func (s *Server) adminCreatePenalty(w http.ResponseWriter, r *http.Request) erro
 		return err
 	}
 	defer tx.Rollback(r.Context())
-	var alias string
 	var before, after int
-	err = tx.QueryRow(r.Context(), "SELECT alias,credit FROM users WHERE id=$1 FOR UPDATE", body.UserID).Scan(&alias, &before)
+	err = tx.QueryRow(r.Context(), "SELECT credit FROM users WHERE id=$1 FOR UPDATE", body.UserID).Scan(&before)
 	if err != nil {
 		return apiError(404, "USER_NOT_FOUND", "用户不存在")
 	}
 	if err = tx.QueryRow(r.Context(), "UPDATE users SET credit=GREATEST(0,LEAST(1000,credit+$1)),updated_at=now() WHERE id=$2 RETURNING credit", body.Delta, body.UserID).Scan(&after); err != nil {
 		return err
 	}
-	mask := "用户 " + lastRunes(alias, 4)
+	// Do NOT derive the public mask from alias: alias is the user's anonymous display
+	// name (2–20 chars) and lastRunes returned it in full when short, so the open
+	// penalties board linked a user's alias to their moderation record. Use a stable,
+	// non-reversible per-user code instead.
+	mask := "用户 " + strings.ToUpper(security.TokenHash(s.Config.SecretKey, "penalty-mask:"+strconv.FormatInt(body.UserID, 10))[:6])
 	var id int64
 	if err := tx.QueryRow(r.Context(), "INSERT INTO penalties(user_id,public_mask,violation_type,result,rule,created_at) VALUES($1,$2,$3,$4,$5,now()) RETURNING id", body.UserID, mask, body.Violation, body.Result, body.Rule).Scan(&id); err != nil {
 		return err
@@ -1119,6 +1158,12 @@ func (s *Server) adminDecideFeedback(w http.ResponseWriter, r *http.Request) err
 	if body.Status != "accepted" && body.Status != "rejected" {
 		return validation("status", "Value error, 反馈处理状态无效")
 	}
+	// Bound the XP reward: a negative value could drive xp below 0 (violating
+	// ck_user_xp and 500-ing the whole decision), and an unbounded value let a
+	// moderator mint arbitrary XP.
+	if body.Reward < 0 || body.Reward > 100 {
+		return validation("reward_xp", "Input should be between 0 and 100")
+	}
 	tx, err := s.DB.Begin(r.Context())
 	if err != nil {
 		return err
@@ -1295,13 +1340,6 @@ func containsControl(value string) bool {
 		}
 	}
 	return false
-}
-func lastRunes(value string, n int) string {
-	r := []rune(value)
-	if len(r) <= n {
-		return value
-	}
-	return string(r[len(r)-n:])
 }
 
 var _ = strconv.Itoa

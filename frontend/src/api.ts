@@ -16,6 +16,14 @@ export class ApiError extends Error {
   }
 }
 
+// The auth store registers a handler here so a mid-session 401 (expired/revoked
+// session) can clear local auth state and prompt re-login. Kept as a callback to
+// avoid api.ts ⇄ store circular imports; the handler itself no-ops when logged out.
+let unauthorizedHandler: (() => void) | null = null
+export function setUnauthorizedHandler(handler: (() => void) | null): void {
+  unauthorizedHandler = handler
+}
+
 function cookie(name: string): string {
   const prefix = `${name}=`
   return document.cookie
@@ -36,7 +44,10 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const response = await fetch(`${appConfig().api_prefix}${path}`, { ...init, headers, credentials: 'include' })
   if (response.status === 204) return undefined as T
   const data = await response.json().catch(() => ({}))
-  if (!response.ok) throw new ApiError(response.status, data)
+  if (!response.ok) {
+    if (response.status === 401) unauthorizedHandler?.()
+    throw new ApiError(response.status, data)
+  }
   return data
 }
 

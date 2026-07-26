@@ -1287,8 +1287,16 @@ func (s *Server) requireCredit(ctx context.Context, tx pgx.Tx, user User, key, a
 	return nil
 }
 func creditDefault(key string) int {
-	values := map[string]int{"baseline.initial_credit": 800, "threshold.anonymous_post": 600, "threshold.team_create": 600, "threshold.course_review": 600, "threshold.listing_publish": 700, "threshold.contact_publish": 700, "threshold.observe_publish": 750, "threshold.high_credit": 800, "threshold.dm_unlimited": 850, "reward.team_check_in": 2, "reward.lost_claim": 5, "reward.feedback_accepted": 5, "penalty.team_late_leave": -20}
+	values := map[string]int{"baseline.initial_credit": 800, "threshold.anonymous_post": 600, "threshold.team_create": 600, "threshold.course_review": 600, "threshold.listing_publish": 700, "threshold.contact_publish": 700, "threshold.observe_publish": 750, "threshold.observe_unmask": 800, "threshold.high_credit": 800, "threshold.dm_unlimited": 850, "reward.team_check_in": 2, "reward.lost_claim": 5, "reward.feedback_accepted": 5, "penalty.team_late_leave": -20}
 	return values[key]
+}
+
+// creditThreshold returns the configured value for a threshold credit rule, falling
+// back to the built-in default when the credit_rules row has not been seeded yet.
+func (s *Server) creditThreshold(ctx context.Context, q queryer, key string) int {
+	value := creditDefault(key)
+	_ = q.QueryRow(ctx, "SELECT value FROM credit_rules WHERE key=$1", key).Scan(&value)
+	return value
 }
 func (s *Server) attachUploads(ctx context.Context, tx pgx.Tx, userID, entityID int64, ids []int64) error {
 	if len(ids) == 0 {
@@ -1498,9 +1506,19 @@ func (s *Server) commentPayloadQ(ctx context.Context, q queryer, e Entity, c Com
 	}
 	body := c.Body
 	if e.Status != "published" {
+		// Tombstone: a hidden/deleted comment must not leak its body, its author,
+		// or its attachments — the moderated content may be the very material that
+		// got it removed (e.g. a doxxing screenshot).
 		body = "该回帖已隐藏"
+		author = "—"
+		attachments = []any{}
 	}
-	payload := map[string]any{"id": e.ID, "target_entity_id": c.TargetID, "parent_id": c.ParentID, "reply_to_user_id": c.ReplyToUserID, "body": body, "author": author, "identity_mode": c.IdentityMode, "status": e.Status, "mine": viewer != nil && e.OwnerID == viewer.ID, "created_at": e.CreatedAt, "updated_at": e.UpdatedAt, "attachments": attachments, "likes": likes}
+	// reply_to_user_id is intentionally NOT exposed: emitting the replied-to author's
+	// real numeric user id de-anonymises tree-hole comments (it can be joined across
+	// threads and against any endpoint that maps a user id to a name). The key is kept
+	// as null for response-schema compatibility; server-side reply notifications use
+	// the separately-computed replyTo, not this field.
+	payload := map[string]any{"id": e.ID, "target_entity_id": c.TargetID, "parent_id": c.ParentID, "reply_to_user_id": nil, "body": body, "author": author, "identity_mode": c.IdentityMode, "status": e.Status, "mine": viewer != nil && e.OwnerID == viewer.ID, "created_at": e.CreatedAt, "updated_at": e.UpdatedAt, "attachments": attachments, "likes": likes}
 	if viewer != nil {
 		var liked bool
 		_ = q.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM reactions WHERE entity_id=$1 AND user_id=$2 AND type='like')", e.ID, viewer.ID).Scan(&liked)

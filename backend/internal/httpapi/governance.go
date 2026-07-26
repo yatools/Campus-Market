@@ -18,6 +18,7 @@ func (s *Server) registerGovernanceRoutes(r chi.Router) {
 	r.Get("/observe-posts", s.handle(s.listObserve))
 	r.Post("/observe-posts", s.handle(s.createObserve))
 	r.Post("/observe-posts/{observeID}/response", s.handle(s.respondObserve))
+	r.Get("/observe-posts/{observeID}/reveal", s.handle(s.revealObserve))
 	r.Get("/penalties", s.handle(s.listPenalties))
 	r.Post("/penalties/{penaltyID}/appeals", s.handle(s.appealPenalty))
 	r.Get("/conversations", s.handle(s.listConversations))
@@ -81,6 +82,8 @@ func (s *Server) listObserve(w http.ResponseWriter, r *http.Request) error {
 			args = append(args, viewer.ID)
 		}
 	}
+	isMod := viewer.ID != 0 && (viewer.Role == "moderator" || viewer.Role == "admin")
+	unmaskThreshold := s.creditThreshold(r.Context(), s.DB, "threshold.observe_unmask")
 	var total int
 	_ = s.DB.QueryRow(r.Context(), "SELECT count(*) FROM observe_posts o JOIN content_entities e ON e.id=o.entity_id WHERE "+where, args...).Scan(&total)
 	args = append(args, size, (page-1)*size)
@@ -102,14 +105,18 @@ func (s *Server) listObserve(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 		body := masked
-		if viewer.Role == "moderator" || viewer.Role == "admin" {
+		if isMod {
 			body = raw
 		}
+		// Eligibility to unmask (credit + role). Moderators already see raw, so they
+		// have nothing to reveal. The agreement gate and per-view audit are enforced by
+		// the reveal endpoint; this flag only tells the client whether to offer it.
+		canUnmask := viewer.ID != 0 && !isMod && status == "published" && viewer.Credit >= unmaskThreshold
 		attachments, err := publicAttachmentsFromJSON(attachmentsRaw)
 		if err != nil {
 			return err
 		}
-		items = append(items, map[string]any{"id": id, "title": title, "body": body, "status": status, "response": response, "admin_note": note, "mine": viewer.ID != 0 && viewer.ID == ownerID, "respondent": viewer.ID != 0 && respondent != nil && viewer.ID == *respondent, "created_at": created, "updated_at": updated, "attachments": attachments})
+		items = append(items, map[string]any{"id": id, "title": title, "body": body, "status": status, "response": response, "admin_note": note, "mine": viewer.ID != 0 && viewer.ID == ownerID, "respondent": viewer.ID != 0 && respondent != nil && viewer.ID == *respondent, "can_unmask": canUnmask, "unmask_threshold": unmaskThreshold, "created_at": created, "updated_at": updated, "attachments": attachments})
 	}
 	writeJSON(w, 200, pagePayload(items, page, size, total))
 	return rows.Err()
@@ -283,16 +290,63 @@ func (s *Server) appealPenalty(w http.ResponseWriter, r *http.Request) error {
 	writeJSON(w, 201, map[string]any{"id": appealID, "status": status})
 	return nil
 }
+
+// revealObserve returns an observe post's raw (un-masked) body to a viewer who is a
+// moderator/admin, or who meets the credit threshold AND has signed the
+// 《吃瓜不扩散协议》. Every reveal is written to the audit log so the "不扩散" promise
+// has an accountability trail. List/detail stay masked; this is the explicit opt-in.
+func (s *Server) revealObserve(w http.ResponseWriter, r *http.Request) error {
+	id, err := pathID(r, "observeID")
+	if err != nil {
+		return err
+	}
+	user, _, err := s.currentUser(w, r, true)
+	if err != nil {
+		return err
+	}
+	var status, raw string
+	var ownerID int64
+	if err := s.DB.QueryRow(r.Context(), "SELECT e.publication_status,e.owner_id,o.body_raw FROM observe_posts o JOIN content_entities e ON e.id=o.entity_id WHERE o.entity_id=$1", id).Scan(&status, &ownerID, &raw); err == pgx.ErrNoRows {
+		return apiError(404, "OBSERVE_NOT_FOUND", "观察帖不存在")
+	} else if err != nil {
+		return err
+	}
+	isMod := user.Role == "moderator" || user.Role == "admin"
+	if !isMod {
+		if status != "published" && user.ID != ownerID {
+			return apiError(404, "OBSERVE_NOT_FOUND", "观察帖不存在")
+		}
+		threshold := s.creditThreshold(r.Context(), s.DB, "threshold.observe_unmask")
+		if user.Credit < threshold {
+			return apiError(403, "CREDIT_REQUIRED", fmt.Sprintf("查看观察帖原文需要信用分不低于 %d", threshold))
+		}
+		var agreed bool
+		_ = s.DB.QueryRow(r.Context(), "SELECT EXISTS(SELECT 1 FROM observe_unmask_agreements WHERE user_id=$1)", user.ID).Scan(&agreed)
+		if !agreed {
+			return apiError(403, "UNMASK_AGREEMENT_REQUIRED", "请先签署《吃瓜不扩散协议》")
+		}
+	}
+	if tx, txErr := s.DB.Begin(r.Context()); txErr == nil {
+		actor := user.ID
+		_ = auditSQL(r.Context(), tx, &actor, "observe.unmask", "observe", id, "", nil, nil, requestID(r.Context()))
+		_ = tx.Commit(r.Context())
+	}
+	writeJSON(w, 200, map[string]any{"id": id, "body": raw, "unmasked": true})
+	return nil
+}
+
 func (s *Server) observePayload(ctx context.Context, q queryer, e Entity, o Observe, viewer *User) (map[string]any, error) {
 	body := o.Masked
-	if viewer != nil && (viewer.Role == "moderator" || viewer.Role == "admin") {
+	isMod := viewer != nil && (viewer.Role == "moderator" || viewer.Role == "admin")
+	if isMod {
 		body = o.Raw
 	}
+	canUnmask := viewer != nil && !isMod && e.Status == "published" && viewer.Credit >= s.creditThreshold(ctx, q, "threshold.observe_unmask")
 	files, err := attachmentsPayload(ctx, q, e.ID)
 	if err != nil {
 		return nil, err
 	}
-	return map[string]any{"id": e.ID, "title": o.Title, "body": body, "status": e.Status, "response": o.Response, "admin_note": o.AdminNote, "mine": viewer != nil && viewer.ID == e.OwnerID, "respondent": viewer != nil && o.Respondent != nil && viewer.ID == *o.Respondent, "created_at": e.CreatedAt, "updated_at": e.UpdatedAt, "attachments": files}, nil
+	return map[string]any{"id": e.ID, "title": o.Title, "body": body, "status": e.Status, "response": o.Response, "admin_note": o.AdminNote, "mine": viewer != nil && viewer.ID == e.OwnerID, "respondent": viewer != nil && o.Respondent != nil && viewer.ID == *o.Respondent, "can_unmask": canUnmask, "created_at": e.CreatedAt, "updated_at": e.UpdatedAt, "attachments": files}, nil
 }
 
 var digitMask = regexp.MustCompile(`\b\d{6,18}\b`)
@@ -754,6 +808,11 @@ func (s *Server) notificationStream(w http.ResponseWriter, r *http.Request) erro
 	if !ok {
 		return fmt.Errorf("streaming unsupported")
 	}
+	// Clear the server's 90s WriteTimeout for this long-lived stream. The absolute
+	// write deadline is not reset by the 30s heartbeat, so without this every SSE
+	// connection is severed ~90s after it opens, degrading realtime notifications to
+	// a reconnect-driven poll (and dropping events in each reconnect gap).
+	_ = http.NewResponseController(w).SetWriteDeadline(time.Time{})
 	events, unsubscribe := s.Hub.subscribe(user.ID)
 	defer unsubscribe()
 	writeUnread := func() error {
@@ -1369,7 +1428,7 @@ type creditRuleDef struct {
 	Description string
 }
 
-var creditRuleDefs = map[string]creditRuleDef{"baseline.initial_credit": {"新用户初始信用", "baseline", 800, "仅影响新注册用户"}, "threshold.anonymous_post": {"完全匿名发帖", "threshold", 600, "树洞完全匿名发帖门槛"}, "threshold.team_create": {"创建游戏车队", "threshold", 600, "发布开车门槛"}, "threshold.course_review": {"评价课程", "threshold", 600, "提交课程评价门槛"}, "threshold.listing_publish": {"发布交易帖", "threshold", 700, "二手集市发布门槛"}, "threshold.contact_publish": {"发布联系方式", "threshold", 700, "公开联系方式门槛"}, "threshold.observe_publish": {"观察台发帖", "threshold", 750, "校园文明观察台发帖门槛"}, "threshold.high_credit": {"高信用用户", "threshold", 800, "高信用身份标签门槛"}, "threshold.dm_unlimited": {"私信不限量", "threshold", 850, "解除新用户私信频率限制"}, "reward.team_check_in": {"车队准时签到", "reward", 2, "每场车队首次有效签到奖励"}, "reward.lost_claim": {"失物成功认领", "reward", 5, "失主确认认领完成奖励"}, "reward.feedback_accepted": {"反馈被采纳", "reward", 5, "管理员采纳有效反馈奖励"}, "penalty.team_late_leave": {"临近发车退出", "penalty", -20, "发车前半小时内未请假退出扣分"}}
+var creditRuleDefs = map[string]creditRuleDef{"baseline.initial_credit": {"新用户初始信用", "baseline", 800, "仅影响新注册用户"}, "threshold.anonymous_post": {"完全匿名发帖", "threshold", 600, "树洞完全匿名发帖门槛"}, "threshold.team_create": {"创建游戏车队", "threshold", 600, "发布开车门槛"}, "threshold.course_review": {"评价课程", "threshold", 600, "提交课程评价门槛"}, "threshold.listing_publish": {"发布交易帖", "threshold", 700, "二手集市发布门槛"}, "threshold.contact_publish": {"发布联系方式", "threshold", 700, "公开联系方式门槛"}, "threshold.observe_publish": {"观察台发帖", "threshold", 750, "校园文明观察台发帖门槛"}, "threshold.observe_unmask": {"观察台去码查看", "threshold", 800, "满足信用分并签署吃瓜不扩散协议后可查看观察帖原文"}, "threshold.high_credit": {"高信用用户", "threshold", 800, "高信用身份标签门槛"}, "threshold.dm_unlimited": {"私信不限量", "threshold", 850, "解除新用户私信频率限制"}, "reward.team_check_in": {"车队准时签到", "reward", 2, "每场车队首次有效签到奖励"}, "reward.lost_claim": {"失物成功认领", "reward", 5, "失主确认认领完成奖励"}, "reward.feedback_accepted": {"反馈被采纳", "reward", 5, "管理员采纳有效反馈奖励"}, "penalty.team_late_leave": {"临近发车退出", "penalty", -20, "发车前半小时内未请假退出扣分"}}
 
 func ensureCreditRulesSQL(ctx context.Context, tx pgx.Tx) error {
 	for key, def := range creditRuleDefs {

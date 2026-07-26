@@ -35,6 +35,8 @@ export interface User {
   hide_online: boolean
   unread_notifications?: number
   unread_messages?: number
+  observe_unmask_agreed?: boolean
+  observe_unmask_threshold?: number
 }
 
 export interface Attachment {

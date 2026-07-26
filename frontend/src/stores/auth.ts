@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
-import { api, json } from '../api'
+import { api, json, setUnauthorizedHandler } from '../api'
 import type { AuthMode, CreditRuleSet, User } from '../types'
 import { appConfig } from '../config'
 
@@ -15,6 +15,7 @@ const defaultCreditRules: CreditRuleSet = {
     'threshold.listing_publish': 700,
     'threshold.contact_publish': 700,
     'threshold.observe_publish': 750,
+    'threshold.observe_unmask': 800,
     'threshold.high_credit': 800,
     'threshold.dm_unlimited': 850,
     'reward.team_check_in': 2,
@@ -83,6 +84,20 @@ export const useAuthStore = defineStore('auth', () => {
     return false
   }
 
+  // Clear local session state and prompt re-login when any request 401s mid-session.
+  // No-ops while logged out, so the initial anonymous GET /me does not trigger it.
+  setUnauthorizedHandler(() => {
+    if (!user.value) return
+    user.value = null
+    connectNotifications()
+    openAuth('login')
+  })
+
+  async function agreeObserveUnmask() {
+    await api('/me/observe-unmask-agreement', json('POST'))
+    if (user.value) user.value.observe_unmask_agreed = true
+  }
+
   function openAuth(mode: AuthMode = 'login') {
     authMode.value = mode
     authOpen.value = true
@@ -106,5 +121,5 @@ export const useAuthStore = defineStore('auth', () => {
     user.value.unread_messages = Math.max(0, messages)
   }
 
-  return { user, loading, authOpen, authMode, creditRules, isAdmin, canModerate, load, login, logout, requireLogin, openAuth, creditRule, acknowledgeMessages, setUnreadCounts }
+  return { user, loading, authOpen, authMode, creditRules, isAdmin, canModerate, load, login, logout, requireLogin, openAuth, creditRule, acknowledgeMessages, setUnreadCounts, agreeObserveUnmask }
 })

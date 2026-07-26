@@ -208,7 +208,10 @@ func (s *Server) requestContext(next http.Handler) http.Handler {
 		ctx = context.WithValue(ctx, clientIPKey, s.resolveClientIP(r))
 		recorder := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
 		next.ServeHTTP(recorder, r.WithContext(ctx))
-		route := r.URL.Path
+		// Collapse unmatched requests to a single "unmatched" label instead of the raw
+		// URL path: raw paths are attacker-controlled and unbounded, which would both
+		// explode metric cardinality and (before escaping) corrupt the exposition.
+		route := "unmatched"
 		if routeContext := chi.RouteContext(r.Context()); routeContext != nil && routeContext.RoutePattern() != "" {
 			route = routeContext.RoutePattern()
 		}

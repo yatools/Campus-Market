@@ -55,6 +55,7 @@ const marketOptions = ref<MarketOptions>({ categories: [], locations: [], condit
 const marketTransactions = ref<MarketTransaction[] | null>(null)
 const transactionTitle = ref('我的交易')
 const observeConfirmed = ref(false)
+const evidenceFiles = reactive<Record<number, File[]>>({}) // 纠纷证据按交易 id 隔离
 
 const handbookItems = computed(() => items.value.filter((item) => item.category === handbookFilter.value))
 const activityItems = computed(() => activityFilter.value === '全部' ? items.value : items.value.filter((item) => item.category === activityFilter.value))
@@ -199,12 +200,65 @@ async function messageSeller(item: any) {
 }
 function transactionActions(item: MarketTransaction) { return marketTransactionActions(item, auth.user?.id || 0) }
 function transactionLeft(value: string | null) { if (!value) return ''; const ms = new Date(value).getTime() - Date.now(); if (ms <= 0) return '已超时'; const hours = Math.floor(ms / 3600000); const minutes = Math.floor((ms % 3600000) / 60000); return `${hours} 小时 ${minutes} 分` }
-async function requestReservation(item: MarketListing) { if (!auth.requireLogin()) return; const message = prompt('给卖家的预订留言：', `希望预订“${item.title}”，可校内面交。`) ?? ''; await api(`/listings/${item.id}/transactions`, json('POST', { message })); await showMyTransactions() }
+async function requestReservation(item: MarketListing) {
+  if (!auth.requireLogin()) return
+  const message = prompt('给卖家的预订留言：', `希望预订“${item.title}”，可校内面交。`)
+  if (message === null) return // 用户取消，不应提交预订
+  try {
+    await api(`/listings/${item.id}/transactions`, json('POST', { message }))
+    await showMyTransactions()
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : '预订失败'
+  }
+}
 async function showListingTransactions(item: MarketListing) { transactionTitle.value = `“${item.title}”的预订申请`; marketTransactions.value = (await api<Page<MarketTransaction>>(`/listings/${item.id}/transactions`)).items }
 async function showMyTransactions() { if (!auth.requireLogin()) return; transactionTitle.value = '我的买卖记录'; marketTransactions.value = (await api<Page<MarketTransaction>>('/me/market-transactions')).items }
 async function transactionAction(item: MarketTransaction, action: 'accept' | 'reject' | 'confirm' | 'cancel') { const body = action === 'cancel' ? { reason: prompt('取消原因：', '') ?? '' } : undefined; await api(`/market-transactions/${item.id}/${action}`, json('POST', body)); await showMyTransactions(); await load() }
-async function disputeTransaction(item: MarketTransaction) { const reason = prompt('请说明纠纷经过（至少 5 个字）：', '') ?? ''; if (!reason) return; const files = Array.from((document.querySelector('#market-evidence') as HTMLInputElement | null)?.files || []); const uploaded = await Promise.all(files.slice(0, 9).map((file) => uploadImage(file, 'market_dispute'))); await api(`/market-transactions/${item.id}/disputes`, json('POST', { reason, attachment_ids: uploaded.map((entry) => entry.id) })); await showMyTransactions() }
-async function reviewTransaction(item: MarketTransaction) { const rating = Number(prompt('评分（1-5）：', '5')); const body = prompt('评价（选填）：', '') ?? ''; await api(`/market-transactions/${item.id}/reviews`, json('POST', { rating, body })); await showMyTransactions() }
+async function disputeTransaction(item: MarketTransaction) {
+  const reason = prompt('请说明纠纷经过（至少 5 个字）：', '')
+  if (reason === null) return
+  if (!reason.trim()) { error.value = '请填写纠纷说明'; return }
+  try {
+    // 证据按交易 id 取，避免所有交易共用一个 #market-evidence 输入框导致证据串号。
+    const files = (evidenceFiles[item.id] || []).slice(0, 9)
+    const uploaded = await Promise.all(files.map((file) => uploadImage(file, 'market_dispute')))
+    await api(`/market-transactions/${item.id}/disputes`, json('POST', { reason, attachment_ids: uploaded.map((entry) => entry.id) }))
+    delete evidenceFiles[item.id]
+    await showMyTransactions()
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : '发起纠纷失败'
+  }
+}
+async function reviewTransaction(item: MarketTransaction) {
+  const ratingText = prompt('评分（1-5）：', '5')
+  if (ratingText === null) return // 取消不应以 0 分提交
+  const rating = Number(ratingText)
+  if (!Number.isInteger(rating) || rating < 1 || rating > 5) { error.value = '评分需为 1-5 的整数'; return }
+  const body = prompt('评价（选填）：', '') ?? ''
+  try {
+    await api(`/market-transactions/${item.id}/reviews`, json('POST', { rating, body }))
+    await showMyTransactions()
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : '提交评价失败'
+  }
+}
+function setEvidence(id: number, event: Event) {
+  evidenceFiles[id] = Array.from((event.target as HTMLInputElement).files || [])
+}
+async function revealObserve(item: any) {
+  if (!auth.requireLogin()) return
+  try {
+    if (!auth.user?.observe_unmask_agreed) {
+      if (!confirm('《吃瓜不扩散协议》：查看原文即代表你承诺不截图、不转发、不扩散帖内信息；违者按规则扣信用分并公示。是否同意并继续？')) return
+      await auth.agreeObserveUnmask()
+    }
+    const result = await api<{ id: number; body: string }>(`/observe-posts/${item.id}/reveal`)
+    item.body = result.body
+    item.unmasked = true
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : '去码查看失败'
+  }
+}
 async function cancelListing(item: MarketListing) { if (!confirm('确定取消这件商品？完成交易后不能重新上架。')) return; await api(`/listings/${item.id}/cancel`, json('POST', { reason: '卖家主动取消' })); detailItem.value = null; await load() }
 async function decideClaim(item: any, approve: boolean) { await api(`/lost-items/${target.value.id}/claims/${item.id}/decision`, json('POST', { approve })); await openClaims(target.value); await load() }
 
@@ -349,7 +403,7 @@ onMounted(async () => { await load(); await consumeCreate() })
         <template v-else-if="section === 'listings'"><div class="v4-tag-row"><span class="tag blue">{{ detailItem.category.name }}</span><span class="tag yellow">{{ detailItem.condition_label }}</span><span class="tag" :class="detailItem.moderation_status === 'approved' ? 'green' : 'yellow'">审核：{{ detailItem.moderation_status }}</span></div><strong class="market-price-v4">¥{{ formatPrice(detailItem.price_cents) }}</strong><p>{{ detailItem.location.name }} · {{ detailItem.trade_status }}</p><RichText :content="detailItem.description" /><AttachmentGrid :content="detailItem.description" :attachments="detailItem.attachments" /><p class="rulebox">仅支持校内线下面交；平台不经手资金、不收费、不提供担保。成交必须由买卖双方分别确认。</p><div class="modal-actions-v4"><template v-if="!detailItem.mine"><button v-if="detailItem.trade_status === 'available'" class="btn primary" @click="requestReservation(detailItem)">申请预订</button><button class="btn ghost" @click="messageSeller(detailItem)">私信卖家</button></template><template v-else><button v-if="detailItem.trade_status === 'available'" class="btn ghost" @click="openListingEdit(detailItem)">编辑</button><button class="btn primary" @click="showListingTransactions(detailItem)">处理预订申请</button><button v-if="detailItem.trade_status === 'available'" class="btn warn" @click="cancelListing(detailItem)">取消商品</button></template></div><CommentThread :entity-id="detailItem.id" /></template>
         <template v-else-if="section === 'activities'"><div class="v4-tag-row"><span class="tag blue">{{ detailItem.category }}</span><span>{{ local(detailItem.starts_at) }} · {{ detailItem.location }}</span></div><RichText :content="detailItem.body" /><AttachmentGrid :content="detailItem.body" :attachments="detailItem.attachments" /><div class="modal-actions-v4"><button v-if="!detailItem.mine" class="btn primary" @click="activityJoin(detailItem)">{{ detailItem.joined ? '退出活动' : '加入活动' }}</button><template v-else><button class="btn ghost" @click="openEdit(detailItem)">编辑</button><button class="btn warn" @click="cancelActivity(detailItem)">取消活动</button></template></div><CommentThread :entity-id="detailItem.id" /></template>
         <template v-else-if="section === 'lost'"><div class="v4-tag-row"><span class="tag" :class="detailItem.kind === 'lost' ? 'red' : 'green'">{{ detailItem.kind === 'lost' ? '丢失' : '捡到' }}</span><span class="tag yellow">{{ statusLabel(detailItem.status) }}</span></div><RichText :content="detailItem.description" /><AttachmentGrid :content="detailItem.description" :attachments="detailItem.attachments" /><p>地点：{{ detailItem.location }} · {{ local(detailItem.happened_at) }}</p><div class="modal-actions-v4"><button v-if="!detailItem.mine && detailItem.status === 'open'" class="btn primary" @click="openClaim(detailItem)">提交认领线索</button><template v-if="detailItem.mine"><button v-if="detailItem.status === 'open'" class="btn ghost" @click="openEdit(detailItem)">编辑</button><button v-if="detailItem.claim_count" class="btn primary" @click="openClaims(detailItem)">处理认领申请</button></template></div><CommentThread :entity-id="detailItem.id" /></template>
-        <template v-else-if="section === 'observe'"><RichText :content="detailItem.body" /><AttachmentGrid :content="`${detailItem.body}\n${detailItem.response || ''}`" :attachments="detailItem.attachments" /><div v-if="detailItem.response" class="best-answer-v4"><b>指定回应方：</b><RichText :content="detailItem.response" /></div><p v-if="detailItem.admin_note" class="muted">管理员备注：{{ detailItem.admin_note }}</p><div class="modal-actions-v4"><button v-if="detailItem.respondent" class="btn primary" @click="openResponse(detailItem)">提交回应</button></div><CommentThread v-if="detailItem.status === 'published'" :entity-id="detailItem.id" /></template>
+        <template v-else-if="section === 'observe'"><div v-if="detailItem.can_unmask || detailItem.unmasked" class="notice info observe-unmask-note">{{ detailItem.unmasked ? '已按《吃瓜不扩散协议》去码，请勿截图转发扩散。' : '默认打码显示。达标用户签署《吃瓜不扩散协议》后可查看原文，去码行为将被记录。' }}</div><RichText :content="detailItem.body" /><AttachmentGrid :content="`${detailItem.body}\n${detailItem.response || ''}`" :attachments="detailItem.attachments" /><div v-if="detailItem.response" class="best-answer-v4"><b>指定回应方：</b><RichText :content="detailItem.response" /></div><p v-if="detailItem.admin_note" class="muted">管理员备注：{{ detailItem.admin_note }}</p><div class="modal-actions-v4"><button v-if="detailItem.can_unmask && !detailItem.unmasked" class="btn ghost" @click="revealObserve(detailItem)">🔓 去码查看原文</button><button v-if="detailItem.respondent" class="btn primary" @click="openResponse(detailItem)">提交回应</button></div><CommentThread v-if="detailItem.status === 'published'" :entity-id="detailItem.id" /></template>
       </article>
     </BaseModal>
 
@@ -366,8 +420,8 @@ onMounted(async () => { await load(); await consumeCreate() })
             <button v-if="transactionActions(transaction).includes('confirm')" class="btn primary sm" @click="transactionAction(transaction, 'confirm')">我已完成面交</button><button v-if="transactionActions(transaction).includes('dispute')" class="btn warn sm" @click="disputeTransaction(transaction)">发起纠纷</button>
             <button v-if="transactionActions(transaction).includes('review')" class="btn ghost sm" @click="reviewTransaction(transaction)">提交双盲评价</button>
           </div>
+          <label v-if="transactionActions(transaction).includes('dispute')" class="notice info">纠纷证据（可选，最多 9 张，先选图再点「发起纠纷」）<input type="file" accept="image/jpeg,image/png,image/webp" multiple @change="setEvidence(transaction.id, $event)" /></label>
         </article>
-        <label class="notice info">纠纷证据（可选，最多 9 张）<input id="market-evidence" type="file" accept="image/jpeg,image/png,image/webp" multiple /></label>
         <p v-if="!marketTransactions.length" class="empty-state">暂无交易记录。</p>
       </div>
     </BaseModal>

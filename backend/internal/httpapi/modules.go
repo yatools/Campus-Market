@@ -479,6 +479,12 @@ func (s *Server) acceptAnswer(w http.ResponseWriter, r *http.Request) error {
 		return apiError(409, "ALREADY_ACCEPTED", "该问题已经采纳过回答")
 	}
 	reward := 20 + q.Bounty
+	if q.Settled {
+		// The bounty was already settled — e.g. the question was moderated away and its
+		// bounty_xp refunded to the asker (adminDecideModeration). If it was later
+		// re-approved, paying 20+bounty again here would double-spend the bounty.
+		reward = 20
+	}
 	if _, err := tx.Exec(r.Context(), "UPDATE questions SET accepted_answer_id=$1,bounty_settled=true WHERE entity_id=$2", id, q.ID); err != nil {
 		return err
 	}

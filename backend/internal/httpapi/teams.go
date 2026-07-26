@@ -471,6 +471,10 @@ func (s *Server) createTeam(w http.ResponseWriter, r *http.Request) error {
 	if err := validateTeamCreate(body.Mode, body.Capacity, body.Starts, body.Recurrence, body.Channels, body.Reminder, body.Retention); err != nil {
 		return err
 	}
+	voiceLink, err := validVoiceLink(body.VoiceLink)
+	if err != nil {
+		return err
+	}
 	tx, err := s.DB.Begin(r.Context())
 	if err != nil {
 		return err
@@ -501,7 +505,7 @@ func (s *Server) createTeam(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	_, err = tx.Exec(r.Context(), `INSERT INTO teams(entity_id,owner_id,game_id,game,mode,rank_requirement,capacity,voice_name,voice_link,notes,newbie_level,vibe,reminder_channels,recurrence,reminder_minutes,post_departure_retention_minutes,status) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,'active')`, entity.ID, user.ID, gameID, gameName, strings.TrimSpace(body.Mode), strings.TrimSpace(body.Rank), body.Capacity, strings.TrimSpace(body.VoiceName), strings.TrimSpace(body.VoiceLink), strings.TrimSpace(body.Notes), strings.TrimSpace(body.Newbie), strings.TrimSpace(body.Vibe), strings.Join(body.Channels, ","), body.Recurrence, body.Reminder, body.Retention)
+	_, err = tx.Exec(r.Context(), `INSERT INTO teams(entity_id,owner_id,game_id,game,mode,rank_requirement,capacity,voice_name,voice_link,notes,newbie_level,vibe,reminder_channels,recurrence,reminder_minutes,post_departure_retention_minutes,status) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,'active')`, entity.ID, user.ID, gameID, gameName, strings.TrimSpace(body.Mode), strings.TrimSpace(body.Rank), body.Capacity, strings.TrimSpace(body.VoiceName), voiceLink, strings.TrimSpace(body.Notes), strings.TrimSpace(body.Newbie), strings.TrimSpace(body.Vibe), strings.Join(body.Channels, ","), body.Recurrence, body.Reminder, body.Retention)
 	if err != nil {
 		return err
 	}
@@ -518,7 +522,7 @@ func (s *Server) createTeam(w http.ResponseWriter, r *http.Request) error {
 	}
 	actor := user.ID
 	_ = auditSQL(r.Context(), tx, &actor, "team.create", "team", entity.ID, "", nil, nil, requestID(r.Context()))
-	team := Team{ID: entity.ID, OwnerID: user.ID, GameID: &gameID, Game: gameName, Mode: strings.TrimSpace(body.Mode), Rank: strings.TrimSpace(body.Rank), Capacity: body.Capacity, VoiceName: strings.TrimSpace(body.VoiceName), VoiceLink: strings.TrimSpace(body.VoiceLink), Notes: strings.TrimSpace(body.Notes), Newbie: strings.TrimSpace(body.Newbie), Vibe: strings.TrimSpace(body.Vibe), Channels: strings.Join(body.Channels, ","), Recurrence: body.Recurrence, Reminder: body.Reminder, Retention: body.Retention, Status: "active"}
+	team := Team{ID: entity.ID, OwnerID: user.ID, GameID: &gameID, Game: gameName, Mode: strings.TrimSpace(body.Mode), Rank: strings.TrimSpace(body.Rank), Capacity: body.Capacity, VoiceName: strings.TrimSpace(body.VoiceName), VoiceLink: voiceLink, Notes: strings.TrimSpace(body.Notes), Newbie: strings.TrimSpace(body.Newbie), Vibe: strings.TrimSpace(body.Vibe), Channels: strings.Join(body.Channels, ","), Recurrence: body.Recurrence, Reminder: body.Reminder, Retention: body.Retention, Status: "active"}
 	payload, err := s.teamPayloadTx(r.Context(), tx, team, &user)
 	if err != nil {
 		return err
@@ -883,6 +887,13 @@ func (s *Server) updateTeam(w http.ResponseWriter, r *http.Request) error {
 			}
 			*dest = strings.TrimSpace(x)
 		}
+	}
+	if _, ok := raw["voice_link"]; ok {
+		v, verr := validVoiceLink(team.VoiceLink)
+		if verr != nil {
+			return verr
+		}
+		team.VoiceLink = v
 	}
 	if v, ok := raw["capacity"]; ok {
 		var x int
@@ -1650,6 +1661,25 @@ func (s *Server) applyCredit(ctx context.Context, tx pgx.Tx, userID int64, key, 
 		_ = auditSQL(ctx, tx, &actor, "credit."+key, targetType, targetID, "", map[string]any{"credit": before}, map[string]any{"credit": after, "delta": applied, "rule": key}, "")
 	}
 	return applied, nil
+}
+
+// validVoiceLink trims and validates a team voice-channel link. Empty is allowed;
+// anything present must be an http(s) URL so it can never be rendered as a
+// javascript:/data: href on the client — the team detail page binds voice_link
+// straight into an <a href>, making a non-http scheme a stored-XSS vector.
+func validVoiceLink(raw string) (string, error) {
+	v := strings.TrimSpace(raw)
+	if v == "" {
+		return "", nil
+	}
+	if len([]rune(v)) > 500 {
+		return "", validation("voice_link", "String should have at most 500 characters")
+	}
+	lower := strings.ToLower(v)
+	if !strings.HasPrefix(lower, "http://") && !strings.HasPrefix(lower, "https://") {
+		return "", apiError(400, "INVALID_VOICE_LINK", "语音频道链接必须以 http:// 或 https:// 开头")
+	}
+	return v, nil
 }
 
 func validateTeamCreate(mode string, capacity int, starts time.Time, recurrence string, channels []string, reminder, retention int) error {
