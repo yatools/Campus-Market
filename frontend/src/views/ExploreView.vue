@@ -9,9 +9,10 @@ import RichEditor from '../components/RichEditor.vue'
 import RichText from '../components/RichText.vue'
 import ExploreAnnouncements from '../features/explore/ExploreAnnouncements.vue'
 import { exploreEndpoints, exploreSectionInfo, isExploreSection, type ExploreSection } from '../features/explore/registry'
+import { buildExploreRequest } from '../features/explore/requests'
 import { useAuthStore } from '../stores/auth'
 import type { Announcement, CampusService, CampusServiceRating, MarketListing, MarketOptions, MarketTransaction, Page } from '../types'
-import { formatPrice, marketTransactionActions } from '../market'
+import { buildMarketListingRequest, formatPrice, marketTransactionActions } from '../market'
 
 const route = useRoute()
 const router = useRouter()
@@ -186,18 +187,18 @@ async function submit() {
     else if (action.value === 'claim') await api(`/lost-items/${target.value.id}/claims`, json('POST', { message: form.message }))
     else if (action.value === 'appeal') await api(`/penalties/${target.value.id}/appeals`, json('POST', { reason: form.reason }))
     else if (action.value === 'respond') await api(`/observe-posts/${target.value.id}/response`, json('POST', { body: form.body, attachment_ids: attachmentIds }))
-    else if (action.value === 'edit_listing') await api(`/listings/${target.value.id}`, json('PATCH', { ...form, price_cents: Math.round(Number(form.price_yuan) * 100), price_yuan: undefined, purchased_at: form.purchased_at || null, attachment_ids: attachmentIds }))
-    else if (action.value === 'edit' && section.value === 'questions') await api(`/questions/${target.value.id}`, json('PATCH', { ...form, tags: String(form.tags || '').split(',').filter(Boolean), attachment_ids: attachmentIds }))
-    else if (action.value === 'edit' && section.value === 'handbook') await api(`/handbook/${target.value.id}`, json('PATCH', { ...form, attachment_ids: attachmentIds }))
-    else if (action.value === 'edit' && section.value === 'activities') await api(`/activities/${target.value.id}`, json('PATCH', { ...form, capacity: form.capacity ? Number(form.capacity) : null, starts_at: new Date(form.starts_at).toISOString(), ends_at: form.ends_at ? new Date(form.ends_at).toISOString() : null, attachment_ids: attachmentIds }))
-    else if (action.value === 'edit' && section.value === 'lost') await api(`/lost-items/${target.value.id}`, json('PATCH', { ...form, happened_at: form.happened_at ? new Date(form.happened_at).toISOString() : null, attachment_ids: attachmentIds }))
-    else if (section.value === 'questions') await api('/questions', json('POST', { ...form, tags: String(form.tags || '').split(',').filter(Boolean), bounty_xp: Number(form.bounty_xp), attachment_ids: attachmentIds }))
-    else if (section.value === 'handbook') await api('/handbook', json('POST', { ...form, attachment_ids: attachmentIds }))
-    else if (section.value === 'courses') await api('/course-reviews', json('POST', { ...form, offering_id: Number(form.offering_id), rating: Number(form.rating), tags: String(form.tags || '').split(',').filter(Boolean), attachment_ids: attachmentIds }))
-    else if (section.value === 'listings') await api('/listings', json('POST', { ...form, price_cents: Math.round(Number(form.price_yuan) * 100), price_yuan: undefined, purchased_at: form.purchased_at || null, attachment_ids: attachmentIds }))
-    else if (section.value === 'activities') await api('/activities', json('POST', { ...form, capacity: form.capacity ? Number(form.capacity) : null, starts_at: new Date(form.starts_at).toISOString(), ends_at: form.ends_at ? new Date(form.ends_at).toISOString() : null, attachment_ids: attachmentIds }))
-    else if (section.value === 'lost') await api('/lost-items', json('POST', { ...form, happened_at: form.happened_at ? new Date(form.happened_at).toISOString() : null, attachment_ids: attachmentIds }))
-    else if (section.value === 'observe') await api('/observe-posts', json('POST', { ...form, attachment_ids: attachmentIds }))
+    else if (action.value === 'edit_listing') await api(`/listings/${target.value.id}`, json('PATCH', buildMarketListingRequest(form, attachmentIds)))
+    else if (action.value === 'edit' && section.value === 'questions') await api(`/questions/${target.value.id}`, json('PATCH', buildExploreRequest('question.update', form, attachmentIds)))
+    else if (action.value === 'edit' && section.value === 'handbook') await api(`/handbook/${target.value.id}`, json('PATCH', buildExploreRequest('article.update', form, attachmentIds)))
+    else if (action.value === 'edit' && section.value === 'activities') await api(`/activities/${target.value.id}`, json('PATCH', buildExploreRequest('activity.update', form, attachmentIds)))
+    else if (action.value === 'edit' && section.value === 'lost') await api(`/lost-items/${target.value.id}`, json('PATCH', buildExploreRequest('lost.update', form, attachmentIds)))
+    else if (section.value === 'questions') await api('/questions', json('POST', buildExploreRequest('question.create', form, attachmentIds)))
+    else if (section.value === 'handbook') await api('/handbook', json('POST', buildExploreRequest('article.create', form, attachmentIds)))
+    else if (section.value === 'courses') await api('/course-reviews', json('POST', buildExploreRequest('review.create', form, attachmentIds)))
+    else if (section.value === 'listings') await api('/listings', json('POST', buildMarketListingRequest(form, attachmentIds)))
+    else if (section.value === 'activities') await api('/activities', json('POST', buildExploreRequest('activity.create', form, attachmentIds)))
+    else if (section.value === 'lost') await api('/lost-items', json('POST', buildExploreRequest('lost.create', form, attachmentIds)))
+    else if (section.value === 'observe') await api('/observe-posts', json('POST', buildExploreRequest('observe.create', form, attachmentIds)))
     modal.value = false
     await auth.load()
     await load()
@@ -478,7 +479,7 @@ onMounted(async () => { await load(); await consumeCreate() })
         <template v-else-if="section === 'listings'"><label>分类<select v-model.number="form.category_id" required><option v-for="option in marketOptions.categories" :key="option.id" :value="option.id">{{ option.name }}</option></select></label><label>价格（¥）<input v-model.number="form.price_yuan" type="number" min="0" max="1000000" step="0.01" required /></label><label class="full">物品标题<input v-model="form.title" required minlength="3" maxlength="160" placeholder="品牌 + 型号 + 关键信息" /></label><label>成色<select v-model="form.condition"><option v-for="option in marketOptions.conditions" :key="option.code" :value="option.code">{{ option.name }}</option></select></label><label>购买日期（选填）<input v-model="form.purchased_at" type="date" :max="new Date().toISOString().slice(0, 10)" /></label><label>是否可刀<select v-model="form.negotiable"><option :value="true">可小刀</option><option :value="false">一口价</option></select></label><label>交付地点<select v-model.number="form.location_id" required><option v-for="option in marketOptions.locations" :key="option.id" :value="option.id">{{ option.name }}</option></select></label><div class="editor-field full"><span class="editor-field-label">瑕疵与详细说明</span><RichEditor v-model="form.description" v-model:attachments="form.attachments" aria-label="商品详细说明" :max-length="10000" :max-images="9" /></div><p class="notice info full">平台不经手资金、不收取费用、不提供担保。买卖双方通过预订流程约定校内线下面交。</p></template>
         <template v-else-if="section === 'activities'"><label>分类<input v-model="form.category" required /></label><label>人数上限<input v-model.number="form.capacity" type="number" min="2" /></label><label class="full">标题<input v-model="form.title" required /></label><label>开始时间<input v-model="form.starts_at" type="datetime-local" required /></label><label>结束时间<input v-model="form.ends_at" type="datetime-local" /></label><label class="full">地点<input v-model="form.location" required /></label><div class="editor-field full"><span class="editor-field-label">详情</span><RichEditor v-model="form.body" v-model:attachments="form.attachments" aria-label="活动详情" /></div></template>
         <template v-else-if="section === 'lost'"><label>类型<select v-model="form.kind"><option value="lost">我丢失了</option><option value="found">我捡到了</option></select></label><label>发生时间<input v-model="form.happened_at" type="datetime-local" /></label><label class="full">物品名称<input v-model="form.item_name" required /></label><label class="full">地点<input v-model="form.location" required /></label><div class="editor-field full"><span class="editor-field-label">特征说明</span><RichEditor v-model="form.description" v-model:attachments="form.attachments" aria-label="失物特征说明" :max-length="5000" :max-images="6" /></div></template>
-        <template v-else-if="section === 'observe'"><p class="notice info full">观察帖默认先审后发。请只描述事件，不公开可识别个人信息。</p><label class="full">事件标题<input v-model="form.title" required minlength="4" maxlength="160" /></label><div class="editor-field full"><span class="editor-field-label">事件描述</span><RichEditor v-model="form.body" v-model:attachments="form.attachments" aria-label="事件描述" :max-length="10000" /></div><label class="check full observe-confirm"><input v-model="observeConfirmed" type="checkbox" required /> 我已阅读并同意本区须知，确认内容不包含可识别个人隐私。</label></template>
+        <template v-else-if="section === 'observe'"><p class="notice info full">观察帖默认先审后发。请只描述事件，并用编辑器的“打码”功能标记姓名、联系方式等敏感信息。</p><label class="full">事件标题<input v-model="form.title" required minlength="4" maxlength="160" /></label><div class="editor-field full"><span class="editor-field-label">事件描述</span><RichEditor v-model="form.body" v-model:attachments="form.attachments" aria-label="事件描述" :max-length="10000" enable-redaction /></div><label class="check full observe-confirm"><input v-model="observeConfirmed" type="checkbox" required /> 我已阅读并同意本区须知，确认可识别个人信息均已打码。</label></template>
         <p v-if="error" class="notice danger full">{{ error }}</p>
         <button v-if="action !== 'claims'" class="btn primary full" :disabled="submitting || (section === 'observe' && action === 'create' && !observeConfirmed)">{{ submitting ? '提交中…' : '提交' }}</button>
       </form>

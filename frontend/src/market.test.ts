@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { MarketTransaction } from './types'
-import { formatPrice, marketTransactionActions } from './market'
+import { buildMarketListingRequest, formatPrice, marketTransactionActions } from './market'
 
 function transaction(status: MarketTransaction['status']): MarketTransaction {
   return {
@@ -25,6 +25,36 @@ describe('market presentation policy', () => {
     expect(formatPrice(0)).toBe('0')
     expect(formatPrice(5050)).toBe('50.50')
     expect(formatPrice(10000)).toBe('100')
+  })
+
+  it('builds a listing request with only API contract fields', () => {
+    const request = buildMarketListingRequest({
+      category_id: 2,
+      location_id: 5,
+      title: '二手显示器',
+      description: '功能正常',
+      price_yuan: 399.99,
+      condition: 'excellent',
+      negotiable: true,
+      purchased_at: '',
+      body: '',
+      attachments: [{ id: 8 }],
+    }, [8])
+
+    expect(request).toEqual({
+      category_id: 2,
+      location_id: 5,
+      title: '二手显示器',
+      description: '功能正常',
+      price_cents: 39999,
+      condition: 'excellent',
+      negotiable: true,
+      purchased_at: null,
+      attachment_ids: [8],
+    })
+    expect(request).not.toHaveProperty('body')
+    expect(request).not.toHaveProperty('attachments')
+    expect(request).not.toHaveProperty('price_yuan')
   })
 
   it('only exposes status actions to the correct transaction party', () => {

@@ -1,9 +1,23 @@
-import type { MarketTransaction } from './types'
+import type { MarketListingCreate, MarketTransaction } from './types'
 
 export type MarketAction = 'accept' | 'reject' | 'confirm' | 'cancel' | 'dispute' | 'review'
 
 export function formatPrice(cents: number): string {
   return (cents / 100).toFixed(2).replace(/\.00$/, '')
+}
+
+export function buildMarketListingRequest(form: Record<string, unknown>, attachmentIds: number[]): MarketListingCreate {
+  return {
+    category_id: Number(form.category_id),
+    location_id: Number(form.location_id),
+    title: String(form.title || ''),
+    description: String(form.description || ''),
+    price_cents: Math.round(Number(form.price_yuan) * 100),
+    condition: form.condition as MarketListingCreate['condition'],
+    negotiable: Boolean(form.negotiable),
+    purchased_at: form.purchased_at ? String(form.purchased_at) : null,
+    attachment_ids: attachmentIds,
+  }
 }
 
 export function marketTransactionActions(transaction: MarketTransaction, userId: number): MarketAction[] {
