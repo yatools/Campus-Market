@@ -5,9 +5,20 @@ upstream wutong_staging_api {
     keepalive 16;
 }
 
+# See default.conf.template: keepalive requires HTTP/1.1 *and* a cleared Connection header.
+# = /app-config.json previously inherited neither, so it was also proxied over HTTP/1.0.
+proxy_http_version 1.1;
+proxy_set_header Connection "";
+proxy_set_header Host $host;
+proxy_set_header X-Real-IP $remote_addr;
+proxy_set_header X-Forwarded-For $remote_addr;
+proxy_set_header X-Forwarded-Proto http;
+limit_req_status 429;
+
 server {
     listen 8080;
     server_name _;
+    server_tokens off;
     root /usr/share/nginx/html;
     index index.html;
     client_max_body_size 10m;
@@ -21,30 +32,17 @@ server {
     location /api/ {
         limit_req zone=staging_api_limit burst=40 nodelay;
         proxy_pass http://wutong_staging_api;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $remote_addr;
-        proxy_set_header X-Forwarded-Proto http;
         proxy_buffering off;
         proxy_read_timeout 90s;
     }
 
     location /health/ {
         proxy_pass http://wutong_staging_api;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $remote_addr;
-        proxy_set_header X-Forwarded-Proto http;
         access_log off;
     }
     location = /app-config.json { proxy_pass http://wutong_staging_api; access_log off; }
     location /uploads/ {
         proxy_pass http://wutong_staging_api;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $remote_addr;
-        proxy_set_header X-Forwarded-Proto http;
     }
     location / { try_files $uri $uri/ /index.html; }
 }

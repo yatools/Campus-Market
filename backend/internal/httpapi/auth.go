@@ -14,7 +14,9 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
@@ -112,6 +114,26 @@ func (s *Server) campusEmail(value string) (string, *APIError) {
 	return email, nil
 }
 
+// rateLimit enforces a counter in its own committed transaction so the increment
+// survives even when the surrounding request later fails (e.g. a wrong password
+// or a wrong verification code). Doing the check inside the request transaction
+// lets the failure path's rollback discard the increment, which would make the
+// throttle count only successful attempts — useless against brute force.
+func (s *Server) rateLimit(ctx context.Context, action, subject string, limit, minutes int) error {
+	tx, err := s.DB.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if err := domain.CheckRateLimit(ctx, tx, action, subject, limit, minutes); err != nil {
+		if err == domain.ErrRateLimited {
+			return apiError(http.StatusTooManyRequests, "RATE_LIMITED", "操作过于频繁，请稍后再试")
+		}
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
 func (s *Server) requestCode(w http.ResponseWriter, r *http.Request) error {
 	var body struct {
 		Email   string `json:"email"`
@@ -133,6 +155,28 @@ func (s *Server) requestCode(w http.ResponseWriter, r *http.Request) error {
 	if apiErr != nil {
 		return apiErr
 	}
+	// change_email codes are only ever consumed by an authenticated /me handler, so an
+	// anonymous caller has no business minting them. Leaving it open turned this endpoint
+	// into a mail relay that would send an official-looking message to any campus address.
+	if body.Purpose == "change_email" {
+		user, _, err := s.participatingUser(w, r)
+		if err != nil {
+			return err
+		}
+		if user.Email != nil && email == *user.Email {
+			return validation("email", "新邮箱不能与当前邮箱相同")
+		}
+	}
+	// Throttle before touching the users table. Both the existence probe and the early
+	// returns below are observable, so they must sit behind the same limiter as the send
+	// path; otherwise the 409/202 split (and the 429 it eventually produces) enumerates
+	// which campus addresses are registered.
+	if err := s.rateLimit(r.Context(), "email_code_ip", body.Purpose+":"+clientIP(r), 200, 60); err != nil {
+		return err
+	}
+	if err := s.rateLimit(r.Context(), "email_code_email", body.Purpose+":"+email, 5, 60); err != nil {
+		return err
+	}
 	tx, err := s.DB.Begin(r.Context())
 	if err != nil {
 		return err
@@ -142,24 +186,24 @@ func (s *Server) requestCode(w http.ResponseWriter, r *http.Request) error {
 	if err := tx.QueryRow(r.Context(), "SELECT EXISTS(SELECT 1 FROM users WHERE email=$1)", email).Scan(&exists); err != nil {
 		return err
 	}
-	if body.Purpose == "register" && exists {
-		return apiError(409, "EMAIL_EXISTS", "该邮箱已注册")
-	}
+	accepted := map[string]any{"accepted": true, "resend_after": 60}
 	if body.Purpose == "reset_password" && !exists {
-		writeJSON(w, 202, map[string]any{"accepted": true, "resend_after": 60})
+		// Same response as the success path: never confirm whether an address is registered.
+		writeJSON(w, 202, accepted)
 		return nil
 	}
-	if err := domain.CheckRateLimit(r.Context(), tx, "email_code_email", body.Purpose+":"+email, 5, 60); err != nil {
-		if err == domain.ErrRateLimited {
-			return apiError(429, "RATE_LIMITED", "操作过于频繁，请稍后再试")
+	if body.Purpose == "register" && exists {
+		// Also uniform, but tell the real owner of the mailbox what happened instead of
+		// leaving them with a code that never arrives.
+		if err := domain.EnqueueEmail(r.Context(), tx, email, "【梧桐墙】该邮箱已注册",
+			"有人用这个邮箱申请注册梧桐墙，但它已经注册过了。如果是你本人，请直接登录；忘记密码请使用「找回密码」。"); err != nil {
+			return err
 		}
-		return err
-	}
-	if err := domain.CheckRateLimit(r.Context(), tx, "email_code_ip", body.Purpose+":"+clientIP(r), 200, 60); err != nil {
-		if err == domain.ErrRateLimited {
-			return apiError(429, "RATE_LIMITED", "操作过于频繁，请稍后再试")
+		if err := tx.Commit(r.Context()); err != nil {
+			return err
 		}
-		return err
+		writeJSON(w, 202, accepted)
+		return nil
 	}
 	code, err := randomDigits(6)
 	if err != nil {
@@ -177,7 +221,7 @@ func (s *Server) requestCode(w http.ResponseWriter, r *http.Request) error {
 	if err := tx.Commit(r.Context()); err != nil {
 		return err
 	}
-	writeJSON(w, 202, map[string]any{"accepted": true, "resend_after": 60})
+	writeJSON(w, 202, accepted)
 	return nil
 }
 
@@ -215,17 +259,24 @@ func (s *Server) register(w http.ResponseWriter, r *http.Request) error {
 	if apiErr != nil {
 		return apiErr
 	}
+	if err := s.rateLimit(r.Context(), "register", clientIP(r), 100, 60); err != nil {
+		return err
+	}
+	if err := s.guardCode(r.Context(), email, "register"); err != nil {
+		return err
+	}
+	// Hash before opening the transaction: Argon2id is deliberately slow and memory hungry,
+	// and holding a pool connection for its duration is what turns a login/signup burst
+	// into pool exhaustion.
+	passwordHash, err := security.HashPassword(body.Password)
+	if err != nil {
+		return err
+	}
 	tx, err := s.DB.Begin(r.Context())
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(r.Context())
-	if err := domain.CheckRateLimit(r.Context(), tx, "register", clientIP(r), 100, 60); err != nil {
-		if err == domain.ErrRateLimited {
-			return apiError(429, "RATE_LIMITED", "操作过于频繁，请稍后再试")
-		}
-		return err
-	}
 	if err := s.consumeCode(r.Context(), tx, email, "register", body.Code); err != nil {
 		return err
 	}
@@ -236,26 +287,44 @@ func (s *Server) register(w http.ResponseWriter, r *http.Request) error {
 	if exists {
 		return apiError(409, "EMAIL_EXISTS", "该邮箱已注册")
 	}
-	passwordHash, err := security.HashPassword(body.Password)
-	if err != nil {
-		return err
-	}
-	alias, err := newAlias()
-	if err != nil {
-		return err
-	}
 	credit, err := domain.CreditValue(r.Context(), tx, "baseline.initial_credit")
 	if err != nil {
 		return err
 	}
 	var user User
-	err = tx.QueryRow(r.Context(), `INSERT INTO users(email,password_hash,nickname,alias,campus_identity,role,status,credit,xp,dm_stranger_off,hide_online,verified_at,created_at,updated_at)
-		VALUES($1,$2,$3,$4,'student','user','active',$5,0,false,false,now(),now(),now())
-		RETURNING id,email,password_hash,nickname,alias,campus_identity,role,status,credit,xp,avatar_path,dm_stranger_off,hide_online,verified_at,created_at`,
-		email, passwordHash, strings.TrimSpace(body.Nickname), alias, credit).Scan(userScan(&user)...)
-	if err != nil {
+	// Aliases are random 6-digit handles behind a UNIQUE constraint, so collisions become
+	// common as the site grows (~1 in 180 at 5k users). Retry on a fresh alias instead of
+	// reporting the misleading "email or nickname already taken" and failing the signup.
+	//
+	// Each attempt runs in a nested transaction: a unique-violation aborts the enclosing
+	// transaction, and every later statement in it fails with 25P02 until it is rolled
+	// back. pgx implements nested Begin as a SAVEPOINT, so only the failed attempt is
+	// discarded and the retry can actually succeed.
+	for attempt := 0; ; attempt++ {
+		alias, aliasErr := newAlias()
+		if aliasErr != nil {
+			return aliasErr
+		}
+		attemptTx, beginErr := tx.Begin(r.Context())
+		if beginErr != nil {
+			return beginErr
+		}
+		err = attemptTx.QueryRow(r.Context(), `INSERT INTO users(email,password_hash,nickname,alias,campus_identity,role,status,credit,xp,dm_stranger_off,hide_online,verified_at,created_at,updated_at)
+			VALUES($1,$2,$3,$4,'student','user','active',$5,0,false,false,now(),now(),now())
+			RETURNING id,email,password_hash,nickname,alias,campus_identity,role,status,credit,xp,avatar_path,dm_stranger_off,hide_online,verified_at,created_at`,
+			email, passwordHash, strings.TrimSpace(body.Nickname), alias, credit).Scan(userScan(&user)...)
+		if err == nil {
+			if err = attemptTx.Commit(r.Context()); err != nil {
+				return err
+			}
+			break
+		}
+		_ = attemptTx.Rollback(r.Context())
 		var pgErr *pgconn.PgError
 		if ok := errorAs(err, &pgErr); ok && pgErr.Code == "23505" {
+			if attempt < 4 && strings.Contains(pgErr.ConstraintName, "alias") {
+				continue
+			}
 			return apiError(409, "ACCOUNT_CONFLICT", "邮箱或昵称已被使用")
 		}
 		return err
@@ -264,13 +333,14 @@ func (s *Server) register(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	s.setSessionCookies(w, raw, session)
 	_ = domain.Notify(r.Context(), tx, user.ID, "欢迎加入梧桐墙", "校园邮箱已验证。请先阅读社区规范，再开始参与讨论。", "/me", "system")
 	actor := user.ID
 	_ = domain.Audit(r.Context(), tx, &actor, "account.register", "user", strconv.FormatInt(user.ID, 10), "", nil, map[string]any{"terms": body.AgreedTermsVersion}, requestID(r.Context()))
 	if err := tx.Commit(r.Context()); err != nil {
 		return err
 	}
+	// Cookies only after the session row is committed (see login for the rationale).
+	s.setSessionCookies(w, raw, session)
 	writeJSON(w, 201, map[string]any{"user": userPayload(user), "csrf_token": session.CSRFToken})
 	return nil
 }
@@ -286,46 +356,77 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) error {
 	if strings.TrimSpace(body.Password) == "" || rawRuneLen(body.Password) > 128 {
 		return validation("password", "String should have at least 1 character")
 	}
+	// rate_limit_counters.subject is VARCHAR(320); without this bound an over-long address
+	// makes the throttle INSERT fail with 22001 and surfaces as a 500 instead of a 401.
+	if runeLen(body.Email) < 5 || runeLen(body.Email) > 320 {
+		return apiError(401, "INVALID_CREDENTIALS", "邮箱或密码错误")
+	}
 	email := domain.NormalizeEmail(body.Email)
-	tx, err := s.DB.Begin(r.Context())
-	if err != nil {
+	// Rate-limit counters are committed independently so failed attempts persist;
+	// counting inside the request transaction let the 401 rollback discard them,
+	// leaving online password brute force effectively unthrottled.
+	if err := s.rateLimit(r.Context(), "login_ip", clientIP(r), 300, 15); err != nil {
 		return err
 	}
-	defer tx.Rollback(r.Context())
-	for _, limit := range []struct {
-		action, subject string
-		count, minutes  int
-	}{{"login_ip", clientIP(r), 300, 15}, {"login_email", email, 10, 15}} {
-		if err := domain.CheckRateLimit(r.Context(), tx, limit.action, limit.subject, limit.count, limit.minutes); err != nil {
-			if err == domain.ErrRateLimited {
-				return apiError(429, "RATE_LIMITED", "操作过于频繁，请稍后再试")
-			}
-			return err
-		}
+	if err := s.rateLimit(r.Context(), "login_email", email, 10, 15); err != nil {
+		return err
 	}
-	user, err := scanUser(tx.QueryRow(r.Context(), `SELECT id,email,password_hash,nickname,alias,campus_identity,role,status,credit,xp,avatar_path,dm_stranger_off,hide_online,verified_at,created_at FROM users WHERE email=$1`, email))
-	if err == pgx.ErrNoRows || (err == nil && !security.VerifyPassword(body.Password, user.PasswordHash)) {
+	// Look the account up on a pooled connection and verify the password before opening a
+	// transaction. Argon2id here costs ~64MiB and tens of milliseconds; doing it inside a
+	// transaction pinned a pool connection for the whole computation, so a few dozen
+	// concurrent logins could exhaust the pool and stall every other request.
+	user, err := scanUser(s.DB.QueryRow(r.Context(), `SELECT id,email,password_hash,nickname,alias,campus_identity,role,status,credit,xp,avatar_path,dm_stranger_off,hide_online,verified_at,created_at FROM users WHERE email=$1`, email))
+	if err == pgx.ErrNoRows {
+		// Spend the same work on a decoy hash. Skipping verification for unknown accounts
+		// made the response time differ by an order of magnitude, which enumerates accounts
+		// just as effectively as a distinct status code would.
+		security.VerifyPassword(body.Password, decoyPasswordHash())
 		return apiError(401, "INVALID_CREDENTIALS", "邮箱或密码错误")
 	}
 	if err != nil {
 		return err
 	}
+	if !security.VerifyPassword(body.Password, user.PasswordHash) {
+		return apiError(401, "INVALID_CREDENTIALS", "邮箱或密码错误")
+	}
 	if user.Status == "disabled" || user.Status == "deleted" {
 		return apiError(403, "ACCOUNT_DISABLED", "账号已停用")
 	}
+	tx, err := s.DB.Begin(r.Context())
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(r.Context())
 	raw, session, err := s.createSession(r.Context(), tx, user.ID, r)
 	if err != nil {
 		return err
 	}
-	s.setSessionCookies(w, raw, session)
 	actor := user.ID
 	_ = domain.Audit(r.Context(), tx, &actor, "account.login", "session", strconv.FormatInt(session.ID, 10), "", nil, nil, requestID(r.Context()))
 	if err := tx.Commit(r.Context()); err != nil {
 		return err
 	}
+	// Only hand out cookies once the session row is durable; setting them earlier meant a
+	// failed commit still shipped a session the database had never heard of, and every
+	// later state-changing request then failed CSRF validation.
+	s.setSessionCookies(w, raw, session)
 	writeJSON(w, 200, map[string]any{"user": userPayload(user), "csrf_token": session.CSRFToken})
 	return nil
 }
+
+// decoyPasswordHash is an Argon2id hash of a random secret, computed once, used purely to
+// equalise the cost of a login attempt against a non-existent account.
+var decoyPasswordHash = sync.OnceValue(func() string {
+	secret, err := randomDigits(32)
+	if err != nil {
+		secret = "decoy-password-placeholder"
+	}
+	hash, err := security.HashPassword(secret)
+	if err != nil {
+		return ""
+	}
+	return hash
+})
 
 func (s *Server) resetPassword(w http.ResponseWriter, r *http.Request) error {
 	var body struct {
@@ -346,6 +447,22 @@ func (s *Server) resetPassword(w http.ResponseWriter, r *http.Request) error {
 	if apiErr != nil {
 		return apiErr
 	}
+	// Throttle reset attempts so the single 6-digit code (valid 10 minutes) cannot
+	// be brute-forced over its ~10^6 space. Counters persist across failed guesses.
+	if err := s.rateLimit(r.Context(), "reset_password_ip", clientIP(r), 60, 60); err != nil {
+		return err
+	}
+	if err := s.rateLimit(r.Context(), "reset_password_email", email, 8, 60); err != nil {
+		return err
+	}
+	if err := s.guardCode(r.Context(), email, "reset_password"); err != nil {
+		return err
+	}
+	// Hash outside the transaction (see register).
+	hash, err := security.HashPassword(body.NewPassword)
+	if err != nil {
+		return err
+	}
 	tx, err := s.DB.Begin(r.Context())
 	if err != nil {
 		return err
@@ -358,10 +475,6 @@ func (s *Server) resetPassword(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	if err := s.consumeCode(r.Context(), tx, email, "reset_password", body.Code); err != nil {
-		return err
-	}
-	hash, err := security.HashPassword(body.NewPassword)
-	if err != nil {
 		return err
 	}
 	if _, err := tx.Exec(r.Context(), "UPDATE users SET password_hash=$1,updated_at=now() WHERE id=$2", hash, userID); err != nil {
@@ -414,6 +527,28 @@ func (s *Server) logoutAll(w http.ResponseWriter, r *http.Request) error {
 	s.clearSessionCookies(w)
 	writeJSON(w, 200, map[string]any{"ok": true})
 	return nil
+}
+
+// maxCodeAttempts bounds guesses against a single issued verification code.
+const maxCodeAttempts = 5
+
+// guardCode charges one attempt against the code currently outstanding for this
+// email/purpose, in a transaction of its own so the count survives the caller's rollback.
+// Without it a wrong guess left no trace — the 400 path rolls everything back — so a single
+// 6-digit code could be walked through its whole 10^6 space during its 10-minute lifetime.
+//
+// It must be called *before* the caller opens its own transaction: acquiring a second pool
+// connection while holding one risks deadlocking the pool under load.
+func (s *Server) guardCode(ctx context.Context, email, purpose string) error {
+	var candidate int64
+	err := s.DB.QueryRow(ctx, `SELECT id FROM verification_codes WHERE email=$1 AND purpose=$2 AND consumed_at IS NULL ORDER BY id DESC LIMIT 1`, email, purpose).Scan(&candidate)
+	if err == pgx.ErrNoRows {
+		return apiError(400, "INVALID_CODE", "验证码错误或已过期")
+	}
+	if err != nil {
+		return err
+	}
+	return s.rateLimit(ctx, "verify_code", strconv.FormatInt(candidate, 10), maxCodeAttempts, 60)
 }
 
 func (s *Server) consumeCode(ctx context.Context, tx pgx.Tx, email, purpose, code string) error {
@@ -589,11 +724,18 @@ func validationFields(fields map[string]string) *APIError {
 }
 func runeLen(v string) int    { return len([]rune(strings.TrimSpace(v))) }
 func rawRuneLen(v string) int { return len([]rune(v)) }
+
+// truncate cuts on a UTF-8 boundary. Slicing raw bytes could split a multi-byte rune, and
+// the resulting invalid sequence is rejected by PostgreSQL — a long Chinese User-Agent was
+// enough to make every login and signup from that client fail with a 500.
 func truncate(v string, n int) string {
 	if len(v) <= n {
 		return v
 	}
-	return v[:n]
+	for n > 0 && !utf8.RuneStart(v[n]) {
+		n--
+	}
+	return strings.ToValidUTF8(v[:n], "")
 }
 
 func randomDigits(length int) (string, error) {

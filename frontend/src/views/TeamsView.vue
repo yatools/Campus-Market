@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api, json } from '../api'
+import { appConfig } from '../config'
 import BaseModal from '../components/BaseModal.vue'
 import { useAuthStore } from '../stores/auth'
 import { teamRunActionState } from '../teamRun'
@@ -11,6 +12,8 @@ const auth = useAuthStore()
 const route = useRoute(), router = useRouter()
 const teams = ref<Team[]>([])
 const loading = ref(true)
+// Disables the create button while the request is in flight (prevents duplicate teams).
+const creating = ref(false)
 const error = ref('')
 const composer = ref(false)
 const detailTeam = ref<Team | null>(null)
@@ -41,6 +44,7 @@ const timeWarning = computed(() => {
 
 async function load() {
   loading.value = true
+  error.value = ''
   try {
     const [teamPage, catalog] = await Promise.all([api<Page<Team>>('/teams?page_size=50'), api<{ items: TeamGame[] }>('/team-games')])
     teams.value = teamPage.items
@@ -54,16 +58,26 @@ async function load() {
   finally { loading.value = false }
 }
 
-function createOpen() { if (auth.requireLogin()) composer.value = true }
+function createOpen() { if (auth.requireLogin()) { error.value = ''; composer.value = true } }
 async function create() {
   if (timeWarning.value) { error.value = timeWarning.value; return }
-  await api('/teams', json('POST', { ...form, starts_at: new Date(form.starts_at).toISOString() }))
+  if (creating.value) return
+  creating.value = true
+  try {
+    await api('/teams', json('POST', { ...form, starts_at: new Date(form.starts_at).toISOString() }))
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : '创建车队失败'
+    return
+  } finally {
+    creating.value = false
+  }
   composer.value = false
   Object.assign(form, { game_id: teamGames.value[0]?.id || null, game: '', mode: '', rank_requirement: '不限', capacity: 5, starts_at: '', recurrence: 'once', voice_name: 'KOOK', voice_link: '', notes: '', newbie_level: '欢迎新手，带练', vibe: '', reminder_minutes: 30, post_departure_retention_minutes: 120, reminder_channels: ['email', 'in_app'] })
   await load()
 }
 async function join(team: Team) { if (auth.requireLogin()) { await api(`/teams/${team.id}/join`, json('POST', { reminder_channels: ['email', 'in_app'] })); await load() } }
 function openDetail(team: Team) {
+  error.value = ''
   detailTeam.value = team
   teamActionNotice.value = ''
   teamActionFailed.value = false
@@ -121,8 +135,16 @@ async function cancel(team: Team) { if (confirm('取消后所有成员都会收�
 async function editTeam(team: Team) {
   const mode = prompt('车队模式：', team.mode); if (mode === null) return
   const notes = prompt('车头注意事项：', team.notes); if (notes === null) return
-  const capacity = Number(prompt('容量：', String(team.capacity))); if (!Number.isFinite(capacity)) return
-  await api(`/teams/${team.id}`, json('PATCH', { mode, notes, capacity })); await load()
+  const rawCapacity = prompt('容量（2-99）：', String(team.capacity))
+  if (rawCapacity === null) return
+  const capacity = Number(rawCapacity)
+  if (!Number.isInteger(capacity) || capacity < 2 || capacity > 99) { error.value = '容量需为 2 到 99 之间的整数'; return }
+  try {
+    await api(`/teams/${team.id}`, json('PATCH', { mode, notes, capacity }))
+    await load()
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : '保存车队信息失败'
+  }
 }
 async function removeMember(team: Team, member: { id: number; nickname: string }) {
   if (!confirm(`确定移除 ${member.nickname}？`)) return
@@ -133,18 +155,41 @@ async function transfer(team: Team, member: { id: number; nickname: string }) {
   await api(`/teams/${team.id}/transfer`, json('POST', { user_id: member.id })); await load()
 }
 async function openRuns(team: Team) {
+  error.value = ''
+  teamActionNotice.value = ''
   runManager.value = team
   runs.value = (await api<Page<any>>(`/teams/${team.id}/runs?page_size=100`)).items
 }
+// Reject unparseable input up front: `new Date('明晚八点').toISOString()` throws a
+// RangeError before the request is even built, so the user saw nothing happen at all.
+function parseRunTime(value: string | null): string | null {
+  if (value === null) return null
+  const date = new Date(value.trim())
+  if (Number.isNaN(date.getTime())) {
+    error.value = '时间格式无法识别，请使用 2026-07-20 20:00 这样的格式。'
+    return null
+  }
+  return date.toISOString()
+}
 async function createRun(team: Team) {
-  const value = prompt('新场次发车时间（例如 2026-07-20 20:00）：', '')
-  if (!value) return
-  await api(`/teams/${team.id}/runs`, json('POST', { starts_at: new Date(value).toISOString() })); await openRuns(team); await load()
+  const starts = parseRunTime(prompt('新场次发车时间（例如 2026-07-20 20:00）：', ''))
+  if (!starts) return
+  try {
+    await api(`/teams/${team.id}/runs`, json('POST', { starts_at: starts }))
+    await openRuns(team); await load()
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : '新增场次失败'
+  }
 }
 async function editRun(team: Team, run: any) {
-  const value = prompt('新的发车时间：', new Date(run.starts_at).toLocaleString())
-  if (!value) return
-  await api(`/teams/${team.id}/runs/${run.id}`, json('PATCH', { starts_at: new Date(value).toISOString() })); await openRuns(team); await load()
+  const starts = parseRunTime(prompt('新的发车时间：', new Date(run.starts_at).toLocaleString()))
+  if (!starts) return
+  try {
+    await api(`/teams/${team.id}/runs/${run.id}`, json('PATCH', { starts_at: starts }))
+    await openRuns(team); await load()
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : '修改场次失败'
+  }
 }
 async function cancelRun(team: Team, run: any) {
   if (!confirm('只取消这个场次？车队本身会继续保留。')) return
@@ -154,8 +199,16 @@ async function rate(team: Team, run: any, member: { id: number; nickname: string
   const raw = prompt(`评价 ${member.nickname}（friendly / communication / skill / punctual，可逗号分隔）：`, 'friendly')
   if (!raw) return
   const tags = raw.split(/[,，]/).map((x) => x.trim()).filter(Boolean)
-  await api(`/teams/${team.id}/runs/${run.id}/ratings`, json('POST', { target_user_id: member.id, tags }))
-  error.value = '评价已记录。'
+  try {
+    await api(`/teams/${team.id}/runs/${run.id}/ratings`, json('POST', { target_user_id: member.id, tags }))
+    // Success goes through the neutral notice channel; error.value renders as a red
+    // "notice danger" banner, so a successful rating used to look like a failure.
+    teamActionFailed.value = false
+    teamActionNotice.value = '评价已记录。'
+  } catch (e) {
+    teamActionFailed.value = true
+    teamActionNotice.value = e instanceof Error ? e.message : '评价失败'
+  }
 }
 function localDateTime(value: Date) { return new Date(value.getTime() - value.getTimezoneOffset() * 60000).toISOString().slice(0, 16) }
 function time(value: string) { return new Date(value).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) }
@@ -217,7 +270,7 @@ onBeforeUnmount(() => { if (clock) clearInterval(clock) })
             <span v-if="team.newbie_level" class="tag green">{{ team.newbie_level }}</span>
             <span v-if="team.vibe" class="tag yellow">氛围：{{ team.vibe }}</span>
           </div>
-          <div class="t-row">模式 <b>{{ team.mode }}</b> ｜ 段位 <b>{{ team.rank_requirement || '不限' }}</b> ｜ 语音 <b>{{ team.voice_name || '待车头通知' }}</b><a v-if="team.voice_link" :href="team.voice_link" target="_blank" rel="noopener">（进入频道 ↗）</a></div>
+          <div class="t-row">模式 <b>{{ team.mode }}</b> ｜ 段位 <b>{{ team.rank_requirement || '不限' }}</b> ｜ 语音 <b>{{ team.voice_name || '待车头通知' }}</b><a v-if="/^https?:\/\//i.test(team.voice_link || '')" :href="team.voice_link" target="_blank" rel="noopener noreferrer">（进入频道 ↗）</a></div>
           <div class="t-row">车头：<b>{{ team.owner.nickname }}</b> <span v-if="team.completion_rate != null" class="stamp-badge">发车率 {{ team.completion_rate }}%</span> 队友评价：<span v-for="(count, tag) in team.rating_tags" :key="tag" class="tag" :class="tag === 'skill' || tag === 'communication' ? 'blue' : 'green'">{{ ratingLabel(String(tag)) }} ×{{ count }}</span><span v-if="!Object.keys(team.rating_tags || {}).length" class="muted">暂无评价</span></div>
           <div class="t-row muted">提醒方式：{{ (team.reminder_channels || []).map(reminderLabel).join(' · ') }}（发车前 {{ team.reminder_minutes }} 分钟）</div>
         </div>
@@ -232,6 +285,7 @@ onBeforeUnmount(() => { if (clock) clearInterval(clock) })
     <div class="rulebox team-rules-v4"><b>🎫 车队信用规则</b><ul><li>临近发车退出且不请假：信用 {{ auth.creditRule('penalty.team_late_leave') }}；准时到场：信用 +{{ auth.creditRule('reward.team_check_in') }}。</li><li>发车后队友可互评：<b>友善 / 沟通 / 技术 / 准时</b> 四维标签，累计展示在个人主页。</li><li>信用 &lt; {{ auth.creditRule('threshold.team_create') }} 无法创建车队；车队到期后从大厅隐藏但保留历史记录。</li></ul></div>
 
     <BaseModal v-if="detailTeam" :title="`🎮 ${detailTeam.game} · 车队详情`" wide @close="closeDetail">
+      <p v-if="error" class="notice danger">{{ error }}</p>
       <div class="team-detail-v4">
         <div class="team-detail-summary">
           <div><span class="tag blue">{{ detailTeam.mode }}</span><span class="tag green">{{ detailTeam.newbie_level }}</span><span v-if="detailTeam.vibe" class="tag yellow">{{ detailTeam.vibe }}</span><h3>{{ detailTeam.member_count }} / {{ detailTeam.capacity }} 人 · {{ departureText(detailTeam) }}</h3><p>车头 {{ detailTeam.owner.nickname }} · 信用 {{ detailTeam.owner.credit }} · 段位要求 {{ detailTeam.rank_requirement || '不限' }}</p></div>
@@ -247,16 +301,18 @@ onBeforeUnmount(() => { if (clock) clearInterval(clock) })
           <template v-else-if="detailTeam.joined"><button class="btn primary" :disabled="!currentRunAction.checkInEnabled || teamActionBusy !== null" @click="checkIn(detailTeam)">{{ teamActionBusy === 'check-in' ? '签到中…' : currentRunAction.checkInLabel }}</button><button class="btn ghost" :disabled="!currentRunAction.excuseEnabled || teamActionBusy !== null" @click="excuse(detailTeam)">{{ teamActionBusy === 'excuse' ? '请假中…' : currentRunAction.excuseLabel }}</button><button v-if="!detailTeam.mine" class="btn ghost" :disabled="teamActionBusy !== null" @click="leave(detailTeam)">{{ teamActionBusy === 'leave' ? '退出中…' : '退出车队' }}</button></template>
           <template v-if="detailTeam.mine"><button class="btn ghost" @click="editTeam(detailTeam)">编辑车队</button><button class="btn ghost" @click="createRun(detailTeam)">新增场次</button><button class="btn warn" @click="cancel(detailTeam)">取消车队</button></template>
           <button v-if="detailTeam.joined" class="btn ghost" @click="openRuns(detailTeam)">场次记录与评价</button>
-          <a v-if="detailTeam.joined && (detailTeam.my_reminder_channels || []).includes('calendar')" class="btn ghost" :href="`/api/v1/teams/${detailTeam.id}/calendar.ics`">下载日历</a>
+          <a v-if="detailTeam.joined && (detailTeam.my_reminder_channels || []).includes('calendar')" class="btn ghost" :href="`${appConfig().api_prefix}/teams/${detailTeam.id}/calendar.ics`">下载日历</a>
         </div>
       </div>
     </BaseModal>
     <BaseModal v-if="composer" title="🚗 发布开车" wide @close="composer = false">
       <p class="modal-sub">需信用 ≥ {{ auth.creditRule('threshold.team_create') }} · 当前信用 {{ auth.user?.credit ?? '—' }}</p>
-      <form class="form-grid" @submit.prevent="create"><label>游戏<select v-model.number="form.game_id" required><option v-for="game in teamGames" :key="game.id" :value="game.id">{{ game.name }}</option></select></label><label>模式<input v-model.trim="form.mode" required maxlength="80" placeholder="竞技排位 / 友人房 / 大乱斗" /></label><label>段位要求<input v-model.trim="form.rank_requirement" placeholder="黄金~铂金 / 不限" /></label><label>人数<select v-model.number="form.capacity"><option v-for="n in [2,3,4,5,6,8,10]" :key="n" :value="n">{{ n }}</option></select></label><div class="full"><label>时间机制</label><div class="option-chips"><button type="button" @click="quickTime('tonight')">今晚 8 点</button><button type="button" @click="quickTime('friday')">周五晚</button><button type="button" :class="{ active: form.recurrence === 'weekly' }" @click="form.recurrence = form.recurrence === 'weekly' ? 'once' : 'weekly'">长期固定队（每周重复）</button></div><input v-model="form.starts_at" type="datetime-local" :min="minStartsAt" required /><p v-if="timeWarning" class="notice danger team-time-warning">{{ timeWarning }}</p></div><label>发车后保留时间<select v-model.number="form.post_departure_retention_minutes"><option v-for="hour in 8" :key="hour" :value="hour * 60">{{ hour }} 小时</option></select><small class="muted">到期后从大厅隐藏，历史记录仍保留。</small></label><label>语音方式<select v-model="form.voice_name"><option v-for="name in ['KOOK','QQ 群语音','Discord','OOPZ','Teamspeak','飞书','不需要语音']" :key="name">{{ name }}</option></select></label><label>频道跳转链接（选填）<input v-model.trim="form.voice_link" type="url" placeholder="粘贴 QQ 群 / KOOK / TS 邀请链接" /></label><label>是否欢迎新手<select v-model="form.newbie_level"><option>欢迎新手，带练</option><option>欢迎新手</option><option>需要基础</option><option>仅限熟练</option></select></label><label>车队氛围<input v-model.trim="form.vibe" placeholder="娱乐为主不骂人 / 认真上分" /></label><label>发车前提醒<select v-model.number="form.reminder_minutes"><option :value="15">15 分钟前</option><option :value="30">30 分钟前</option><option :value="60">1 小时前</option><option :value="120">2 小时前</option></select></label><label class="full">附加信息 / 注意事项<textarea v-model="form.notes" rows="3" placeholder="上车后自动展示给车友" /></label><div class="full"><label>提醒方式（可多选）</label><div class="option-chips"><button v-for="channel in [['email','📧 邮件'],['in_app','🔔 站内通知'],['calendar','📅 日历订阅'] ]" :key="channel[0]" type="button" :class="{ active: form.reminder_channels.includes(channel[0]) }" @click="toggleReminder(channel[0])">{{ channel[1] }}</button><button v-for="label in ['QQ 群机器人','KOOK Bot','Discord Bot','飞书群提醒']" :key="label" type="button" disabled>{{ label }} · 待接入</button></div></div><button class="button primary full" :disabled="Boolean(timeWarning)">发车！</button></form>
+      <form class="form-grid" @submit.prevent="create"><label>游戏<select v-model.number="form.game_id" required><option v-for="game in teamGames" :key="game.id" :value="game.id">{{ game.name }}</option></select></label><label>模式<input v-model.trim="form.mode" required maxlength="80" placeholder="竞技排位 / 友人房 / 大乱斗" /></label><label>段位要求<input v-model.trim="form.rank_requirement" placeholder="黄金~铂金 / 不限" /></label><label>人数<select v-model.number="form.capacity"><option v-for="n in [2,3,4,5,6,8,10]" :key="n" :value="n">{{ n }}</option></select></label><div class="full"><label>时间机制</label><div class="option-chips"><button type="button" @click="quickTime('tonight')">今晚 8 点</button><button type="button" @click="quickTime('friday')">周五晚</button><button type="button" :class="{ active: form.recurrence === 'weekly' }" @click="form.recurrence = form.recurrence === 'weekly' ? 'once' : 'weekly'">长期固定队（每周重复）</button></div><input v-model="form.starts_at" type="datetime-local" :min="minStartsAt" required /><p v-if="timeWarning" class="notice danger team-time-warning">{{ timeWarning }}</p></div><label>发车后保留时间<select v-model.number="form.post_departure_retention_minutes"><option v-for="hour in 8" :key="hour" :value="hour * 60">{{ hour }} 小时</option></select><small class="muted">到期后从大厅隐藏，历史记录仍保留。</small></label><label>语音方式<select v-model="form.voice_name"><option v-for="name in ['KOOK','QQ 群语音','Discord','OOPZ','Teamspeak','飞书','不需要语音']" :key="name">{{ name }}</option></select></label><label>频道跳转链接（选填）<input v-model.trim="form.voice_link" type="url" placeholder="粘贴 QQ 群 / KOOK / TS 邀请链接" /></label><label>是否欢迎新手<select v-model="form.newbie_level"><option>欢迎新手，带练</option><option>欢迎新手</option><option>需要基础</option><option>仅限熟练</option></select></label><label>车队氛围<input v-model.trim="form.vibe" placeholder="娱乐为主不骂人 / 认真上分" /></label><label>发车前提醒<select v-model.number="form.reminder_minutes"><option :value="15">15 分钟前</option><option :value="30">30 分钟前</option><option :value="60">1 小时前</option><option :value="120">2 小时前</option></select></label><label class="full">附加信息 / 注意事项<textarea v-model="form.notes" rows="3" placeholder="上车后自动展示给车友" /></label><div class="full"><label>提醒方式（可多选）</label><div class="option-chips"><button v-for="channel in [['email','📧 邮件'],['in_app','🔔 站内通知'],['calendar','📅 日历订阅'] ]" :key="channel[0]" type="button" :class="{ active: form.reminder_channels.includes(channel[0]) }" @click="toggleReminder(channel[0])">{{ channel[1] }}</button><button v-for="label in ['QQ 群机器人','KOOK Bot','Discord Bot','飞书群提醒']" :key="label" type="button" disabled>{{ label }} · 待接入</button></div></div><p v-if="error" class="notice danger full">{{ error }}</p><button class="button primary full" :disabled="creating || Boolean(timeWarning)">{{ creating ? '发布中…' : '发车！' }}</button></form>
     </BaseModal>
     <BaseModal v-if="gameSubmitOpen" title="🕹️ 提交新游戏" @close="gameSubmitOpen = false"><p class="modal-sub">提交后进入管理员审核，重复名称会被合并。</p><form class="form-stack" @submit.prevent="submitGame"><label>游戏名称<input v-model.trim="gameSubmit.name" required maxlength="80" placeholder="官方名或常用简称均可" /></label><label>常见别名<input v-model.trim="gameSubmit.aliases" maxlength="500" placeholder="用 / 分隔，如：星穹铁道 / 星铁" /></label><p v-if="submitMessage" class="notice success">{{ submitMessage }}</p><button class="button primary">提交审核</button></form></BaseModal>
     <BaseModal v-if="runManager" title="场次记录与赛后评价" wide @close="runManager = null">
+      <p v-if="error" class="notice danger">{{ error }}</p>
+      <p v-if="teamActionNotice" class="notice" :class="teamActionFailed ? 'danger' : 'success'">{{ teamActionNotice }}</p>
       <div class="stack"><article v-for="run in runs" :key="run.id" class="card compact"><div class="card-head"><div><strong>{{ time(run.starts_at) }}</strong><p class="muted">{{ run.status }} · {{ run.member_count }} 名场次成员<span v-if="run.my_status"> · 我的状态 {{ run.my_status }}</span></p></div><div v-if="runManager.mine && run.status === 'scheduled'" class="actions"><button @click="editRun(runManager, run)">改时间</button><button @click="cancelRun(runManager, run)">取消本场</button></div></div><div v-if="new Date(run.starts_at).getTime() < Date.now()" class="actions"><button v-for="member in runManager.members.filter((x) => x.id !== auth.user?.id)" :key="member.id" @click="rate(runManager, run, member)">评价 {{ member.nickname }}</button></div></article><p v-if="!runs.length" class="empty-state">还没有场次记录。</p></div>
     </BaseModal>
   </section>

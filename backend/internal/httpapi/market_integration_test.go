@@ -296,6 +296,9 @@ func TestMarketTransactionRequiresTwoPartyCompletion(t *testing.T) {
 	if err := pool.QueryRow(context.Background(), "SELECT id FROM team_games WHERE active=true ORDER BY id LIMIT 1").Scan(&gameID); err != nil {
 		t.Fatal(err)
 	}
+	// createTeamRun 要求发车时间至少提前 10 分钟，而签到窗口是「发车后 30 分钟内」，
+	// 因此这里先按未来时间建队（走正常校验），再把场次时间改到刚刚过去，
+	// 以便在同一个用例里覆盖签到与奖励幂等。
 	teamStart := time.Now().UTC().Add(15 * time.Minute)
 	teamCreated := requestJSON(t, sellerClient, http.MethodPost, server.URL+"/api/v1/teams", map[string]any{"game_id": gameID, "mode": "集成测试", "capacity": 3, "starts_at": teamStart, "recurrence": "once", "reminder_channels": []string{"in_app"}}, sellerCSRF)
 	if teamCreated.StatusCode != http.StatusCreated {
@@ -320,21 +323,8 @@ func TestMarketTransactionRequiresTwoPartyCompletion(t *testing.T) {
 	if err := pool.QueryRow(context.Background(), "SELECT credit FROM users WHERE id=$1", sellerID).Scan(&creditBefore); err != nil {
 		t.Fatal(err)
 	}
-	for i := 0; i < 2; i++ {
-		checkedIn := requestJSON(t, sellerClient, http.MethodPost, fmt.Sprintf("%s/api/v1/teams/%d/runs/%d/check-in", server.URL, team.ID, team.NextRun.ID), nil, sellerCSRF)
-		if checkedIn.StatusCode != http.StatusOK {
-			t.Fatalf("owner check-in attempt %d: %d %s", i+1, checkedIn.StatusCode, readResponse(checkedIn))
-		}
-		checkedIn.Body.Close()
-	}
-	var creditAfter int
-	if err := pool.QueryRow(context.Background(), "SELECT credit FROM users WHERE id=$1", sellerID).Scan(&creditAfter); err != nil {
-		t.Fatal(err)
-	}
-	reward := creditDefault("reward.team_check_in")
-	if creditAfter-creditBefore != reward {
-		t.Fatalf("check-in reward applied more than once: before=%d after=%d reward=%d", creditBefore, creditAfter, reward)
-	}
+	// 请假只能发生在发车前；先覆盖重复请假的幂等性，再恢复成员状态，
+	// 让后面的签到奖励场景仍然有两名有效成员，避免两个断言互相污染。
 	var firstExcusedAt time.Time
 	for i := 0; i < 2; i++ {
 		excused := requestJSON(t, buyerClient, http.MethodPost, fmt.Sprintf("%s/api/v1/teams/%d/runs/%d/excuse", server.URL, team.ID, team.NextRun.ID), nil, buyerCSRF)
@@ -353,6 +343,29 @@ func TestMarketTransactionRequiresTwoPartyCompletion(t *testing.T) {
 		} else if !payload.ExcusedAt.Equal(firstExcusedAt) {
 			t.Fatalf("idempotent excuse changed timestamp: first=%s second=%s", firstExcusedAt, payload.ExcusedAt)
 		}
+	}
+	if _, err := pool.Exec(context.Background(), "UPDATE team_run_members SET status='joined',excused_at=NULL WHERE run_id=$1 AND user_id=$2", team.NextRun.ID, buyerID); err != nil {
+		t.Fatal(err)
+	}
+	// 把发车时间挪到 5 分钟前，进入签到窗口。签到奖励只在「已发车且本场成团（≥2 人）」时
+	// 发放，此时队里已有车头与买家两人。
+	if _, err := pool.Exec(context.Background(), "UPDATE team_runs SET starts_at=now()-interval '5 minutes' WHERE id=$1", team.NextRun.ID); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ {
+		checkedIn := requestJSON(t, sellerClient, http.MethodPost, fmt.Sprintf("%s/api/v1/teams/%d/runs/%d/check-in", server.URL, team.ID, team.NextRun.ID), nil, sellerCSRF)
+		if checkedIn.StatusCode != http.StatusOK {
+			t.Fatalf("owner check-in attempt %d: %d %s", i+1, checkedIn.StatusCode, readResponse(checkedIn))
+		}
+		checkedIn.Body.Close()
+	}
+	var creditAfter int
+	if err := pool.QueryRow(context.Background(), "SELECT credit FROM users WHERE id=$1", sellerID).Scan(&creditAfter); err != nil {
+		t.Fatal(err)
+	}
+	reward := creditDefault("reward.team_check_in")
+	if creditAfter-creditBefore != reward {
+		t.Fatalf("check-in reward applied more than once: before=%d after=%d reward=%d", creditBefore, creditAfter, reward)
 	}
 	secondRun := requestJSON(t, sellerClient, http.MethodPost, fmt.Sprintf("%s/api/v1/teams/%d/runs", server.URL, team.ID), map[string]any{"starts_at": time.Now().UTC().Add(2 * time.Hour)}, sellerCSRF)
 	if secondRun.StatusCode != http.StatusCreated {

@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
-import { api, json } from '../api'
+import { api, json, setUnauthorizedHandler } from '../api'
 import type { AuthMode, CreditRuleSet, User } from '../types'
 import { appConfig } from '../config'
 
@@ -15,6 +15,7 @@ const defaultCreditRules: CreditRuleSet = {
     'threshold.listing_publish': 700,
     'threshold.contact_publish': 700,
     'threshold.observe_publish': 750,
+    'threshold.observe_unmask': 900,
     'threshold.high_credit': 800,
     'threshold.dm_unlimited': 850,
     'reward.team_check_in': 2,
@@ -71,8 +72,29 @@ export const useAuthStore = defineStore('auth', () => {
     authOpen.value = false
   }
 
+  // Set while a logout request is in flight so the global 401 handler stays quiet: an
+  // expired session makes POST /auth/logout return 401, and reacting to that by opening
+  // the login modal is the exact opposite of what the user just asked for.
+  let loggingOut = false
+
   async function logout() {
-    await api('/auth/logout', json('POST'))
+    loggingOut = true
+    try {
+      await api('/auth/logout', json('POST'))
+    } catch {
+      // An already-invalid session is still a successful logout from the user's point of
+      // view; fall through to clearing local state either way.
+    } finally {
+      loggingOut = false
+      clearSession()
+    }
+  }
+
+  // Drop local session state and tear down the notification stream. Handlers that revoke
+  // sessions server-side (change password, deactivate account) must call this rather than
+  // assigning user.value = null, which would leave the EventSource open and reconnecting
+  // every few seconds against an endpoint that now 401s.
+  function clearSession() {
     user.value = null
     connectNotifications()
   }
@@ -81,6 +103,19 @@ export const useAuthStore = defineStore('auth', () => {
     if (user.value) return true
     openAuth('login')
     return false
+  }
+
+  // Clear local session state and prompt re-login when any request 401s mid-session.
+  // No-ops while logged out, so the initial anonymous GET /me does not trigger it.
+  setUnauthorizedHandler(() => {
+    if (!user.value || loggingOut) return
+    clearSession()
+    openAuth('login')
+  })
+
+  async function agreeObserveUnmask() {
+    await api('/me/observe-unmask-agreement', json('POST'))
+    if (user.value) user.value.observe_unmask_agreed = true
   }
 
   function openAuth(mode: AuthMode = 'login') {
@@ -106,5 +141,5 @@ export const useAuthStore = defineStore('auth', () => {
     user.value.unread_messages = Math.max(0, messages)
   }
 
-  return { user, loading, authOpen, authMode, creditRules, isAdmin, canModerate, load, login, logout, requireLogin, openAuth, creditRule, acknowledgeMessages, setUnreadCounts }
+  return { user, loading, authOpen, authMode, creditRules, isAdmin, canModerate, load, login, logout, clearSession, requireLogin, openAuth, creditRule, acknowledgeMessages, setUnreadCounts, agreeObserveUnmask }
 })

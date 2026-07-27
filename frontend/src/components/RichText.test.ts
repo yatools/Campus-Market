@@ -16,4 +16,12 @@ describe('RichText', () => {
     expect(wrapper.html()).toContain('loading="lazy"')
     expect(wrapper.html()).not.toContain('tracker.example')
   })
+
+  it('strips dangerous link protocols and hardens outbound anchors', () => {
+    const wrapper = mount(RichText, { props: { content: '[点我](javascript:alert(1)) [外链](https://example.edu.cn/a)' } })
+    expect(wrapper.html()).not.toContain('javascript:')
+    // Every surviving link must be non-referring and non-endorsing.
+    expect(wrapper.html()).toContain('rel="noopener noreferrer nofollow"')
+    expect(wrapper.html()).toContain('target="_blank"')
+  })
 })

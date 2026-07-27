@@ -14,7 +14,9 @@
 <img width="1288" height="864" alt="image" src="https://github.com/user-attachments/assets/03a61014-981f-45d7-9f25-9551c024d318" />
 <img width="1279" height="869" alt="image" src="https://github.com/user-attachments/assets/ffb5c32d-45e0-46eb-a734-84486e6eeb7d" />
 
-文明观察台按理说按之前的原型要有个信用分大于多少且勾选【吃瓜不扩散协议】是能去码查看的，不过此处觉得有点问题还没做好，以后再说吧
+文明观察台的「去码查看」已实现：信用分达到 `threshold.observe_unmask`（默认 900，可在管理后台调整，但必须高于 `baseline.initial_credit`）
+且签署《吃瓜不扩散协议》后，可通过 `POST /observe-posts/{id}/reveal` 查看原文。每次去码都会写审计日志（审计写入失败则不下发原文），
+并按用户限流（10 次/小时、30 次/天）。列表与详情默认仍打码。
 
 <img width="1274" height="1032" alt="image" src="https://github.com/user-attachments/assets/fcb34640-d8f6-48b3-8de0-58b6d5d7f31f" />
 <img width="1626" height="397" alt="image" src="https://github.com/user-attachments/assets/9d8e40ea-3275-411a-acbf-ce6ea1d2c628" />
@@ -88,6 +90,8 @@ go run ./cmd/wutong migrate up
 go run ./cmd/wutong migrate status
 ```
 
+注意 `migrate down` 只回滚一个版本（goose 的语义），CI 的 `up → down → up` 因此只验证最新一个迁移的可逆性。
+
 验证迁移可逆性：
 
 ```powershell
@@ -140,8 +144,12 @@ npx playwright test
 ```bash
 cp .env.example .env
 chmod 600 .env
+# .env 中所有 replace-with-… 占位值必须替换，否则 deploy.sh 会拒绝部署。
+# 生成随机密钥：openssl rand -base64 36
 export TLS_EMAIL=admin@example.edu.cn
 sh deploy/bootstrap-tls.sh
+# 证书有效期 90 天，务必把续期加入宿主机 crontab（bootstrap-tls.sh 会打印这一行）：
+#   0 3 * * * cd /srv/wutong && sh deploy/renew-tls.sh >> /var/log/wutong-renew.log 2>&1
 sh deploy/deploy.sh ghcr.io/owner/repo/api@sha256:CI_DIGEST ghcr.io/owner/repo/worker@sha256:CI_DIGEST ghcr.io/owner/repo/web@sha256:CI_DIGEST
 ```
 
@@ -179,7 +187,11 @@ COMPOSE_FILE=docker-compose.yml:docker-compose.staging.yml \
 sh deploy/restore.sh /secure/path/wutong-backup-YYYYMMDD-HHMMSS.zip
 ```
 
-恢复脚本会拒绝不安全 ZIP 路径，校验 SHA-256 和 `pg_restore --list`，先恢复到临时数据库并验证迁移版本、关键表计数、外键与对象清单。验证成功后才短暂停写并重命名切换；切换后就绪检查失败会自动换回旧数据库。
+恢复脚本会拒绝不安全 ZIP 路径（含符号链接条目），校验 SHA-256 和 `pg_restore --list`，先恢复到临时数据库并验证迁移版本、**全部**关键表计数、外键与对象清单。验证成功后才短暂停写并重命名切换；切换后就绪检查失败会自动换回旧数据库。
+
+切换成功后**原数据库默认保留**为 `<库名>_rollback_<时间戳>`，便于误恢复（例如选错了归档文件）时回退——就绪检查只验证连通性、迁移版本和对象存储，无法识别「合法但过期」的备份。确认业务数据无误后再手工 `dropdb`，或在恢复时设置 `RESTORE_DROP_OLD=1` 自动删除。
+
+对象存储不包含在数据库备份包内（包里只有 `OBJECTS.tsv` 清单）。生产环境必须为 S3 bucket 单独启用版本控制与跨故障域复制，否则对象丢失后无法通过本备份恢复。
 
 ## 运维命令
 
@@ -194,7 +206,9 @@ sh deploy/restore.sh /secure/path/wutong-backup-YYYYMMDD-HHMMSS.zip
 
 ## 运行指标与告警
 
-`GET /metrics` 仅由内部网络抓取，不经 Nginx 对公网暴露。它提供 HTTP 延迟与状态、数据库连接池、Worker 作业、邮件 Outbox 和图片处理指标。`deploy/prometheus-alerts.yml` 包含 readiness、Worker 心跳、邮件失败、5xx 和备份失败的初始告警规则，阈值应按实际服务等级调整。查询性能基线及复测命令见 `deploy/query-plan-baselines.md`。
+`GET /metrics` 仅由内部网络抓取，不经 Nginx 对公网暴露。它提供 HTTP 延迟与状态、数据库连接池、邮件 Outbox 和图片处理指标。
+
+**Worker 是独立进程、不监听 HTTP**，它的进程内计数器不会被抓取。因此 Worker 心跳与备份新鲜度由 API 从数据库导出：`worker_heartbeat_last_success_timestamp_seconds`、`backup_last_success_timestamp_seconds`。`deploy/prometheus-alerts.yml` 中的告警基于这些指标，并为每一项配了 `absent()` 兜底——否则指标消失时表达式求值为空向量，告警永远不会触发。`deploy/prometheus-alerts.yml` 包含 readiness、Worker 心跳、邮件失败、5xx 和备份失败的初始告警规则，阈值应按实际服务等级调整。查询性能基线及复测命令见 `deploy/query-plan-baselines.md`。
 
 部署只接受 CI 已扫描并发布的不可变镜像 digest。`deploy/deploy.sh` 会将上一个 digest 保存到 `.deploy-state/previous.env`，并在新的 API 未通过 readiness 时恢复上一版本。
 

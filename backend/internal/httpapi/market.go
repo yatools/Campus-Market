@@ -417,6 +417,19 @@ func (s *Server) updateMarketListing(w http.ResponseWriter, r *http.Request) err
 	if !marketpolicy.ListingEditable(l.TradeStatus) {
 		return apiError(409, "LISTING_NOT_EDITABLE", "只有在售商品可以编辑")
 	}
+	// A listing keeps trade_status='available' while buyers' requests are outstanding, so
+	// the seller could raise the price after someone applied. Nothing recorded the agreed
+	// price — content_revisions only tracks title and description — leaving the buyer with
+	// no way to show what they signed up for. Block price changes while a request is live.
+	if body.PriceCents != nil && *body.PriceCents != l.PriceCents {
+		var pending bool
+		if err := tx.QueryRow(r.Context(), "SELECT EXISTS(SELECT 1 FROM market_transactions WHERE listing_id=$1 AND status IN ('requested','reserved','disputed'))", l.ID).Scan(&pending); err != nil {
+			return err
+		}
+		if pending {
+			return apiError(409, "LISTING_HAS_PENDING_REQUEST", "已有买家申请时不能修改价格")
+		}
+	}
 	if body.CategoryID != nil {
 		l.CategoryID = *body.CategoryID
 	}
@@ -521,11 +534,13 @@ func (s *Server) cancelMarketListing(w http.ResponseWriter, r *http.Request) err
 	if l.OwnerID != user.ID {
 		return apiError(403, "NOT_SELLER", "只有卖家可以取消商品")
 	}
-	if !marketpolicy.ListingCancellable(l.TradeStatus) {
-		return apiError(409, "INVALID_LISTING_TRANSITION", "当前商品状态不能取消")
-	}
+	// 更具体的 ACTIVE_TRANSACTION 必须先判断：ListingCancellable 现在只允许 available，
+	// 若先跑它，reserved 会被归为笼统的 INVALID_LISTING_TRANSITION，用户拿不到「先处理预留交易」的指引。
 	if l.TradeStatus == "reserved" {
 		return apiError(409, "ACTIVE_TRANSACTION", "请先取消预留交易或发起纠纷")
+	}
+	if !marketpolicy.ListingCancellable(l.TradeStatus) {
+		return apiError(409, "INVALID_LISTING_TRANSITION", "当前商品状态不能取消")
 	}
 	if _, err := tx.Exec(r.Context(), "UPDATE listings SET trade_status='cancelled' WHERE entity_id=$1", id); err != nil {
 		return err
@@ -749,6 +764,24 @@ func (s *Server) acceptMarketTransaction(w http.ResponseWriter, r *http.Request)
 		return err
 	}
 	defer tx.Rollback(r.Context())
+	// Lock order: listings (and its content_entities row) first, then market_transactions.
+	// requestMarketTransaction takes the listing lock first, so taking the transaction lock
+	// first here closed a cycle: accepting two competing requests on the same listing
+	// concurrently deadlocked (40P01) and surfaced to the seller as a 500.
+	var listingID int64
+	switch err := tx.QueryRow(r.Context(), "SELECT listing_id FROM market_transactions WHERE id=$1", id).Scan(&listingID); {
+	case err == pgx.ErrNoRows:
+		return apiError(404, "TRANSACTION_NOT_FOUND", "交易不存在")
+	case err != nil:
+		return err
+	}
+	listing, err := s.loadMarketListingForUpdate(r.Context(), tx, listingID)
+	if err == pgx.ErrNoRows {
+		return apiError(404, "LISTING_NOT_FOUND", "商品不存在")
+	}
+	if err != nil {
+		return err
+	}
 	t, err := loadMarketTransactionForUpdate(r.Context(), tx, id)
 	if err == pgx.ErrNoRows {
 		return apiError(404, "TRANSACTION_NOT_FOUND", "交易不存在")
@@ -762,11 +795,10 @@ func (s *Server) acceptMarketTransaction(w http.ResponseWriter, r *http.Request)
 	if !marketpolicy.RequestEndable(t.Status) {
 		return apiError(409, "INVALID_TRANSACTION_TRANSITION", "申请当前不能接受")
 	}
-	listing, err := s.loadMarketListingForUpdate(r.Context(), tx, t.ListingID)
-	if err != nil {
-		return err
-	}
-	if listing.TradeStatus != "available" {
+	// Re-check publication and moderation state, not just trade_status. Checking only
+	// trade_status let a listing that had since been hidden or rejected by a moderator go
+	// on to complete, counting towards the seller's public completed_sales and rating.
+	if !marketpolicy.ListingRequestable(listing.TradeStatus, listing.PublicationStatus, listing.ModerationStatus) {
 		return apiError(409, "LISTING_NOT_AVAILABLE", "商品已不可预订")
 	}
 	reservedUntil := time.Now().UTC().Add(s.Config.MarketReservationTTL)
@@ -941,7 +973,11 @@ func (s *Server) confirmMarketTransaction(w http.ResponseWriter, r *http.Request
 	if !marketpolicy.Confirmable(t.Status) {
 		return apiError(409, "INVALID_TRANSACTION_TRANSITION", "交易当前不能确认")
 	}
-	if t.ReservedUntil != nil && t.ReservedUntil.Before(time.Now()) {
+	// Only expire a reservation that neither side has confirmed. If one party already
+	// confirmed the hand-over, "expired" is a terminal state with no dispute, no review and
+	// no admin ruling available — the counterparty who already paid would have had no
+	// recourse at all, while the listing went straight back on sale.
+	if t.ReservedUntil != nil && t.ReservedUntil.Before(time.Now()) && t.BuyerConfirmedAt == nil && t.SellerConfirmedAt == nil {
 		_, _ = tx.Exec(r.Context(), "UPDATE market_transactions SET status='expired',updated_at=now() WHERE id=$1", id)
 		_, _ = tx.Exec(r.Context(), "UPDATE listings SET trade_status='available' WHERE entity_id=$1", t.ListingID)
 		if err := tx.Commit(r.Context()); err != nil {
@@ -1047,24 +1083,36 @@ func (s *Server) attachMarketEvidence(ctx context.Context, tx pgx.Tx, userID, di
 	if len(ids) == 0 {
 		return nil
 	}
+	unique := map[int64]bool{}
+	for _, id := range ids {
+		unique[id] = true
+	}
 	rows, err := tx.Query(ctx, "SELECT id FROM attachments WHERE id=ANY($1) AND owner_id=$2 AND status='pending' AND access_scope='market_dispute' FOR UPDATE", ids, userID)
 	if err != nil {
 		return err
 	}
+	defer rows.Close()
 	found := map[int64]bool{}
 	for rows.Next() {
 		var id int64
 		if err := rows.Scan(&id); err != nil {
-			rows.Close()
 			return err
 		}
 		found[id] = true
 	}
+	// Check rows.Err() before concluding anything from the row count: a mid-stream failure
+	// would otherwise be reported to the user as "evidence does not belong to you", hiding
+	// a database fault behind a validation error at the worst possible moment.
+	if err := rows.Err(); err != nil {
+		return err
+	}
 	rows.Close()
-	if len(found) != len(ids) {
+	// Compare against the de-duplicated set so submitting the same id twice is not
+	// mistaken for a missing attachment.
+	if len(found) != len(unique) {
 		return apiError(400, "INVALID_EVIDENCE", "证据不存在、已使用或不属于当前用户")
 	}
-	for _, id := range ids {
+	for id := range unique {
 		if _, err := tx.Exec(ctx, "UPDATE attachments SET status='attached' WHERE id=$1", id); err != nil {
 			return err
 		}
@@ -1239,6 +1287,13 @@ func (s *Server) decideMarketDispute(w http.ResponseWriter, r *http.Request) err
 	t, err := loadMarketTransactionForUpdate(r.Context(), tx, transactionID)
 	if err != nil {
 		return err
+	}
+	// A moderator must recuse themselves from their own trades. The ruling is final —
+	// DisputeDecidable requires status 'disputed', and deciding moves the transaction out
+	// of it — so a moderator who is also the buyer or seller could settle their own dispute
+	// in their favour with no appeal path for the other party.
+	if moderator.ID == t.BuyerID || moderator.ID == t.SellerID {
+		return apiError(403, "DISPUTE_SELF_DEALING", "不能裁决自己参与的交易纠纷")
 	}
 	if !marketpolicy.DisputeDecidable(status, t.Status) {
 		return apiError(409, "INVALID_TRANSACTION_TRANSITION", "交易不在纠纷状态")

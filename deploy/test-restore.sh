@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 TMP=$(mktemp -d)
 export ENV_FILE="$TMP/restore.env"
 export COMPOSE_PROJECT_NAME="wutong-restore-ci"
@@ -94,15 +94,33 @@ compose exec -T db psql -U wutong -d wutong -v ON_ERROR_STOP=1 -c \
 ARCHIVE_DIR="$TMP/archive"
 mkdir -p "$ARCHIVE_DIR"
 compose exec -T db pg_dump -U wutong -d wutong --format=custom >"$ARCHIVE_DIR/database.dump"
+# 至少写两行：restore.sh 的表计数循环曾被 `docker compose exec -T` 吃掉 stdin，
+# 只校验了第一张表就静默结束。单行清单恰好掩盖了这个缺陷，因此这里必须多于一行。
 USER_COUNT=$(compose exec -T db psql -U wutong -d wutong -Atqc "SELECT count(*) FROM users")
-printf 'users\t%s\n' "$USER_COUNT" >"$ARCHIVE_DIR/TABLE_COUNTS.tsv"
+ENTITY_COUNT=$(compose exec -T db psql -U wutong -d wutong -Atqc "SELECT count(*) FROM content_entities")
+ATTACHMENT_COUNT=$(compose exec -T db psql -U wutong -d wutong -Atqc "SELECT count(*) FROM attachments")
+{
+  printf 'users\t%s\n' "$USER_COUNT"
+  printf 'content_entities\t%s\n' "$ENTITY_COUNT"
+  printf 'attachments\t%s\n' "$ATTACHMENT_COUNT"
+} >"$ARCHIVE_DIR/TABLE_COUNTS.tsv"
 (
   cd "$ARCHIVE_DIR"
   sha256sum database.dump TABLE_COUNTS.tsv >SHA256SUMS
   zip -q "$TMP/restore.zip" database.dump TABLE_COUNTS.tsv SHA256SUMS
 )
 
-ENV_FILE="$ENV_FILE" sh deploy/restore.sh "$TMP/restore.zip"
+RESTORE_OUTPUT=$(ENV_FILE="$ENV_FILE" sh deploy/restore.sh "$TMP/restore.zip" 2>&1 | tee /dev/stderr)
+# 断言三张表都被校验过，而不是只校验了第一张。
+echo "$RESTORE_OUTPUT" | grep -Fq "已校验 3 张表的行数" || {
+  echo "恢复流程没有校验全部表计数（表计数循环可能又被 stdin 吞掉了）" >&2
+  exit 1
+}
+# 原生产库默认保留，便于误恢复后回退。
+echo "$RESTORE_OUTPUT" | grep -Fq "原数据库已保留为" || {
+  echo "恢复完成后未保留原数据库" >&2
+  exit 1
+}
 RESTORED=$(compose exec -T db psql -U wutong -d wutong -Atqc "SELECT name FROM market_categories ORDER BY id LIMIT 1")
 test "$RESTORED" = "archive-state"
 

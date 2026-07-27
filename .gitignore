@@ -25,3 +25,16 @@ certbot/
 backend/bin/
 backend/coverage.out
 backend/wutong.exe
+
+# tsc 从 vite.config.ts 生成的产物。它们曾被误提交，而 Vite 的配置查找顺序是
+# vite.config.js 先于 vite.config.ts，于是 npm run dev 用的是缺少 /app-config.json
+# 代理的旧配置，前端启动后直接停在 loadAppConfig 的报错上。
+frontend/vite.config.js
+frontend/vite.config.d.ts
+# 部署运行态与本地产物
+.deploy-state/
+query-plans.json
+backend/*.coverage.out
+*.pem
+*.key
+wutong-backup-*.zip

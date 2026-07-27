@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -234,8 +235,11 @@ func (s *Server) adminListGameSubmissions(w http.ResponseWriter, r *http.Request
 		_ = json.Unmarshal(aliases, &list)
 		items = append(items, map[string]any{"id": id, "submitter_id": submitter, "name": name, "aliases": list, "status": state, "resolved_game_id": resolved, "admin_note": note, "created_at": created, "reviewed_at": reviewed})
 	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
 	writeJSON(w, 200, pagePayload(items, page, size, total))
-	return rows.Err()
+	return nil
 }
 func (s *Server) decideGameSubmission(w http.ResponseWriter, r *http.Request) error {
 	admin, err := s.adminUser(w, r)
@@ -438,8 +442,11 @@ func (s *Server) listTeams(w http.ResponseWriter, r *http.Request) error {
 		}
 		items = append(items, map[string]any{"id": team.ID, "game": team.Game, "game_id": team.GameID, "mode": team.Mode, "rank_requirement": team.Rank, "capacity": team.Capacity, "owner": owner, "completion_rate": completion, "rating_tags": ratings, "voice_name": team.VoiceName, "voice_link": voiceLink, "notes": team.Notes, "newbie_level": team.Newbie, "vibe": team.Vibe, "reminder_channels": splitCSV(team.Channels), "my_reminder_channels": splitCSV(myChannelCSV), "recurrence": team.Recurrence, "reminder_minutes": team.Reminder, "post_departure_retention_minutes": team.Retention, "status": team.Status, "content_status": contentStatus, "next_run": next, "members": members, "member_count": len(members), "joined": joined, "mine": viewer.ID != 0 && team.OwnerID == viewer.ID, "created_at": created})
 	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
 	writeJSON(w, 200, pagePayload(items, page, size, total))
-	return rows.Err()
+	return nil
 }
 
 func (s *Server) createTeam(w http.ResponseWriter, r *http.Request) error {
@@ -469,6 +476,10 @@ func (s *Server) createTeam(w http.ResponseWriter, r *http.Request) error {
 	}
 	applyTeamDefaults(&body)
 	if err := validateTeamCreate(body.Mode, body.Capacity, body.Starts, body.Recurrence, body.Channels, body.Reminder, body.Retention); err != nil {
+		return err
+	}
+	voiceLink, err := validVoiceLink(body.VoiceLink)
+	if err != nil {
 		return err
 	}
 	tx, err := s.DB.Begin(r.Context())
@@ -501,7 +512,7 @@ func (s *Server) createTeam(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	_, err = tx.Exec(r.Context(), `INSERT INTO teams(entity_id,owner_id,game_id,game,mode,rank_requirement,capacity,voice_name,voice_link,notes,newbie_level,vibe,reminder_channels,recurrence,reminder_minutes,post_departure_retention_minutes,status) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,'active')`, entity.ID, user.ID, gameID, gameName, strings.TrimSpace(body.Mode), strings.TrimSpace(body.Rank), body.Capacity, strings.TrimSpace(body.VoiceName), strings.TrimSpace(body.VoiceLink), strings.TrimSpace(body.Notes), strings.TrimSpace(body.Newbie), strings.TrimSpace(body.Vibe), strings.Join(body.Channels, ","), body.Recurrence, body.Reminder, body.Retention)
+	_, err = tx.Exec(r.Context(), `INSERT INTO teams(entity_id,owner_id,game_id,game,mode,rank_requirement,capacity,voice_name,voice_link,notes,newbie_level,vibe,reminder_channels,recurrence,reminder_minutes,post_departure_retention_minutes,status) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,'active')`, entity.ID, user.ID, gameID, gameName, strings.TrimSpace(body.Mode), strings.TrimSpace(body.Rank), body.Capacity, strings.TrimSpace(body.VoiceName), voiceLink, strings.TrimSpace(body.Notes), strings.TrimSpace(body.Newbie), strings.TrimSpace(body.Vibe), strings.Join(body.Channels, ","), body.Recurrence, body.Reminder, body.Retention)
 	if err != nil {
 		return err
 	}
@@ -518,7 +529,7 @@ func (s *Server) createTeam(w http.ResponseWriter, r *http.Request) error {
 	}
 	actor := user.ID
 	_ = auditSQL(r.Context(), tx, &actor, "team.create", "team", entity.ID, "", nil, nil, requestID(r.Context()))
-	team := Team{ID: entity.ID, OwnerID: user.ID, GameID: &gameID, Game: gameName, Mode: strings.TrimSpace(body.Mode), Rank: strings.TrimSpace(body.Rank), Capacity: body.Capacity, VoiceName: strings.TrimSpace(body.VoiceName), VoiceLink: strings.TrimSpace(body.VoiceLink), Notes: strings.TrimSpace(body.Notes), Newbie: strings.TrimSpace(body.Newbie), Vibe: strings.TrimSpace(body.Vibe), Channels: strings.Join(body.Channels, ","), Recurrence: body.Recurrence, Reminder: body.Reminder, Retention: body.Retention, Status: "active"}
+	team := Team{ID: entity.ID, OwnerID: user.ID, GameID: &gameID, Game: gameName, Mode: strings.TrimSpace(body.Mode), Rank: strings.TrimSpace(body.Rank), Capacity: body.Capacity, VoiceName: strings.TrimSpace(body.VoiceName), VoiceLink: voiceLink, Notes: strings.TrimSpace(body.Notes), Newbie: strings.TrimSpace(body.Newbie), Vibe: strings.TrimSpace(body.Vibe), Channels: strings.Join(body.Channels, ","), Recurrence: body.Recurrence, Reminder: body.Reminder, Retention: body.Retention, Status: "active"}
 	payload, err := s.teamPayloadTx(r.Context(), tx, team, &user)
 	if err != nil {
 		return err
@@ -593,8 +604,11 @@ func (s *Server) listTeamRuns(w http.ResponseWriter, r *http.Request) error {
 		}
 		items = append(items, payload)
 	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
 	writeJSON(w, 200, pagePayload(items, page, size, total))
-	return rows.Err()
+	return nil
 }
 
 func (s *Server) createTeamRun(w http.ResponseWriter, r *http.Request) error {
@@ -623,6 +637,11 @@ func (s *Server) createTeamRun(w http.ResponseWriter, r *http.Request) error {
 	team, err := s.loadTeam(r.Context(), tx, teamID)
 	if err != nil || team.OwnerID != user.ID || team.Status != "active" {
 		return apiError(403, "OWNER_REQUIRED", "只有车头可以新增场次")
+	}
+	// Cap run creation. Runs are the unit that grants check-in credit, so an unbounded
+	// create loop is a credit printing press (see checkInTeamRun).
+	if err := checkRateLimitSQL(r.Context(), tx, "team_run_create", strconv.FormatInt(user.ID, 10), 8, 24*60); err != nil {
+		return err
 	}
 	var existingID int64
 	err = tx.QueryRow(r.Context(), "SELECT id FROM team_runs WHERE team_id=$1 AND starts_at=$2", teamID, body.Starts).Scan(&existingID)
@@ -793,8 +812,11 @@ func (s *Server) teamMemberHistory(w http.ResponseWriter, r *http.Request) error
 	if size == 0 {
 		size = 20
 	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
 	writeJSON(w, 200, pagePayload(items, 1, size, len(items)))
-	return rows.Err()
+	return nil
 }
 
 func (s *Server) getTeam(w http.ResponseWriter, r *http.Request) error {
@@ -850,7 +872,10 @@ func (s *Server) updateTeam(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	defer tx.Rollback(r.Context())
-	team, err := s.loadTeam(r.Context(), tx, teamID)
+	// loadTeamForUpdate, not loadTeam: the capacity check below counts active members and
+	// the UPDATE happens later. Without the row lock a concurrent join could slip in
+	// between, leaving the team with more members than its (newly lowered) capacity.
+	team, err := s.loadTeamForUpdate(r.Context(), tx, teamID)
 	if err == pgx.ErrNoRows {
 		return apiError(404, "TEAM_NOT_FOUND", "车队不存在")
 	}
@@ -883,6 +908,13 @@ func (s *Server) updateTeam(w http.ResponseWriter, r *http.Request) error {
 			}
 			*dest = strings.TrimSpace(x)
 		}
+	}
+	if _, ok := raw["voice_link"]; ok {
+		v, verr := validVoiceLink(team.VoiceLink)
+		if verr != nil {
+			return verr
+		}
+		team.VoiceLink = v
 	}
 	if v, ok := raw["capacity"]; ok {
 		var x int
@@ -1188,8 +1220,21 @@ func (s *Server) checkInTeamRun(w http.ResponseWriter, r *http.Request) error {
 	if err != nil || run.TeamID != teamID {
 		return apiError(404, "RUN_NOT_FOUND", "发车场次不存在")
 	}
-	if mathAbs(time.Until(run.Starts).Seconds()) > 1800 {
-		return apiError(400, "OUTSIDE_CHECKIN_WINDOW", "仅可在发车前后 30 分钟签到")
+	// Check-in awards credit, so it needs the same guards as any other reward path.
+	// Previously it looked only at the clock: a team owner could create a run 11 minutes
+	// out, check in immediately, and repeat — credit_awarded is per (run, user), so every
+	// new run reset it. Two requests bought 2 points, with no rate limit, which let any
+	// account reach the 1000 cap and walk through every credit threshold on the site.
+	if run.Status != "scheduled" {
+		return apiError(409, "RUN_NOT_ACTIVE", "该场次已取消或结束")
+	}
+	team, err := s.loadTeam(r.Context(), tx, teamID)
+	if err != nil || team.Status != "active" {
+		return apiError(409, "TEAM_NOT_ACTIVE", "车队已解散或取消")
+	}
+	// Only after the run has actually departed, and only within 30 minutes of it.
+	if time.Now().UTC().Before(run.Starts) || time.Since(run.Starts) > 30*time.Minute {
+		return apiError(400, "OUTSIDE_CHECKIN_WINDOW", "仅可在发车后 30 分钟内签到")
 	}
 	var memberID int64
 	var checked *time.Time
@@ -1205,11 +1250,25 @@ func (s *Server) checkInTeamRun(w http.ResponseWriter, r *http.Request) error {
 	}
 	delta := 0
 	if !awarded {
-		delta, err = s.applyCredit(r.Context(), tx, user.ID, "reward.team_check_in", "team_run", runID)
-		if err != nil {
+		// A run only counts as a real run if somebody else showed up too. Note this only
+		// skips the reward — the check-in itself is still recorded, because returning an
+		// error here would roll back the checked_in_at written just above and the member
+		// would have no record of having shown up at all.
+		var attendees int
+		if err := tx.QueryRow(r.Context(), "SELECT count(*) FROM team_run_members WHERE run_id=$1 AND status IN ('joined','checked_in')", runID).Scan(&attendees); err != nil {
 			return err
 		}
-		_, _ = tx.Exec(r.Context(), "UPDATE team_run_members SET credit_awarded=true WHERE id=$1", memberID)
+		if attendees >= 2 {
+			// Daily cap as a second line of defence against reward farming.
+			if err := checkRateLimitSQL(r.Context(), tx, "team_check_in_day", strconv.FormatInt(user.ID, 10), 4, 24*60); err != nil {
+				return err
+			}
+			delta, err = s.applyCredit(r.Context(), tx, user.ID, "reward.team_check_in", "team_run", runID)
+			if err != nil {
+				return err
+			}
+			_, _ = tx.Exec(r.Context(), "UPDATE team_run_members SET credit_awarded=true WHERE id=$1", memberID)
+		}
 	}
 	_, _ = tx.Exec(r.Context(), "UPDATE content_entities SET updated_at=now() WHERE id=$1", teamID)
 	if err := tx.Commit(r.Context()); err != nil {
@@ -1284,7 +1343,16 @@ func (s *Server) removeTeamMember(w http.ResponseWriter, r *http.Request) error 
 	if memberID == team.OwnerID {
 		return apiError(400, "CANNOT_REMOVE_OWNER", "不能移除车头")
 	}
-	_, _ = tx.Exec(r.Context(), "UPDATE team_memberships SET status='removed',left_at=now() WHERE team_id=$1 AND user_id=$2 AND status='active'", teamID, memberID)
+	// Check that the target actually is a member before notifying. Discarding RowsAffected
+	// meant "remove" against any user id in the system still delivered a personalised
+	// "you have been removed from <team>" notification — a free targeted-message channel.
+	tag, err := tx.Exec(r.Context(), "UPDATE team_memberships SET status='removed',left_at=now() WHERE team_id=$1 AND user_id=$2 AND status='active'", teamID, memberID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return apiError(404, "MEMBER_NOT_FOUND", "该用户不是本车队成员")
+	}
 	if run, err := s.currentRun(r.Context(), tx, teamID); err == nil {
 		_, _ = tx.Exec(r.Context(), "UPDATE team_run_members SET status='removed' WHERE run_id=$1 AND user_id=$2", run.ID, memberID)
 	}
@@ -1321,6 +1389,11 @@ func (s *Server) cancelTeam(w http.ResponseWriter, r *http.Request) error {
 	}
 	_, _ = tx.Exec(r.Context(), "UPDATE content_entities SET publication_status='hidden',updated_at=now() WHERE id=$1", teamID)
 	_, _ = tx.Exec(r.Context(), "UPDATE team_runs SET status='cancelled' WHERE team_id=$1 AND status='scheduled'", teamID)
+	// Also cancel the per-run membership rows. checkInTeamRun keys off team_run_members,
+	// so leaving them 'joined' let members of a disbanded team still check in and collect
+	// the credit reward (updateTeamRun already does this when cancelling a single run).
+	_, _ = tx.Exec(r.Context(), `UPDATE team_run_members SET status='cancelled' FROM team_runs r
+		WHERE r.id=team_run_members.run_id AND r.team_id=$1 AND team_run_members.status NOT IN ('left','removed')`, teamID)
 	_, _ = tx.Exec(r.Context(), "UPDATE team_memberships SET status='cancelled',left_at=now() WHERE team_id=$1 AND status='active'", teamID)
 	for _, id := range members {
 		_ = notifySQL(r.Context(), tx, id, "车队已取消", team.Game+" · "+team.Mode+" 已取消", "/teams", "team")
@@ -1368,6 +1441,11 @@ func (s *Server) rateTeamMember(w http.ResponseWriter, r *http.Request) error {
 	run, err := s.loadRun(r.Context(), tx, runID)
 	if err != nil || run.TeamID != teamID || time.Now().UTC().Before(run.Starts) {
 		return apiError(400, "RATING_NOT_OPEN", "发车后才能评价")
+	}
+	// A cancelled run never happened; ratings from it would still feed the owner's public
+	// rating_tags.
+	if run.Status == "cancelled" {
+		return apiError(409, "RUN_NOT_ACTIVE", "该场次已取消，无法评价")
 	}
 	var count int
 	_ = tx.QueryRow(r.Context(), "SELECT count(*) FROM team_run_members WHERE run_id=$1 AND user_id=ANY($2) AND status=ANY($3)", runID, []int64{user.ID, body.Target}, []string{"joined", "checked_in", "excused"}).Scan(&count)
@@ -1446,6 +1524,9 @@ func (s *Server) teamPayloadQ(ctx context.Context, q queryer, t Team, viewer *Us
 	if err != nil {
 		return nil, err
 	}
+	// defer Close: returning from inside the loop with the cursor open leaves the pgx.Tx
+	// connection busy, and every subsequent statement in that transaction fails.
+	defer rows.Close()
 	members := []any{}
 	joined := false
 	myChannels := []string{}
@@ -1463,12 +1544,16 @@ func (s *Server) teamPayloadQ(ctx context.Context, q queryer, t Team, viewer *Us
 			myChannels = splitCSV(channels)
 		}
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 	rows.Close()
 	tags := map[string]int{}
 	ratingRows, err := q.Query(ctx, "SELECT tag,count(*) FROM team_ratings WHERE target_id=$1 GROUP BY tag", t.OwnerID)
 	if err != nil {
 		return nil, err
 	}
+	defer ratingRows.Close()
 	for ratingRows.Next() {
 		var tag string
 		var count int
@@ -1476,6 +1561,9 @@ func (s *Server) teamPayloadQ(ctx context.Context, q queryer, t Team, viewer *Us
 			return nil, err
 		}
 		tags[tag] = count
+	}
+	if err := ratingRows.Err(); err != nil {
+		return nil, err
 	}
 	ratingRows.Close()
 	var completed, cancelled int
@@ -1652,6 +1740,39 @@ func (s *Server) applyCredit(ctx context.Context, tx pgx.Tx, userID int64, key, 
 	return applied, nil
 }
 
+// validVoiceLink trims and validates a team voice-channel link. Empty is allowed;
+// anything present must be an http(s) URL so it can never be rendered as a
+// javascript:/data: href on the client — the team detail page binds voice_link
+// straight into an <a href>, making a non-http scheme a stored-XSS vector.
+func validVoiceLink(raw string) (string, error) {
+	v := strings.TrimSpace(raw)
+	if v == "" {
+		return "", nil
+	}
+	if len([]rune(v)) > 500 {
+		return "", validation("voice_link", "String should have at most 500 characters")
+	}
+	// Reject control characters outright: they serve no purpose in a URL and are the raw
+	// material for header/attribute injection further downstream.
+	if strings.ContainsAny(v, "\r\n\t") {
+		return "", apiError(400, "INVALID_VOICE_LINK", "语音频道链接包含非法字符")
+	}
+	// Parse rather than prefix-match, so "https://" followed by anything at all no longer
+	// counts as a URL and userinfo tricks like https://discord.gg@evil.example are rejected.
+	parsed, err := url.Parse(v)
+	if err != nil {
+		return "", apiError(400, "INVALID_VOICE_LINK", "语音频道链接格式无效")
+	}
+	scheme := strings.ToLower(parsed.Scheme)
+	if scheme != "http" && scheme != "https" {
+		return "", apiError(400, "INVALID_VOICE_LINK", "语音频道链接必须以 http:// 或 https:// 开头")
+	}
+	if parsed.Host == "" || parsed.User != nil {
+		return "", apiError(400, "INVALID_VOICE_LINK", "语音频道链接格式无效")
+	}
+	return v, nil
+}
+
 func validateTeamCreate(mode string, capacity int, starts time.Time, recurrence string, channels []string, reminder, retention int) error {
 	fields := map[string]string{}
 	if runeLen(mode) == 0 || runeLen(mode) > 80 {
@@ -1759,6 +1880,25 @@ func cleanStrings(values []string, max int) []string {
 	}
 	return out
 }
+
+// joinTags renders a tag list for storage in a VARCHAR(300) column, dropping tags that
+// would push the joined value past the limit. Per-tag length caps do not bound the joined
+// result — eight 80-character tags produced a 647-character string, and PostgreSQL
+// rejected it with 22001, which the API reported as an opaque 500.
+func joinTags(values []string, maxTagRunes, maxTotalRunes int) string {
+	joined := ""
+	for _, tag := range cleanStrings(values, maxTagRunes) {
+		candidate := tag
+		if joined != "" {
+			candidate = joined + "," + tag
+		}
+		if runeLen(candidate) > maxTotalRunes {
+			break
+		}
+		joined = candidate
+	}
+	return joined
+}
 func splitCSV(v string) []string {
 	out := []string{}
 	for _, x := range strings.Split(v, ",") {
@@ -1812,12 +1952,6 @@ func int64Rows(ctx context.Context, q queryer, sql string, args ...any) ([]int64
 		out = append(out, v)
 	}
 	return out, rows.Err()
-}
-func mathAbs(v float64) float64 {
-	if v < 0 {
-		return -v
-	}
-	return v
 }
 func mathRound(v float64) float64 {
 	if v >= 0 {

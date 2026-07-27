@@ -7,5 +7,5 @@ const visible = computed(() => (props.attachments || []).filter((item) => !(prop
 </script>
 
 <template>
-  <div v-if="visible.length" class="media-grid"><a v-for="item in visible" :key="item.id" :href="item.url" target="_blank" rel="noopener"><img :src="item.thumbnail_url" alt="内容附件" loading="lazy" /></a></div>
+  <div v-if="visible.length" class="media-grid"><a v-for="item in visible" :key="item.id" :href="item.url" target="_blank" rel="noopener noreferrer"><img :src="item.thumbnail_url" alt="内容附件" loading="lazy" /></a></div>
 </template>

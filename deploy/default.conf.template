@@ -1,11 +1,20 @@
 limit_req_zone $binary_remote_addr zone=api_limit:10m rate=20r/s;
 limit_req_zone $binary_remote_addr zone=auth_limit:10m rate=60r/m;
 limit_req_zone $binary_remote_addr zone=code_limit:10m rate=20r/m;
+# SSE streams are long-lived connections; cap them per client so one browser cannot exhaust
+# worker_connections and the matching goroutines on the API.
+limit_conn_zone $binary_remote_addr zone=perip:10m;
+# limit_req answers 503 by default, which is indistinguishable from a real server fault in
+# both the 5xx alert and the logs. 429 is the correct status for throttling.
+limit_req_status 429;
+limit_conn_status 429;
 
-# 树洞位于站点根路由；宁可整体禁止该页面抓取，也不让匿名内容被索引。
+# 树洞（匿名内容）在 /treehole，不是站点根路由——根路由是 Dashboard。
+# 之前这里把 noindex 加在了 "/" 上：首页被禁止索引，而匿名树洞照常被收录，
+# 与产品「匿名帖默认不被搜索引擎收录」的承诺正好相反。
 map $uri $robots_tag {
     default "";
-    "/" "noindex, nofollow";
+    "~^/treehole" "noindex, nofollow";
 }
 
 upstream wutong_api {
@@ -13,33 +22,68 @@ upstream wutong_api {
     keepalive 32;
 }
 
+# nginx only reuses upstream connections when the hop-by-hop Connection header is cleared
+# *and* HTTP/1.1 is used. Without proxy_set_header Connection "" the keepalive directive
+# above is inert: every request opened a fresh TCP connection to the API.
+proxy_http_version 1.1;
+proxy_set_header Connection "";
+proxy_set_header Host $host;
+proxy_set_header X-Real-IP $remote_addr;
+proxy_set_header X-Forwarded-For $remote_addr;
+proxy_set_header X-Forwarded-Proto https;
+
 server {
     listen 80;
     listen [::]:80;
     server_name ${DOMAIN};
     location /.well-known/acme-challenge/ { root /var/www/certbot; }
-    location / { return 301 https://$host$request_uri; }
+    # ${DOMAIN}, not $host: this is the only server block on port 80 and therefore the
+    # implicit default_server, so `curl -H 'Host: evil.example'` turned it into an open
+    # redirect that starts with the real campus domain.
+    location / { return 301 https://${DOMAIN}$request_uri; }
+}
+
+# Catch-all: answer requests for any other Host without leaking a redirect target.
+server {
+    listen 80 default_server;
+    listen [::]:80 default_server;
+    listen 443 ssl default_server;
+    listen [::]:443 ssl default_server;
+    server_name _;
+    ssl_certificate /etc/letsencrypt/live/${DOMAIN}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/${DOMAIN}/privkey.pem;
+    return 444;
 }
 
 server {
-    listen 443 ssl http2;
-    listen [::]:443 ssl http2;
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
     server_name ${DOMAIN};
 
     ssl_certificate /etc/letsencrypt/live/${DOMAIN}/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/${DOMAIN}/privkey.pem;
+    # ssl_stapling needs a resolver to reach the OCSP responder and ssl_trusted_certificate
+    # to verify the response. Both were missing, so nginx logged
+    # '"ssl_stapling" ignored, no resolver defined' at startup and no OCSP response was
+    # ever stapled — the feature looked enabled but did nothing.
+    ssl_trusted_certificate /etc/letsencrypt/live/${DOMAIN}/chain.pem;
+    resolver 127.0.0.11 valid=300s ipv6=off;
+    resolver_timeout 5s;
     ssl_protocols TLSv1.2 TLSv1.3;
     ssl_session_cache shared:SSL:10m;
     ssl_session_timeout 1d;
+    ssl_session_tickets off;
     ssl_stapling on;
     ssl_stapling_verify on;
+    server_tokens off;
 
     add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
     add_header X-Content-Type-Options "nosniff" always;
     add_header X-Frame-Options "DENY" always;
     add_header Referrer-Policy "strict-origin-when-cross-origin" always;
     add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always;
-    add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: ${CSP_MEDIA_ORIGINS}; connect-src 'self'; font-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'" always;
+    add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: ${CSP_MEDIA_ORIGINS}; media-src 'self' ${CSP_MEDIA_ORIGINS}; connect-src 'self'; font-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'" always;
     add_header X-Robots-Tag $robots_tag always;
 
     client_max_body_size 10m;
@@ -49,59 +93,32 @@ server {
     location = /api/v1/auth/request-code {
         limit_req zone=code_limit burst=20 nodelay;
         proxy_pass http://wutong_api;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $remote_addr;
-        proxy_set_header X-Forwarded-Proto https;
     }
 
     location /api/v1/auth/ {
         limit_req zone=auth_limit burst=60 nodelay;
         proxy_pass http://wutong_api;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $remote_addr;
-        proxy_set_header X-Forwarded-Proto https;
     }
 
     location /api/ {
         limit_req zone=api_limit burst=40 nodelay;
+        limit_conn perip 20;
         proxy_pass http://wutong_api;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $remote_addr;
-        proxy_set_header X-Forwarded-Proto https;
         proxy_buffering off;
         proxy_read_timeout 90s;
     }
 
     location /health/ {
         proxy_pass http://wutong_api;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $remote_addr;
-        proxy_set_header X-Forwarded-Proto https;
         access_log off;
     }
 
     location = /app-config.json {
         proxy_pass http://wutong_api;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $remote_addr;
-        proxy_set_header X-Forwarded-Proto https;
     }
 
     location /uploads/ {
         proxy_pass http://wutong_api;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $remote_addr;
-        proxy_set_header X-Forwarded-Proto https;
     }
 
     location / {

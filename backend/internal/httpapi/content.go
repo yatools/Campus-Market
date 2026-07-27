@@ -143,7 +143,7 @@ func (s *Server) listPosts(w http.ResponseWriter, r *http.Request) error {
 	args := []any{}
 	if q != "" {
 		where += ` AND e.search_visible=true AND (p.title ILIKE $1 OR p.body ILIKE $1)`
-		args = append(args, "%"+q+"%")
+		args = append(args, likePattern(q))
 	}
 	var total int
 	if err := s.DB.QueryRow(r.Context(), "SELECT count(*) FROM content_entities e JOIN posts p ON p.entity_id=e.id WHERE "+where, args...).Scan(&total); err != nil {
@@ -158,7 +158,7 @@ func (s *Server) listPosts(w http.ResponseWriter, r *http.Request) error {
 		(SELECT count(*) FROM comments c JOIN content_entities ce ON ce.id=c.entity_id WHERE c.target_entity_id=e.id AND ce.publication_status='published' AND ce.moderation_status='approved') comments,
 		COALESCE((SELECT jsonb_agg(jsonb_build_object('id',a.id,'path',a.path,'thumbnail_path',a.thumbnail_path,'width',a.width,'height',a.height) ORDER BY a.id) FROM attachments a WHERE a.entity_id=e.id AND a.status='attached' AND a.access_scope='public'),'[]'::jsonb),
 		EXISTS(SELECT 1 FROM reactions WHERE entity_id=e.id AND user_id=$%d AND type='like'),EXISTS(SELECT 1 FROM favorites WHERE entity_id=e.id AND user_id=$%d)
-		FROM content_entities e JOIN posts p ON p.entity_id=e.id JOIN users u ON u.id=e.owner_id LEFT JOIN thread_anonymous_identities tai ON tai.thread_id=e.id AND tai.user_id=e.owner_id WHERE %s ORDER BY e.created_at DESC LIMIT $%d OFFSET $%d`, viewerArg, viewerArg, where, len(args)-1, len(args)), args...)
+		FROM content_entities e JOIN posts p ON p.entity_id=e.id JOIN users u ON u.id=e.owner_id LEFT JOIN thread_anonymous_identities tai ON tai.thread_id=e.id AND tai.user_id=e.owner_id WHERE %s ORDER BY e.created_at DESC,e.id DESC LIMIT $%d OFFSET $%d`, viewerArg, viewerArg, where, len(args)-1, len(args)), args...)
 	if err != nil {
 		return err
 	}
@@ -186,8 +186,11 @@ func (s *Server) listPosts(w http.ResponseWriter, r *http.Request) error {
 		}
 		items = append(items, map[string]any{"id": id, "type": "post", "status": status, "title": title, "body": body, "board": board, "author": author, "identity_mode": identity, "allow_comments": allow, "expires_at": expires, "views": views, "created_at": created, "updated_at": updated, "mine": viewer.ID != 0 && viewer.ID == ownerID, "attachments": attachments, "likes": likes, "favorites": favorites, "comments": comments, "liked": liked, "favorited": favorited})
 	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
 	writeJSON(w, 200, pagePayload(items, page, size, total))
-	return rows.Err()
+	return nil
 }
 
 func (s *Server) checkSearchRateLimit(ctx context.Context, subject string) error {
@@ -304,12 +307,11 @@ func (s *Server) getPost(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	tx, err := s.DB.Begin(r.Context())
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(r.Context())
-	e, p, err := getEntityPost(r.Context(), tx, id, true)
+	// Reading a post is a read. It used to take a row-level exclusive lock on the entity
+	// (FOR UPDATE) and hold it across five further queries, so concurrent readers of a
+	// popular post serialised behind each other. Read without the lock and bump the view
+	// counter separately.
+	e, p, err := getEntityPost(r.Context(), s.DB, id, false)
 	if err == pgx.ErrNoRows {
 		return apiError(404, "POST_NOT_FOUND", "帖子不存在")
 	}
@@ -324,14 +326,11 @@ func (s *Server) getPost(w http.ResponseWriter, r *http.Request) error {
 		return apiError(404, "POST_EXPIRED", "帖子已过期")
 	}
 	p.Views++
-	if _, err := tx.Exec(r.Context(), "UPDATE posts SET views=views+1 WHERE entity_id=$1", id); err != nil {
+	if _, err := s.DB.Exec(r.Context(), "UPDATE posts SET views=views+1 WHERE entity_id=$1", id); err != nil {
 		return err
 	}
-	payload, err := s.postPayloadTx(r.Context(), tx, e, p, userOrNil(viewer))
+	payload, err := s.postPayload(r.Context(), e, p, userOrNil(viewer))
 	if err != nil {
-		return err
-	}
-	if err := tx.Commit(r.Context()); err != nil {
 		return err
 	}
 	writeJSON(w, 200, payload)
@@ -383,10 +382,12 @@ func (s *Server) updatePost(w http.ResponseWriter, r *http.Request) error {
 		}
 		allow = &v
 	}
+	attachmentsProvided := false
 	if value, ok := raw["attachment_ids"]; ok {
 		if json.Unmarshal(value, &attachments) != nil || len(attachments) > 9 {
 			return validation("attachment_ids", "List should have at most 9 items")
 		}
+		attachmentsProvided = true
 	}
 	tx, err := s.DB.Begin(r.Context())
 	if err != nil {
@@ -429,8 +430,12 @@ func (s *Server) updatePost(w http.ResponseWriter, r *http.Request) error {
 	if _, err := tx.Exec(r.Context(), "UPDATE content_entities SET allow_comments=$1,updated_at=now() WHERE id=$2", e.AllowComments, e.ID); err != nil {
 		return err
 	}
-	if err := s.attachUploads(r.Context(), tx, user.ID, e.ID, attachments); err != nil {
-		return err
+	// Only touch attachments when the client actually sent the field: attachUploads
+	// replaces the whole set, so an edit that omits it must leave the images alone.
+	if attachmentsProvided {
+		if err := s.attachUploads(r.Context(), tx, user.ID, e.ID, attachments); err != nil {
+			return err
+		}
 	}
 	if err := s.remoderate(r.Context(), tx, &e, p.Title+"\n"+p.Body); err != nil {
 		return err
@@ -545,8 +550,11 @@ func (s *Server) listRevisions(w http.ResponseWriter, r *http.Request) error {
 		}
 		items = append(items, map[string]any{"id": rid, "revision": rev, "title": title, "body": body, "editor_id": editor, "created_at": created})
 	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
 	writeJSON(w, 200, pagePayload(items, page, size, total))
-	return rows.Err()
+	return nil
 }
 
 func (s *Server) listComments(w http.ResponseWriter, r *http.Request) error {
@@ -569,10 +577,14 @@ func (s *Server) listComments(w http.ResponseWriter, r *http.Request) error {
 	if err := s.DB.QueryRow(r.Context(), "SELECT count(*) FROM comments WHERE target_entity_id=$1 AND parent_id IS NULL", target).Scan(&total); err != nil {
 		return err
 	}
-	rows, err := s.DB.Query(r.Context(), commentSelect+" WHERE c.target_entity_id=$1 AND c.parent_id IS NULL ORDER BY e.created_at LIMIT $2 OFFSET $3", target, size, (page-1)*size)
+	rows, err := s.DB.Query(r.Context(), commentSelect+" WHERE c.target_entity_id=$1 AND c.parent_id IS NULL ORDER BY e.created_at,e.id LIMIT $2 OFFSET $3", target, size, (page-1)*size)
 	if err != nil {
 		return err
 	}
+	// defer Close so an error inside the loop cannot leak the pooled connection; this was
+	// the only list handler in the file missing it, and each leak permanently shrank the
+	// pool until the whole service stopped being able to reach the database.
+	defer rows.Close()
 	roots := []struct {
 		e Entity
 		c Comment
@@ -587,6 +599,9 @@ func (s *Server) listComments(w http.ResponseWriter, r *http.Request) error {
 			c Comment
 		}{e, c})
 	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
 	rows.Close()
 	items := []any{}
 	for _, root := range roots {
@@ -594,28 +609,53 @@ func (s *Server) listComments(w http.ResponseWriter, r *http.Request) error {
 		if err != nil {
 			return err
 		}
-		replyRows, err := s.DB.Query(r.Context(), commentSelect+" WHERE c.parent_id=$1 ORDER BY e.created_at", root.e.ID)
+		replies, err := s.commentReplies(r.Context(), root.e.ID, userOrNil(viewer))
 		if err != nil {
 			return err
 		}
-		replies := []any{}
-		for replyRows.Next() {
-			e, c, err := scanEntityComment(replyRows)
-			if err != nil {
-				return err
-			}
-			p, err := s.commentPayload(r.Context(), e, c, userOrNil(viewer))
-			if err != nil {
-				return err
-			}
-			replies = append(replies, p)
-		}
-		replyRows.Close()
 		item["replies"] = replies
 		items = append(items, item)
 	}
 	writeJSON(w, 200, pagePayload(items, page, size, total))
 	return nil
+}
+
+// maxCommentReplies bounds the second level of a comment thread. The reply query used to
+// be unbounded, so a single root comment with thousands of replies made one request return
+// every one of them and issue a handful of queries per reply.
+const maxCommentReplies = 50
+
+func (s *Server) commentReplies(ctx context.Context, parentID int64, viewer *User) ([]any, error) {
+	rows, err := s.DB.Query(ctx, commentSelect+" WHERE c.parent_id=$1 ORDER BY e.created_at,e.id LIMIT $2", parentID, maxCommentReplies)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	type row struct {
+		e Entity
+		c Comment
+	}
+	collected := []row{}
+	for rows.Next() {
+		e, c, err := scanEntityComment(rows)
+		if err != nil {
+			return nil, err
+		}
+		collected = append(collected, row{e, c})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	rows.Close()
+	replies := []any{}
+	for _, item := range collected {
+		p, err := s.commentPayload(ctx, item.e, item.c, viewer)
+		if err != nil {
+			return nil, err
+		}
+		replies = append(replies, p)
+	}
+	return replies, nil
 }
 
 func (s *Server) createComment(w http.ResponseWriter, r *http.Request) error {
@@ -993,7 +1033,7 @@ func (s *Server) search(w http.ResponseWriter, r *http.Request) error {
 	if err := s.checkSearchRateLimit(r.Context(), clientIP(r)); err != nil {
 		return err
 	}
-	pattern := "%" + q + "%"
+	pattern := likePattern(q)
 	union := `SELECT e.id,'post' type,COALESCE(NULLIF(p.title,''),substr(p.body,1,40)) title,substr(p.body,1,120) summary,e.created_at FROM content_entities e JOIN posts p ON p.entity_id=e.id WHERE e.publication_status='published' AND e.search_visible=true AND (p.title ILIKE $1 OR p.body ILIKE $1)
 	UNION ALL SELECT e.id,'question',q.title,substr(q.body,1,120),e.created_at FROM content_entities e JOIN questions q ON q.entity_id=e.id WHERE e.publication_status='published' AND e.search_visible=true AND (q.title ILIKE $1 OR q.body ILIKE $1)
 	UNION ALL SELECT e.id,'handbook',h.title,substr(h.body,1,120),e.created_at FROM content_entities e JOIN handbook_articles h ON h.entity_id=e.id WHERE e.publication_status='published' AND e.search_visible=true AND (h.title ILIKE $1 OR h.body ILIKE $1)
@@ -1004,7 +1044,10 @@ func (s *Server) search(w http.ResponseWriter, r *http.Request) error {
 	if err := s.DB.QueryRow(r.Context(), "SELECT count(*) FROM ("+union+") x", pattern).Scan(&total); err != nil {
 		return err
 	}
-	rows, err := s.DB.Query(r.Context(), "SELECT id,type,title,summary FROM ("+union+") x ORDER BY created_at DESC LIMIT $2 OFFSET $3", pattern, size, (page-1)*size)
+	// id as a tiebreaker: created_at alone is not unique, and PostgreSQL is free to order
+	// tied rows differently between the page-1 and page-2 queries, which silently drops
+	// some results and repeats others.
+	rows, err := s.DB.Query(r.Context(), "SELECT id,type,title,summary FROM ("+union+") x ORDER BY created_at DESC,id DESC LIMIT $2 OFFSET $3", pattern, size, (page-1)*size)
 	if err != nil {
 		return err
 	}
@@ -1018,12 +1061,15 @@ func (s *Server) search(w http.ResponseWriter, r *http.Request) error {
 		}
 		items = append(items, map[string]any{"id": id, "type": kind, "title": title, "summary": summary})
 	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
 	writeJSON(w, 200, pagePayload(items, page, size, total))
-	return rows.Err()
+	return nil
 }
 
 func (s *Server) hot(w http.ResponseWriter, r *http.Request) error {
-	rows, err := s.DB.Query(r.Context(), `SELECT e.id,e.type,e.created_at,COALESCE(rc.likes,0),COALESCE(fc.favorites,0),COALESCE(cc.comments,0),COALESCE(p.title,NULL),COALESCE(p.body,NULL),COALESCE(q.title,NULL),COALESCE(l.title,NULL),COALESCE(a.title,NULL) FROM content_entities e LEFT JOIN (SELECT entity_id,count(*) likes FROM reactions WHERE type='like' GROUP BY entity_id) rc ON rc.entity_id=e.id LEFT JOIN (SELECT entity_id,count(*) favorites FROM favorites GROUP BY entity_id) fc ON fc.entity_id=e.id LEFT JOIN (SELECT c.target_entity_id entity_id,count(*) comments FROM comments c JOIN content_entities ce ON ce.id=c.entity_id WHERE ce.publication_status='published' GROUP BY c.target_entity_id) cc ON cc.entity_id=e.id LEFT JOIN posts p ON p.entity_id=e.id LEFT JOIN questions q ON q.entity_id=e.id LEFT JOIN listings l ON l.entity_id=e.id LEFT JOIN activities a ON a.entity_id=e.id WHERE e.publication_status='published' AND e.created_at>=now()-interval '14 days' ORDER BY e.created_at DESC LIMIT 200`)
+	rows, err := s.DB.Query(r.Context(), `SELECT e.id,e.type,e.created_at,COALESCE(rc.likes,0),COALESCE(fc.favorites,0),COALESCE(cc.comments,0),COALESCE(p.title,NULL),COALESCE(p.body,NULL),COALESCE(q.title,NULL),COALESCE(l.title,NULL),COALESCE(a.title,NULL) FROM content_entities e LEFT JOIN (SELECT entity_id,count(*) likes FROM reactions WHERE type='like' GROUP BY entity_id) rc ON rc.entity_id=e.id LEFT JOIN (SELECT entity_id,count(*) favorites FROM favorites GROUP BY entity_id) fc ON fc.entity_id=e.id LEFT JOIN (SELECT c.target_entity_id entity_id,count(*) comments FROM comments c JOIN content_entities ce ON ce.id=c.entity_id WHERE ce.publication_status='published' GROUP BY c.target_entity_id) cc ON cc.entity_id=e.id LEFT JOIN posts p ON p.entity_id=e.id LEFT JOIN questions q ON q.entity_id=e.id LEFT JOIN listings l ON l.entity_id=e.id LEFT JOIN activities a ON a.entity_id=e.id WHERE e.publication_status='published' AND e.created_at>=now()-interval '14 days' AND NOT EXISTS(SELECT 1 FROM posts px WHERE px.entity_id=e.id AND px.expires_at IS NOT NULL AND px.expires_at<=now()) ORDER BY e.created_at DESC LIMIT 200`)
 	if err != nil {
 		return err
 	}
@@ -1060,8 +1106,11 @@ func (s *Server) hot(w http.ResponseWriter, r *http.Request) error {
 	for i := range items {
 		out[i] = items[i]
 	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
 	writeJSON(w, 200, pagePayload(out, 1, 20, len(items)))
-	return rows.Err()
+	return nil
 }
 
 func (s *Server) listFeed(w http.ResponseWriter, r *http.Request) error {
@@ -1073,7 +1122,7 @@ func (s *Server) listFeed(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	rows, err := s.DB.Query(r.Context(), `SELECT e.id,e.type,e.owner_id,e.publication_status,e.allow_comments,e.search_visible,e.moderation_reason,e.revision,e.deleted_at,e.created_at,e.updated_at FROM content_entities e WHERE e.publication_status='published' AND e.type IN ('post','team','question','handbook','course_review','listing','activity','lost_item','observe') ORDER BY e.updated_at DESC,e.id DESC LIMIT $1 OFFSET $2`, size, (page-1)*size)
+	rows, err := s.DB.Query(r.Context(), `SELECT e.id,e.type,e.owner_id,e.publication_status,e.allow_comments,e.search_visible,e.moderation_reason,e.revision,e.deleted_at,e.created_at,e.updated_at FROM content_entities e WHERE e.publication_status='published' AND e.type IN ('post','team','question','handbook','course_review','listing','activity','lost_item','observe') AND NOT EXISTS(SELECT 1 FROM posts px WHERE px.entity_id=e.id AND px.expires_at IS NOT NULL AND px.expires_at<=now()) ORDER BY e.updated_at DESC,e.id DESC LIMIT $1 OFFSET $2`, size, (page-1)*size)
 	if err != nil {
 		return err
 	}
@@ -1093,9 +1142,16 @@ func (s *Server) listFeed(w http.ResponseWriter, r *http.Request) error {
 		}
 	}
 	var total int
-	_ = s.DB.QueryRow(r.Context(), "SELECT count(*) FROM content_entities WHERE publication_status='published' AND type=ANY($1)", []string{"post", "team", "question", "handbook", "course_review", "listing", "activity", "lost_item", "observe"}).Scan(&total)
+	// total 必须与上面的分页查询用同一套过滤条件，否则过期树洞帖仍计入总数，
+	// 前端据此算出的页数偏大，翻到后面全是空页。
+	_ = s.DB.QueryRow(r.Context(), `SELECT count(*) FROM content_entities e WHERE e.publication_status='published' AND e.type=ANY($1)
+		AND NOT EXISTS(SELECT 1 FROM posts px WHERE px.entity_id=e.id AND px.expires_at IS NOT NULL AND px.expires_at<=now())`,
+		[]string{"post", "team", "question", "handbook", "course_review", "listing", "activity", "lost_item", "observe"}).Scan(&total)
+	if err := rows.Err(); err != nil {
+		return err
+	}
 	writeJSON(w, 200, map[string]any{"items": items, "page": page, "page_size": size, "total": total, "watermark": time.Now().UTC()})
-	return rows.Err()
+	return nil
 }
 func (s *Server) feedChanges(w http.ResponseWriter, r *http.Request) error {
 	afterRaw := r.URL.Query().Get("after")
@@ -1287,36 +1343,76 @@ func (s *Server) requireCredit(ctx context.Context, tx pgx.Tx, user User, key, a
 	return nil
 }
 func creditDefault(key string) int {
-	values := map[string]int{"baseline.initial_credit": 800, "threshold.anonymous_post": 600, "threshold.team_create": 600, "threshold.course_review": 600, "threshold.listing_publish": 700, "threshold.contact_publish": 700, "threshold.observe_publish": 750, "threshold.high_credit": 800, "threshold.dm_unlimited": 850, "reward.team_check_in": 2, "reward.lost_claim": 5, "reward.feedback_accepted": 5, "penalty.team_late_leave": -20}
+	values := map[string]int{"baseline.initial_credit": 800, "threshold.anonymous_post": 600, "threshold.team_create": 600, "threshold.course_review": 600, "threshold.listing_publish": 700, "threshold.contact_publish": 700, "threshold.observe_publish": 750, "threshold.observe_unmask": 900, "threshold.high_credit": 800, "threshold.dm_unlimited": 850, "reward.team_check_in": 2, "reward.lost_claim": 5, "reward.feedback_accepted": 5, "penalty.team_late_leave": -20}
 	return values[key]
 }
+
+// creditThreshold returns the configured value for a threshold credit rule, falling
+// back to the built-in default when the credit_rules row has not been seeded yet.
+func (s *Server) creditThreshold(ctx context.Context, q queryer, key string) int {
+	value := creditDefault(key)
+	_ = q.QueryRow(ctx, "SELECT value FROM credit_rules WHERE key=$1", key).Scan(&value)
+	return value
+}
+
+// attachUploads makes the given uploads the complete public attachment set of an entity.
+//
+// It is a *replace*, not an append. Previously an attachment could only ever move from
+// pending to attached and nothing anywhere set it back, which meant: removing one image
+// from a post was impossible, and re-sending the current attachment_ids on an unrelated
+// edit failed with INVALID_ATTACHMENTS because those ids were no longer 'pending'.
 func (s *Server) attachUploads(ctx context.Context, tx pgx.Tx, userID, entityID int64, ids []int64) error {
-	if len(ids) == 0 {
-		return nil
-	}
-	rows, err := tx.Query(ctx, "SELECT id,status FROM attachments WHERE id=ANY($1) AND owner_id=$2 AND access_scope='public' FOR UPDATE", ids, userID)
-	if err != nil {
-		return err
-	}
-	found := map[int64]string{}
-	for rows.Next() {
-		var id int64
-		var status string
-		if err := rows.Scan(&id, &status); err != nil {
-			return err
-		}
-		found[id] = status
-	}
-	rows.Close()
 	unique := map[int64]bool{}
 	for _, id := range ids {
 		unique[id] = true
 	}
+	keep := make([]int64, 0, len(unique))
+	for id := range unique {
+		keep = append(keep, id)
+	}
+	// Detach anything currently on this entity that is not in the new set, returning it to
+	// the pending pool so the cleanup worker can reclaim it if it stays unused.
+	// owner_id 守卫：解绑只作用于调用者自己的附件。否则「回应他人内容」这类场景下，
+	// 一次替换会把原作者的图片一并解绑（随后被清理任务连同对象一起删除）。
+	if _, err := tx.Exec(ctx, `UPDATE attachments SET entity_id=NULL,status='pending'
+		WHERE entity_id=$1 AND owner_id=$2 AND access_scope='public' AND NOT(id=ANY($3))`, entityID, userID, keep); err != nil {
+		return err
+	}
+	if len(keep) == 0 {
+		return nil
+	}
+	rows, err := tx.Query(ctx, "SELECT id,status,entity_id FROM attachments WHERE id=ANY($1) AND owner_id=$2 AND access_scope='public' FOR UPDATE", keep, userID)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	type state struct {
+		status   string
+		entityID *int64
+	}
+	found := map[int64]state{}
+	for rows.Next() {
+		var id int64
+		var current state
+		if err := rows.Scan(&id, &current.status, &current.entityID); err != nil {
+			return err
+		}
+		found[id] = current
+	}
+	// Distinguish a genuine ownership problem from a cursor failure, which would otherwise
+	// be reported to the user as "this attachment isn't yours".
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	rows.Close()
 	if len(found) != len(unique) {
 		return apiError(400, "INVALID_ATTACHMENTS", "附件不存在、已使用或不属于当前用户")
 	}
-	for id, status := range found {
-		if status != "pending" {
+	for id, current := range found {
+		// Accept an upload that is still pending, or one already attached to this very
+		// entity — the latter makes re-submitting the unchanged set idempotent.
+		alreadyMine := current.status == "attached" && current.entityID != nil && *current.entityID == entityID
+		if current.status != "pending" && !alreadyMine {
 			return apiError(400, "INVALID_ATTACHMENTS", "附件不存在、已使用或不属于当前用户")
 		}
 		if _, err := tx.Exec(ctx, "UPDATE attachments SET entity_id=$1,status='attached' WHERE id=$2", entityID, id); err != nil {
@@ -1331,6 +1427,19 @@ type queryer interface {
 	QueryRow(context.Context, string, ...any) pgx.Row
 }
 
+// likePattern builds a substring ILIKE pattern with the wildcards escaped, so a query of
+// "%" or "_" is matched literally instead of turning into a full-table scan the trigram
+// indexes cannot help with. Backslash is LIKE's default escape character in PostgreSQL,
+// so no ESCAPE clause is needed (and must not be added: a Go raw string would emit
+// `ESCAPE '\\'`, two characters, which PostgreSQL rejects with 22019).
+func likePattern(q string) string {
+	escaper := strings.NewReplacer(`\`, `\\`, "%", `\%`, "_", `\_`)
+	return "%" + escaper.Replace(q) + "%"
+}
+
+func (s *Server) postPayload(ctx context.Context, e Entity, p Post, viewer *User) (map[string]any, error) {
+	return s.postPayloadQ(ctx, s.DB, e, p, viewer)
+}
 func (s *Server) postPayloadTx(ctx context.Context, tx pgx.Tx, e Entity, p Post, viewer *User) (map[string]any, error) {
 	return s.postPayloadQ(ctx, tx, e, p, viewer)
 }
@@ -1498,9 +1607,19 @@ func (s *Server) commentPayloadQ(ctx context.Context, q queryer, e Entity, c Com
 	}
 	body := c.Body
 	if e.Status != "published" {
+		// Tombstone: a hidden/deleted comment must not leak its body, its author,
+		// or its attachments — the moderated content may be the very material that
+		// got it removed (e.g. a doxxing screenshot).
 		body = "该回帖已隐藏"
+		author = "—"
+		attachments = []any{}
 	}
-	payload := map[string]any{"id": e.ID, "target_entity_id": c.TargetID, "parent_id": c.ParentID, "reply_to_user_id": c.ReplyToUserID, "body": body, "author": author, "identity_mode": c.IdentityMode, "status": e.Status, "mine": viewer != nil && e.OwnerID == viewer.ID, "created_at": e.CreatedAt, "updated_at": e.UpdatedAt, "attachments": attachments, "likes": likes}
+	// reply_to_user_id is intentionally NOT exposed: emitting the replied-to author's
+	// real numeric user id de-anonymises tree-hole comments (it can be joined across
+	// threads and against any endpoint that maps a user id to a name). The key is kept
+	// as null for response-schema compatibility; server-side reply notifications use
+	// the separately-computed replyTo, not this field.
+	payload := map[string]any{"id": e.ID, "target_entity_id": c.TargetID, "parent_id": c.ParentID, "reply_to_user_id": nil, "body": body, "author": author, "identity_mode": c.IdentityMode, "status": e.Status, "mine": viewer != nil && e.OwnerID == viewer.ID, "created_at": e.CreatedAt, "updated_at": e.UpdatedAt, "attachments": attachments, "likes": likes}
 	if viewer != nil {
 		var liked bool
 		_ = q.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM reactions WHERE entity_id=$1 AND user_id=$2 AND type='like')", e.ID, viewer.ID).Scan(&liked)

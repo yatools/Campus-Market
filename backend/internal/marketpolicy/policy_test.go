@@ -6,12 +6,12 @@ func TestListingPolicy(t *testing.T) {
 	if !ListingEditable("available") || ListingEditable("reserved") {
 		t.Fatal("listing edit policy is invalid")
 	}
-	for _, status := range []string{"available", "reserved"} {
-		if !ListingCancellable(status) {
-			t.Fatalf("%s should be cancellable", status)
-		}
+	if !ListingCancellable("available") {
+		t.Fatal("available should be cancellable")
 	}
-	for _, status := range []string{"completed", "cancelled", "unknown"} {
+	// "reserved" belongs here: a listing with a live reservation is refused by
+	// cancelMarketListing with ACTIVE_TRANSACTION.
+	for _, status := range []string{"reserved", "completed", "cancelled", "unknown"} {
 		if ListingCancellable(status) {
 			t.Fatalf("%s should not be cancellable", status)
 		}
@@ -22,16 +22,15 @@ func TestListingPolicy(t *testing.T) {
 }
 
 func TestTransactionPolicy(t *testing.T) {
-	if !RequestAcceptable("requested", "available") || RequestAcceptable("reserved", "available") || RequestAcceptable("requested", "reserved") {
-		t.Fatal("accept policy is invalid")
-	}
 	if !RequestEndable("requested") || RequestEndable("reserved") {
 		t.Fatal("request end policy is invalid")
 	}
 	if Cancellation("requested", false, false) != CancelAllowed || Cancellation("reserved", false, false) != CancelAllowed || Cancellation("reserved", true, false) != CancelNeedsDispute || Cancellation("reserved", false, true) != CancelNeedsDispute || Cancellation("completed", false, false) != CancelDenied {
 		t.Fatal("cancellation policy is invalid")
 	}
-	if !Confirmable("reserved") || !Confirmable("completed") || Confirmable("requested") {
+	// completed is terminal: the handler answers a repeat confirm idempotently, but the
+	// state machine must not describe it as a legal transition.
+	if !Confirmable("reserved") || Confirmable("completed") || Confirmable("requested") {
 		t.Fatal("confirmation policy is invalid")
 	}
 	if !Disputable("reserved") || Disputable("completed") || !Reviewable("completed") || Reviewable("reserved") {

@@ -40,6 +40,8 @@ const pageSize = ref(20)
 const total = ref(0)
 const loading = ref(true)
 const error = ref('')
+// Disables the primary submit button while a request is in flight.
+const submitting = ref(false)
 const modal = ref(false)
 const action = ref('create')
 const target = ref<any>(null)
@@ -55,6 +57,7 @@ const marketOptions = ref<MarketOptions>({ categories: [], locations: [], condit
 const marketTransactions = ref<MarketTransaction[] | null>(null)
 const transactionTitle = ref('我的交易')
 const observeConfirmed = ref(false)
+const evidenceFiles = reactive<Record<number, File[]>>({}) // 纠纷证据按交易 id 隔离
 
 const handbookItems = computed(() => items.value.filter((item) => item.category === handbookFilter.value))
 const activityItems = computed(() => activityFilter.value === '全部' ? items.value : items.value.filter((item) => item.category === activityFilter.value))
@@ -62,6 +65,12 @@ const observeThreshold = computed(() => auth.creditRule('threshold.observe_publi
 const canPublishObserve = computed(() => Boolean(auth.user && auth.user.credit >= observeThreshold.value))
 const observeCreditGap = computed(() => Math.max(0, observeThreshold.value - (auth.user?.credit || 0)))
 const observePublishLabel = computed(() => !auth.user ? '+ 登录后发布' : canPublishObserve.value ? '+ 发布观察' : `信用不足（${auth.user.credit}/${observeThreshold.value}）`)
+// Unmask gate. The threshold was previously fetched but never shown, so a user just short
+// of it saw neither the button nor any explanation of why.
+const unmaskThreshold = computed(() => auth.user?.observe_unmask_threshold ?? auth.creditRule('threshold.observe_unmask'))
+const unmaskHint = computed(() => !auth.user
+  ? '观察帖默认打码显示。登录并达到信用门槛后可申请查看原文。'
+  : `观察帖默认打码显示。查看原文需要信用 ${unmaskThreshold.value}，你当前 ${auth.user.credit}，还差 ${Math.max(0, unmaskThreshold.value - auth.user.credit)} 分。`)
 const modalTitle = computed(() => action.value === 'answer' ? '回答问题'
   : action.value === 'claim' ? '提交认领线索'
     : action.value === 'claims' ? '处理认领申请'
@@ -77,7 +86,13 @@ function resetForm() {
   form.description = ''
 }
 
+// Guards against out-of-order responses: switching sections while a request is in flight
+// used to let the older response overwrite `items`, after which the template read fields
+// that only exist on the other section's shape and threw during render (blank page).
+let loadToken = 0
+
 async function load() {
+  const token = ++loadToken
   loading.value = true
   error.value = ''
   try {
@@ -86,16 +101,19 @@ async function load() {
       api<Page<any>>(`${base}${base.includes('?') ? '&' : '?'}page=${currentPage.value}`),
       section.value === 'handbook' ? api<{ items: CampusService[] }>('/campus-services') : Promise.resolve({ items: [] as CampusService[] }),
     ])
+    if (token !== loadToken) return
     items.value = response.items
     pageSize.value = response.page_size
     total.value = response.total
     campusServices.value = services.items
     if (section.value === 'listings') marketOptions.value = await api<MarketOptions>('/market/options')
+    if (token !== loadToken) return
     if (detailItem.value) detailItem.value = items.value.find((item) => item.id === detailItem.value?.id) || null
   } catch (e) {
+    if (token !== loadToken) return
     error.value = e instanceof Error ? e.message : '加载失败'
   } finally {
-    loading.value = false
+    if (token === loadToken) loading.value = false
   }
 }
 
@@ -105,6 +123,7 @@ function openCreate() {
     error.value = `当前信用 ${auth.user?.credit || 0}，发布观察帖需要 ${observeThreshold.value}，还差 ${observeCreditGap.value} 分。`
     return
   }
+  error.value = ''
   resetForm()
   observeConfirmed.value = false
   action.value = 'create'
@@ -119,7 +138,7 @@ function openCreate() {
   modal.value = true
 }
 
-async function openDetail(item: any) { detailItem.value = section.value === 'questions' ? await api(`/questions/${item.id}`) : item; comments.value = null }
+async function openDetail(item: any) { error.value = ''; detailItem.value = section.value === 'questions' ? await api(`/questions/${item.id}`) : item; comments.value = null }
 function closeDetail() { detailItem.value = null; comments.value = null }
 function openAnswer(item: any) { if (auth.requireLogin()) { resetForm(); action.value = 'answer'; target.value = item; modal.value = true } }
 function openClaim(item: any) { if (auth.requireLogin()) { resetForm(); action.value = 'claim'; target.value = item; modal.value = true } }
@@ -159,6 +178,8 @@ function openEdit(item: any) {
 }
 
 async function submit() {
+  if (submitting.value) return
+  submitting.value = true
   try {
     const attachmentIds = form.attachments.map((item: any) => item.id)
     if (action.value === 'answer') await api(`/questions/${target.value.id}/answers`, json('POST', { body: form.body, attachment_ids: attachmentIds }))
@@ -182,6 +203,8 @@ async function submit() {
     await load()
   } catch (e) {
     error.value = e instanceof Error ? e.message : '提交失败'
+  } finally {
+    submitting.value = false
   }
 }
 
@@ -199,12 +222,76 @@ async function messageSeller(item: any) {
 }
 function transactionActions(item: MarketTransaction) { return marketTransactionActions(item, auth.user?.id || 0) }
 function transactionLeft(value: string | null) { if (!value) return ''; const ms = new Date(value).getTime() - Date.now(); if (ms <= 0) return '已超时'; const hours = Math.floor(ms / 3600000); const minutes = Math.floor((ms % 3600000) / 60000); return `${hours} 小时 ${minutes} 分` }
-async function requestReservation(item: MarketListing) { if (!auth.requireLogin()) return; const message = prompt('给卖家的预订留言：', `希望预订“${item.title}”，可校内面交。`) ?? ''; await api(`/listings/${item.id}/transactions`, json('POST', { message })); await showMyTransactions() }
+async function requestReservation(item: MarketListing) {
+  if (!auth.requireLogin()) return
+  const message = prompt('给卖家的预订留言：', `希望预订“${item.title}”，可校内面交。`)
+  if (message === null) return // 用户取消，不应提交预订
+  try {
+    await api(`/listings/${item.id}/transactions`, json('POST', { message }))
+    await showMyTransactions()
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : '预订失败'
+  }
+}
 async function showListingTransactions(item: MarketListing) { transactionTitle.value = `“${item.title}”的预订申请`; marketTransactions.value = (await api<Page<MarketTransaction>>(`/listings/${item.id}/transactions`)).items }
-async function showMyTransactions() { if (!auth.requireLogin()) return; transactionTitle.value = '我的买卖记录'; marketTransactions.value = (await api<Page<MarketTransaction>>('/me/market-transactions')).items }
-async function transactionAction(item: MarketTransaction, action: 'accept' | 'reject' | 'confirm' | 'cancel') { const body = action === 'cancel' ? { reason: prompt('取消原因：', '') ?? '' } : undefined; await api(`/market-transactions/${item.id}/${action}`, json('POST', body)); await showMyTransactions(); await load() }
-async function disputeTransaction(item: MarketTransaction) { const reason = prompt('请说明纠纷经过（至少 5 个字）：', '') ?? ''; if (!reason) return; const files = Array.from((document.querySelector('#market-evidence') as HTMLInputElement | null)?.files || []); const uploaded = await Promise.all(files.slice(0, 9).map((file) => uploadImage(file, 'market_dispute'))); await api(`/market-transactions/${item.id}/disputes`, json('POST', { reason, attachment_ids: uploaded.map((entry) => entry.id) })); await showMyTransactions() }
-async function reviewTransaction(item: MarketTransaction) { const rating = Number(prompt('评分（1-5）：', '5')); const body = prompt('评价（选填）：', '') ?? ''; await api(`/market-transactions/${item.id}/reviews`, json('POST', { rating, body })); await showMyTransactions() }
+async function showMyTransactions() { if (!auth.requireLogin()) return; error.value = ''; transactionTitle.value = '我的买卖记录'; marketTransactions.value = (await api<Page<MarketTransaction>>('/me/market-transactions')).items }
+async function transactionAction(item: MarketTransaction, action: 'accept' | 'reject' | 'confirm' | 'cancel') {
+  let body: { reason: string } | undefined
+  if (action === 'cancel') {
+    const reason = prompt('取消原因：', '')
+    if (reason === null) return // 取消对话框不应真的取消交易
+    body = { reason }
+  }
+  await api(`/market-transactions/${item.id}/${action}`, json('POST', body))
+  await showMyTransactions()
+  await load()
+}
+async function disputeTransaction(item: MarketTransaction) {
+  const reason = prompt('请说明纠纷经过（至少 5 个字）：', '')
+  if (reason === null) return
+  if (!reason.trim()) { error.value = '请填写纠纷说明'; return }
+  try {
+    // 证据按交易 id 取，避免所有交易共用一个 #market-evidence 输入框导致证据串号。
+    const files = (evidenceFiles[item.id] || []).slice(0, 9)
+    const uploaded = await Promise.all(files.map((file) => uploadImage(file, 'market_dispute')))
+    await api(`/market-transactions/${item.id}/disputes`, json('POST', { reason, attachment_ids: uploaded.map((entry) => entry.id) }))
+    delete evidenceFiles[item.id]
+    await showMyTransactions()
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : '发起纠纷失败'
+  }
+}
+async function reviewTransaction(item: MarketTransaction) {
+  const ratingText = prompt('评分（1-5）：', '5')
+  if (ratingText === null) return // 取消不应以 0 分提交
+  const rating = Number(ratingText)
+  if (!Number.isInteger(rating) || rating < 1 || rating > 5) { error.value = '评分需为 1-5 的整数'; return }
+  const body = prompt('评价（选填）：', '') ?? ''
+  try {
+    await api(`/market-transactions/${item.id}/reviews`, json('POST', { rating, body }))
+    await showMyTransactions()
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : '提交评价失败'
+  }
+}
+function setEvidence(id: number, event: Event) {
+  evidenceFiles[id] = Array.from((event.target as HTMLInputElement).files || [])
+}
+async function revealObserve(item: any) {
+  if (!auth.requireLogin()) return
+  try {
+    if (!auth.user?.observe_unmask_agreed) {
+      if (!confirm('《吃瓜不扩散协议》：查看原文即代表你承诺不截图、不转发、不扩散帖内信息；违者按规则扣信用分并公示。是否同意并继续？')) return
+      await auth.agreeObserveUnmask()
+    }
+    // POST: the endpoint writes an audit record, so it is CSRF-protected server-side.
+    const result = await api<{ id: number; body: string }>(`/observe-posts/${item.id}/reveal`, json('POST'))
+    item.body = result.body
+    item.unmasked = true
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : '去码查看失败'
+  }
+}
 async function cancelListing(item: MarketListing) { if (!confirm('确定取消这件商品？完成交易后不能重新上架。')) return; await api(`/listings/${item.id}/cancel`, json('POST', { reason: '卖家主动取消' })); detailItem.value = null; await load() }
 async function decideClaim(item: any, approve: boolean) { await api(`/lost-items/${target.value.id}/claims/${item.id}/decision`, json('POST', { approve })); await openClaims(target.value); await load() }
 
@@ -342,6 +429,7 @@ onMounted(async () => { await load(); await consumeCreate() })
     <div v-if="total > pageSize" class="v4-pagination"><button class="btn ghost sm" :disabled="currentPage === 1" @click="currentPage--; load()">上一页</button><span>第 {{ currentPage }} 页 · 共 {{ total }} 条</span><button class="btn ghost sm" :disabled="currentPage * pageSize >= total" @click="currentPage++; load()">下一页</button></div>
 
     <BaseModal v-if="detailItem" :title="detailItem.title || detailItem.item_name || detailItem.course || '详情'" wide @close="closeDetail">
+      <p v-if="error" class="notice danger">{{ error }}</p>
       <article class="v4-detail-content">
         <template v-if="section === 'questions'"><div class="v4-tag-row"><span class="tag red">悬赏 {{ detailItem.bounty_xp }} 分</span><span class="tag gray">{{ detailItem.category }}</span></div><RichText :content="detailItem.body" /><AttachmentGrid :content="detailItem.body" :attachments="detailItem.attachments" /><h3>回答</h3><div v-for="answer in detailItem.answers || []" :key="answer.id" class="answer-box" :class="{ accepted: detailItem.accepted_answer_id === answer.id }"><strong>{{ detailItem.accepted_answer_id === answer.id ? '✅ 最佳答案 · ' : '' }}{{ answer.author }}</strong><RichText :content="answer.body" /><AttachmentGrid :content="answer.body" :attachments="answer.attachments" /><button v-if="detailItem.mine && !detailItem.accepted_answer_id" class="btn ghost sm" @click="accept(answer)">采纳</button></div><div class="modal-actions-v4"><button class="btn primary" @click="openAnswer(detailItem)">回答问题</button><button v-if="detailItem.mine && !detailItem.accepted_answer_id" class="btn ghost" @click="openEdit(detailItem)">编辑</button></div><CommentThread :entity-id="detailItem.id" /></template>
         <template v-else-if="section === 'handbook'"><div class="v4-tag-row"><span class="tag green">{{ detailItem.category }}</span><span v-if="detailItem.featured" class="stamp-badge">精华</span><span class="muted">⭐ 收藏 {{ detailItem.favorite_count }}</span></div><RichText :content="detailItem.body" /><AttachmentGrid :content="detailItem.body" :attachments="detailItem.attachments" /><div class="modal-actions-v4"><button class="btn ghost" @click="favorite(detailItem)">收藏</button><button v-if="detailItem.mine" class="btn ghost" @click="openEdit(detailItem)">编辑</button></div><CommentThread :entity-id="detailItem.id" /></template>
@@ -349,11 +437,12 @@ onMounted(async () => { await load(); await consumeCreate() })
         <template v-else-if="section === 'listings'"><div class="v4-tag-row"><span class="tag blue">{{ detailItem.category.name }}</span><span class="tag yellow">{{ detailItem.condition_label }}</span><span class="tag" :class="detailItem.moderation_status === 'approved' ? 'green' : 'yellow'">审核：{{ detailItem.moderation_status }}</span></div><strong class="market-price-v4">¥{{ formatPrice(detailItem.price_cents) }}</strong><p>{{ detailItem.location.name }} · {{ detailItem.trade_status }}</p><RichText :content="detailItem.description" /><AttachmentGrid :content="detailItem.description" :attachments="detailItem.attachments" /><p class="rulebox">仅支持校内线下面交；平台不经手资金、不收费、不提供担保。成交必须由买卖双方分别确认。</p><div class="modal-actions-v4"><template v-if="!detailItem.mine"><button v-if="detailItem.trade_status === 'available'" class="btn primary" @click="requestReservation(detailItem)">申请预订</button><button class="btn ghost" @click="messageSeller(detailItem)">私信卖家</button></template><template v-else><button v-if="detailItem.trade_status === 'available'" class="btn ghost" @click="openListingEdit(detailItem)">编辑</button><button class="btn primary" @click="showListingTransactions(detailItem)">处理预订申请</button><button v-if="detailItem.trade_status === 'available'" class="btn warn" @click="cancelListing(detailItem)">取消商品</button></template></div><CommentThread :entity-id="detailItem.id" /></template>
         <template v-else-if="section === 'activities'"><div class="v4-tag-row"><span class="tag blue">{{ detailItem.category }}</span><span>{{ local(detailItem.starts_at) }} · {{ detailItem.location }}</span></div><RichText :content="detailItem.body" /><AttachmentGrid :content="detailItem.body" :attachments="detailItem.attachments" /><div class="modal-actions-v4"><button v-if="!detailItem.mine" class="btn primary" @click="activityJoin(detailItem)">{{ detailItem.joined ? '退出活动' : '加入活动' }}</button><template v-else><button class="btn ghost" @click="openEdit(detailItem)">编辑</button><button class="btn warn" @click="cancelActivity(detailItem)">取消活动</button></template></div><CommentThread :entity-id="detailItem.id" /></template>
         <template v-else-if="section === 'lost'"><div class="v4-tag-row"><span class="tag" :class="detailItem.kind === 'lost' ? 'red' : 'green'">{{ detailItem.kind === 'lost' ? '丢失' : '捡到' }}</span><span class="tag yellow">{{ statusLabel(detailItem.status) }}</span></div><RichText :content="detailItem.description" /><AttachmentGrid :content="detailItem.description" :attachments="detailItem.attachments" /><p>地点：{{ detailItem.location }} · {{ local(detailItem.happened_at) }}</p><div class="modal-actions-v4"><button v-if="!detailItem.mine && detailItem.status === 'open'" class="btn primary" @click="openClaim(detailItem)">提交认领线索</button><template v-if="detailItem.mine"><button v-if="detailItem.status === 'open'" class="btn ghost" @click="openEdit(detailItem)">编辑</button><button v-if="detailItem.claim_count" class="btn primary" @click="openClaims(detailItem)">处理认领申请</button></template></div><CommentThread :entity-id="detailItem.id" /></template>
-        <template v-else-if="section === 'observe'"><RichText :content="detailItem.body" /><AttachmentGrid :content="`${detailItem.body}\n${detailItem.response || ''}`" :attachments="detailItem.attachments" /><div v-if="detailItem.response" class="best-answer-v4"><b>指定回应方：</b><RichText :content="detailItem.response" /></div><p v-if="detailItem.admin_note" class="muted">管理员备注：{{ detailItem.admin_note }}</p><div class="modal-actions-v4"><button v-if="detailItem.respondent" class="btn primary" @click="openResponse(detailItem)">提交回应</button></div><CommentThread v-if="detailItem.status === 'published'" :entity-id="detailItem.id" /></template>
+        <template v-else-if="section === 'observe'"><div class="notice info observe-unmask-note">{{ detailItem.unmasked ? '已按《吃瓜不扩散协议》去码，请勿截图转发扩散。' : detailItem.can_unmask ? '默认打码显示。签署《吃瓜不扩散协议》后可查看原文，去码行为将被记录。' : unmaskHint }}</div><RichText :content="detailItem.body" /><AttachmentGrid :content="`${detailItem.body}\n${detailItem.response || ''}`" :attachments="detailItem.attachments" /><div v-if="detailItem.response" class="best-answer-v4"><b>指定回应方：</b><RichText :content="detailItem.response" /></div><p v-if="detailItem.admin_note" class="muted">管理员备注：{{ detailItem.admin_note }}</p><div class="modal-actions-v4"><button v-if="detailItem.can_unmask && !detailItem.unmasked" class="btn ghost" @click="revealObserve(detailItem)">🔓 去码查看原文</button><button v-if="detailItem.respondent" class="btn primary" @click="openResponse(detailItem)">提交回应</button></div><CommentThread v-if="detailItem.status === 'published'" :entity-id="detailItem.id" /></template>
       </article>
     </BaseModal>
 
     <BaseModal v-if="marketTransactions" :title="transactionTitle" wide @close="marketTransactions = null">
+      <p v-if="error" class="notice danger">{{ error }}</p>
       <div class="service-review-list">
         <article v-for="transaction in marketTransactions" :key="transaction.id" class="card compact">
           <div><b>{{ transaction.listing.title }}</b><span class="tag" :class="transaction.status === 'completed' ? 'green' : transaction.status === 'disputed' ? 'red' : 'yellow'">{{ transaction.status }}</span></div>
@@ -366,8 +455,8 @@ onMounted(async () => { await load(); await consumeCreate() })
             <button v-if="transactionActions(transaction).includes('confirm')" class="btn primary sm" @click="transactionAction(transaction, 'confirm')">我已完成面交</button><button v-if="transactionActions(transaction).includes('dispute')" class="btn warn sm" @click="disputeTransaction(transaction)">发起纠纷</button>
             <button v-if="transactionActions(transaction).includes('review')" class="btn ghost sm" @click="reviewTransaction(transaction)">提交双盲评价</button>
           </div>
+          <label v-if="transactionActions(transaction).includes('dispute')" class="notice info">纠纷证据（可选，最多 9 张，先选图再点「发起纠纷」）<input :id="`market-evidence-${transaction.id}`" type="file" accept="image/jpeg,image/png,image/webp" multiple @change="setEvidence(transaction.id, $event)" /></label>
         </article>
-        <label class="notice info">纠纷证据（可选，最多 9 张）<input id="market-evidence" type="file" accept="image/jpeg,image/png,image/webp" multiple /></label>
         <p v-if="!marketTransactions.length" class="empty-state">暂无交易记录。</p>
       </div>
     </BaseModal>
@@ -390,7 +479,8 @@ onMounted(async () => { await load(); await consumeCreate() })
         <template v-else-if="section === 'activities'"><label>分类<input v-model="form.category" required /></label><label>人数上限<input v-model.number="form.capacity" type="number" min="2" /></label><label class="full">标题<input v-model="form.title" required /></label><label>开始时间<input v-model="form.starts_at" type="datetime-local" required /></label><label>结束时间<input v-model="form.ends_at" type="datetime-local" /></label><label class="full">地点<input v-model="form.location" required /></label><div class="editor-field full"><span class="editor-field-label">详情</span><RichEditor v-model="form.body" v-model:attachments="form.attachments" aria-label="活动详情" /></div></template>
         <template v-else-if="section === 'lost'"><label>类型<select v-model="form.kind"><option value="lost">我丢失了</option><option value="found">我捡到了</option></select></label><label>发生时间<input v-model="form.happened_at" type="datetime-local" /></label><label class="full">物品名称<input v-model="form.item_name" required /></label><label class="full">地点<input v-model="form.location" required /></label><div class="editor-field full"><span class="editor-field-label">特征说明</span><RichEditor v-model="form.description" v-model:attachments="form.attachments" aria-label="失物特征说明" :max-length="5000" :max-images="6" /></div></template>
         <template v-else-if="section === 'observe'"><p class="notice info full">观察帖默认先审后发。请只描述事件，不公开可识别个人信息。</p><label class="full">事件标题<input v-model="form.title" required minlength="4" maxlength="160" /></label><div class="editor-field full"><span class="editor-field-label">事件描述</span><RichEditor v-model="form.body" v-model:attachments="form.attachments" aria-label="事件描述" :max-length="10000" /></div><label class="check full observe-confirm"><input v-model="observeConfirmed" type="checkbox" required /> 我已阅读并同意本区须知，确认内容不包含可识别个人隐私。</label></template>
-        <button v-if="action !== 'claims'" class="btn primary full" :disabled="section === 'observe' && action === 'create' && !observeConfirmed">提交</button>
+        <p v-if="error" class="notice danger full">{{ error }}</p>
+        <button v-if="action !== 'claims'" class="btn primary full" :disabled="submitting || (section === 'observe' && action === 'create' && !observeConfirmed)">{{ submitting ? '提交中…' : '提交' }}</button>
       </form>
     </BaseModal>
   </section>
