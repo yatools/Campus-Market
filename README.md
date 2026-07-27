@@ -7,15 +7,17 @@
 <img width="509" height="1134" alt="image" src="https://github.com/user-attachments/assets/9ae94436-9fd0-45bd-ae5c-0dc53179fa4b" />
 
 ### 桌面端
-<img width="2510" height="1223" alt="image" src="https://github.com/user-attachments/assets/90ae5c33-8266-46c2-adae-d3a584f3e16a" />
-<img width="604" height="153" alt="image" src="https://github.com/user-attachments/assets/21c95c82-05f2-4bd0-94d0-0f857f3d09d3" />
+<img width="2494" height="1225" alt="image" src="https://github.com/user-attachments/assets/6a4773df-632a-4faf-92dc-00b5f35458ca" />
+<img width="2489" height="1196" alt="image" src="https://github.com/user-attachments/assets/6513ba7a-6d1c-4864-bbe7-4fcafddded53" />
+
 
 
 <img width="1284" height="976" alt="image" src="https://github.com/user-attachments/assets/25645297-706d-4ab5-8dab-8fce03b9749b" />
 <img width="1276" height="835" alt="image" src="https://github.com/user-attachments/assets/09c95177-80ec-455d-8b24-783bf4c67acc" />
 <img width="1269" height="886" alt="image" src="https://github.com/user-attachments/assets/579d2d72-ea95-4ed3-bae6-a1c99d46e4ad" />
 <img width="1288" height="864" alt="image" src="https://github.com/user-attachments/assets/03a61014-981f-45d7-9f25-9551c024d318" />
-<img width="1279" height="869" alt="image" src="https://github.com/user-attachments/assets/ffb5c32d-45e0-46eb-a734-84486e6eeb7d" />
+<img width="1347" height="933" alt="image" src="https://github.com/user-attachments/assets/8b8293a2-a51f-49ce-bc77-0bb7eddfa22d" />
+
 
 文明观察台的「去码查看」已实现：信用分达到 `threshold.observe_unmask`（默认 900，可在管理后台调整，但必须高于 `baseline.initial_credit`）
 且签署《吃瓜不扩散协议》后，可通过 `POST /observe-posts/{id}/reveal` 查看原文。每次去码都会写审计日志（审计写入失败则不下发原文），
