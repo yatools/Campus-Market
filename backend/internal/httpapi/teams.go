@@ -1953,12 +1953,6 @@ func int64Rows(ctx context.Context, q queryer, sql string, args ...any) ([]int64
 	}
 	return out, rows.Err()
 }
-func mathAbs(v float64) float64 {
-	if v < 0 {
-		return -v
-	}
-	return v
-}
 func mathRound(v float64) float64 {
 	if v >= 0 {
 		return float64(int(v + 0.5))
