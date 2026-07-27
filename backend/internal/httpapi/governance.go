@@ -88,7 +88,13 @@ func (s *Server) listObserve(w http.ResponseWriter, r *http.Request) error {
 		}
 	}
 	isMod := viewer.ID != 0 && (viewer.Role == "moderator" || viewer.Role == "admin")
-	unmaskThreshold := s.creditThreshold(r.Context(), s.DB, "threshold.observe_unmask")
+	// Guests cannot unmask and moderators already receive the raw body, so neither needs
+	// a credit-rule lookup. Keep anonymous listing at its two-query count (total + page)
+	// and only read the configurable threshold for ordinary signed-in viewers.
+	unmaskThreshold := creditDefault("threshold.observe_unmask")
+	if viewer.ID != 0 && !isMod {
+		unmaskThreshold = s.creditThreshold(r.Context(), s.DB, "threshold.observe_unmask")
+	}
 	var total int
 	_ = s.DB.QueryRow(r.Context(), "SELECT count(*) FROM observe_posts o JOIN content_entities e ON e.id=o.entity_id WHERE "+where, args...).Scan(&total)
 	args = append(args, size, (page-1)*size)
