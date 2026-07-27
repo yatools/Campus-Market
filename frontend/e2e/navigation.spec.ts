@@ -447,7 +447,7 @@ test('private dispute evidence freezes a transaction until an administrator deci
   // evidence to be attached to the wrong dispute.
   await page.locator('#market-evidence-1').setInputFiles({ name: 'evidence.png', mimeType: 'image/png', buffer: Buffer.from('89504e470d0a1a0a', 'hex') })
   page.once('dialog', (dialog) => dialog.accept('商品现场情况与描述明显不符'))
-  await page.getByRole('button', { name: '发起纠纷' }).click()
+  await page.getByRole('button', { name: '发起纠纷', exact: true }).click()
   await expect.poll(() => evidenceUploaded).toBe(true)
   await expect.poll(() => transactionStatus).toBe('disputed')
 
