@@ -97,9 +97,10 @@ jobs:
             awk -v package="$package" -v coverage="$coverage" 'BEGIN { if (coverage < 85) { print package " coverage " coverage "% is below 85%"; exit 1 } }'
           done
       - run: go build ./cmd/wutong
-      # 先采基线，再做 up/down/up：迁移回滚会清空测试数据，
-      # 之前的顺序让 EXPLAIN 全部跑在空表上，规划器必然选顺序扫描，
-      # query-plan-baselines.md 里的验收标准根本无从判断。
+      # 测试清理是否保留 schema 取决于最后执行的包；先做幂等的 migrate up，
+      # 保证查询计划采集不依赖测试顺序，同时保留测试可能留下的数据。
+      - run: go run ./cmd/wutong migrate up
+      # 先采基线，再做 down/up：迁移回滚会清空测试数据。
       - name: Capture query plan baselines
         # -At：unaligned + tuples-only。psql 默认的对齐输出会给结果套上表头、
         # 分隔线和 "(N rows)" 尾行，产出的 query-plans.json 并不是合法 JSON。
@@ -121,7 +122,6 @@ jobs:
           assert documents >= 1, 'no query plans captured'
           print(f'{documents} query plan documents captured')
           PY
-      - run: go run ./cmd/wutong migrate up
       - run: go run ./cmd/wutong migrate status
       - run: go run ./cmd/wutong migrate down
       - run: go run ./cmd/wutong migrate up
