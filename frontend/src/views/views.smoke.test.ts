@@ -208,6 +208,114 @@ describe('major views', () => {
     wrapper.unmount()
   })
 
+  it('validates and reports audited team actions without duplicate or silent requests', async () => {
+    const nextRun = {
+      id: 10,
+      starts_at: new Date(Date.now() + 5 * 60_000).toISOString(),
+      expires_at: null,
+      status: 'scheduled',
+      my_status: 'joined',
+      checked_in: false,
+      excused: false,
+      member_count: 2,
+    }
+    const team = {
+      id: 1,
+      game: '无畏契约',
+      game_id: 1,
+      mode: '排位',
+      rank_requirement: '不限',
+      capacity: 5,
+      member_count: 2,
+      members: [
+        { id: 1, nickname: '车头', credit: 900 },
+        { id: 2, nickname: '队友', credit: 880 },
+      ],
+      owner: { id: 1, nickname: '车头', credit: 900, verified: true },
+      completion_rate: 100,
+      rating_tags: {},
+      voice_name: 'KOOK',
+      voice_link: 'https://example.test/voice',
+      notes: '准时发车',
+      newbie_level: '欢迎新手',
+      vibe: '友好',
+      reminder_channels: ['in_app'],
+      my_reminder_channels: ['calendar'],
+      recurrence: 'once',
+      reminder_minutes: 30,
+      post_departure_retention_minutes: 120,
+      status: 'active',
+      joined: true,
+      mine: true,
+      next_run: nextRun,
+    }
+    const pastRun = {
+      ...nextRun,
+      id: 11,
+      starts_at: new Date(Date.now() - 5 * 60_000).toISOString(),
+    }
+    apiMock.mockImplementation(async (path: string) => {
+      if (path === '/me') return user
+      if (path === '/credit-rules') return creditRules
+      if (path === '/teams?page_size=50') return { ...emptyPage, items: [team] }
+      if (path === '/team-games') return { items: [{ id: 1, name: '无畏契约', aliases: [], active: true }] }
+      if (path === '/teams/1/runs?page_size=100') return { ...emptyPage, items: [pastRun] }
+      if (path.endsWith('/check-in')) return { ok: true, credit_delta: 2 }
+      return { ok: true }
+    })
+    const promptMock = vi.fn()
+    vi.stubGlobal('prompt', promptMock)
+    vi.stubGlobal('confirm', vi.fn(() => true))
+    const wrapper = await mountAt(TeamsView, '/teams', true)
+    const button = (label: string) => wrapper.findAll('button').find((item) => item.text().includes(label))
+
+    await button('管理车队')?.trigger('click')
+    await button('场次签到')?.trigger('click')
+    await flushPromises()
+    expect(apiMock).toHaveBeenCalledWith('/teams/1/runs/10/check-in', expect.objectContaining({ method: 'POST' }))
+    expect(wrapper.text()).toContain('签到成功，信用 +2')
+
+    await button('本次请假')?.trigger('click')
+    await flushPromises()
+    expect(apiMock).toHaveBeenCalledWith('/teams/1/runs/10/excuse', expect.objectContaining({ method: 'POST' }))
+    expect(wrapper.text()).toContain('本场请假已记录')
+
+    promptMock.mockReset()
+    promptMock.mockReturnValueOnce('排位').mockReturnValueOnce('备注').mockReturnValueOnce('1')
+    await button('编辑车队')?.trigger('click')
+    expect(wrapper.text()).toContain('容量需为 2 到 99 之间的整数')
+
+    promptMock.mockReset()
+    promptMock.mockReturnValueOnce('排位').mockReturnValueOnce('备注').mockReturnValueOnce('4')
+    await button('编辑车队')?.trigger('click')
+    await flushPromises()
+    expect(apiMock).toHaveBeenCalledWith('/teams/1', expect.objectContaining({ method: 'PATCH' }))
+
+    promptMock.mockReset()
+    promptMock.mockReturnValue('明晚八点')
+    await button('新增场次')?.trigger('click')
+    expect(wrapper.text()).toContain('时间格式无法识别')
+
+    promptMock.mockReset()
+    promptMock.mockReturnValue(new Date(Date.now() + 3 * 60 * 60_000).toISOString())
+    await button('新增场次')?.trigger('click')
+    await flushPromises()
+    expect(apiMock).toHaveBeenCalledWith('/teams/1/runs', expect.objectContaining({ method: 'POST' }))
+
+    promptMock.mockReset()
+    promptMock.mockReturnValue('friendly, punctual')
+    await button('评价 队友')?.trigger('click')
+    await flushPromises()
+    expect(apiMock).toHaveBeenCalledWith('/teams/1/runs/11/ratings', expect.objectContaining({ method: 'POST' }))
+    expect(wrapper.text()).toContain('评价已记录')
+
+    apiMock.mockRejectedValueOnce(new Error('评价接口失败'))
+    await button('评价 队友')?.trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('评价接口失败')
+    wrapper.unmount()
+  })
+
   it('opens a team from the dashboard ranking', async () => {
     apiMock.mockImplementation(async (path: string) => {
       if (path === '/hot') {

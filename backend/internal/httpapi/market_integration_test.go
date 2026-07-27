@@ -323,6 +323,30 @@ func TestMarketTransactionRequiresTwoPartyCompletion(t *testing.T) {
 	if err := pool.QueryRow(context.Background(), "SELECT credit FROM users WHERE id=$1", sellerID).Scan(&creditBefore); err != nil {
 		t.Fatal(err)
 	}
+	// 请假只能发生在发车前；先覆盖重复请假的幂等性，再恢复成员状态，
+	// 让后面的签到奖励场景仍然有两名有效成员，避免两个断言互相污染。
+	var firstExcusedAt time.Time
+	for i := 0; i < 2; i++ {
+		excused := requestJSON(t, buyerClient, http.MethodPost, fmt.Sprintf("%s/api/v1/teams/%d/runs/%d/excuse", server.URL, team.ID, team.NextRun.ID), nil, buyerCSRF)
+		if excused.StatusCode != http.StatusOK {
+			t.Fatalf("member excuse attempt %d: %d %s", i+1, excused.StatusCode, readResponse(excused))
+		}
+		var payload struct {
+			ExcusedAt time.Time `json:"excused_at"`
+		}
+		if err := json.NewDecoder(excused.Body).Decode(&payload); err != nil {
+			t.Fatal(err)
+		}
+		excused.Body.Close()
+		if i == 0 {
+			firstExcusedAt = payload.ExcusedAt
+		} else if !payload.ExcusedAt.Equal(firstExcusedAt) {
+			t.Fatalf("idempotent excuse changed timestamp: first=%s second=%s", firstExcusedAt, payload.ExcusedAt)
+		}
+	}
+	if _, err := pool.Exec(context.Background(), "UPDATE team_run_members SET status='joined',excused_at=NULL WHERE run_id=$1 AND user_id=$2", team.NextRun.ID, buyerID); err != nil {
+		t.Fatal(err)
+	}
 	// 把发车时间挪到 5 分钟前，进入签到窗口。签到奖励只在「已发车且本场成团（≥2 人）」时
 	// 发放，此时队里已有车头与买家两人。
 	if _, err := pool.Exec(context.Background(), "UPDATE team_runs SET starts_at=now()-interval '5 minutes' WHERE id=$1", team.NextRun.ID); err != nil {
@@ -342,25 +366,6 @@ func TestMarketTransactionRequiresTwoPartyCompletion(t *testing.T) {
 	reward := creditDefault("reward.team_check_in")
 	if creditAfter-creditBefore != reward {
 		t.Fatalf("check-in reward applied more than once: before=%d after=%d reward=%d", creditBefore, creditAfter, reward)
-	}
-	var firstExcusedAt time.Time
-	for i := 0; i < 2; i++ {
-		excused := requestJSON(t, buyerClient, http.MethodPost, fmt.Sprintf("%s/api/v1/teams/%d/runs/%d/excuse", server.URL, team.ID, team.NextRun.ID), nil, buyerCSRF)
-		if excused.StatusCode != http.StatusOK {
-			t.Fatalf("member excuse attempt %d: %d %s", i+1, excused.StatusCode, readResponse(excused))
-		}
-		var payload struct {
-			ExcusedAt time.Time `json:"excused_at"`
-		}
-		if err := json.NewDecoder(excused.Body).Decode(&payload); err != nil {
-			t.Fatal(err)
-		}
-		excused.Body.Close()
-		if i == 0 {
-			firstExcusedAt = payload.ExcusedAt
-		} else if !payload.ExcusedAt.Equal(firstExcusedAt) {
-			t.Fatalf("idempotent excuse changed timestamp: first=%s second=%s", firstExcusedAt, payload.ExcusedAt)
-		}
 	}
 	secondRun := requestJSON(t, sellerClient, http.MethodPost, fmt.Sprintf("%s/api/v1/teams/%d/runs", server.URL, team.ID), map[string]any{"starts_at": time.Now().UTC().Add(2 * time.Hour)}, sellerCSRF)
 	if secondRun.StatusCode != http.StatusCreated {
