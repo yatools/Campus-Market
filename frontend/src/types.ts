@@ -230,6 +230,7 @@ export type AdminMarketOption = components['schemas']['AdminMarketOption']
 export type MarketOptions = components['schemas']['MarketOptions']
 export type MarketParty = components['schemas']['MarketParty']
 export type MarketListing = components['schemas']['MarketListing']
+export type MarketListingCreate = components['schemas']['ListingCreate']
 export type MarketTransaction = components['schemas']['MarketTransaction']
 export type MarketDispute = components['schemas']['MarketDispute']
 

@@ -5,9 +5,10 @@ import Placeholder from '@tiptap/extension-placeholder'
 import { Markdown } from '@tiptap/markdown'
 import StarterKit from '@tiptap/starter-kit'
 import { EditorContent, useEditor } from '@tiptap/vue-3'
-import { nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { uploadImage } from '../api'
 import type { Attachment } from '../types'
+import { maskRedactedMarkdown, Redaction } from './redaction'
 import RichText from './RichText.vue'
 
 const props = withDefaults(defineProps<{
@@ -17,7 +18,8 @@ const props = withDefaults(defineProps<{
   ariaLabel?: string
   maxImages?: number
   maxLength?: number
-}>(), { modelValue: '', attachments: () => [], placeholder: '写下具体内容…', ariaLabel: '正文编辑器', maxImages: 9, maxLength: 10000 })
+  enableRedaction?: boolean
+}>(), { modelValue: '', attachments: () => [], placeholder: '写下具体内容…', ariaLabel: '正文编辑器', maxImages: 9, maxLength: 10000, enableRedaction: false })
 const emit = defineEmits<{
   'update:modelValue': [value: string]
   'update:attachments': [value: Attachment[]]
@@ -30,6 +32,7 @@ const emojiOpen = ref(false)
 const busy = ref(false)
 const error = ref('')
 const lastEmitted = ref(props.modelValue)
+const previewMarkdown = computed(() => props.enableRedaction ? maskRedactedMarkdown(markdown.value) : markdown.value)
 const emojis = ['😀', '😂', '🥹', '😍', '😎', '🤔', '😭', '😤', '👍', '👏', '🎉', '❤️', '🌳', '📌', '🚗', '🎮']
 const allowedImageTypes = new Set(['image/jpeg', 'image/png', 'image/webp'])
 
@@ -40,6 +43,7 @@ const editor = useEditor({
     Image.configure({ allowBase64: false, inline: false }),
     Placeholder.configure({ placeholder: props.placeholder }),
     Markdown,
+    ...(props.enableRedaction ? [Redaction] : []),
   ],
   content: props.modelValue || { type: 'doc', content: [{ type: 'paragraph' }] },
   contentType: props.modelValue ? 'markdown' : 'json',
@@ -103,6 +107,40 @@ function insertEmoji(value: string) {
   if (advanced.value) insertRaw(value)
   else editor.value?.chain().focus().insertContent(value).run()
   emojiOpen.value = false
+}
+
+function toggleRedaction() {
+  error.value = ''
+  if (advanced.value) {
+    const el = rawInput.value
+    if (!el || el.selectionStart === el.selectionEnd) {
+      error.value = '请先选中需要打码的文字'
+      return
+    }
+    const start = el.selectionStart
+    const end = el.selectionEnd
+    const selected = markdown.value.slice(start, end)
+    const alreadyMarked = selected.startsWith('==') && selected.endsWith('==') && selected.length > 4
+    const replacement = alreadyMarked ? selected.slice(2, -2) : `==${selected}==`
+    markdown.value = `${markdown.value.slice(0, start)}${replacement}${markdown.value.slice(end)}`
+    rawChanged()
+    void nextTick(() => {
+      el.focus()
+      el.setSelectionRange(start, start + replacement.length)
+    })
+    return
+  }
+  const instance = editor.value
+  if (!instance) return
+  if (instance.state.selection.empty) {
+    if (instance.isActive('redaction')) {
+      instance.chain().focus().extendMarkRange('redaction').toggleRedaction().run()
+    } else {
+      error.value = '请先选中需要打码的文字'
+    }
+    return
+  }
+  instance.chain().focus().toggleRedaction().run()
 }
 
 function addLink() {
@@ -214,6 +252,7 @@ defineExpose({ editor })
         <button type="button" title="无序列表" @click="editor?.chain().focus().toggleBulletList().run()">• 列表</button>
         <button type="button" title="引用" @click="editor?.chain().focus().toggleBlockquote().run()">❝</button>
       </template>
+      <button v-if="enableRedaction" type="button" data-testid="redaction-button" title="选中文字后打码；再次点击可取消" :class="{ active: !advanced && editor?.isActive('redaction') }" @click="toggleRedaction">▰ 打码</button>
       <button type="button" title="插入链接" @click="addLink">🔗</button>
       <span class="emoji-wrap"><button type="button" title="插入表情" @click="emojiOpen = !emojiOpen">😀</button><span v-if="emojiOpen" class="emoji-panel"><button v-for="emoji in emojis" :key="emoji" type="button" @click="insertEmoji(emoji)">{{ emoji }}</button></span></span>
       <label class="editor-upload" :class="{ disabled: busy || attachments.length >= maxImages }">{{ busy ? '上传中…' : '🖼️ 插图' }}<input type="file" accept="image/jpeg,image/png,image/webp" multiple :disabled="busy || attachments.length >= maxImages" @change="addImages" /></label>
@@ -221,7 +260,8 @@ defineExpose({ editor })
       <span class="editor-count">{{ modelValue.length }}/{{ maxLength }} · 图片 {{ attachments.length }}/{{ maxImages }}</span>
     </div>
     <EditorContent v-if="!advanced" :editor="editor" class="visual-editor" />
-    <div v-else class="markdown-editor"><textarea ref="rawInput" v-model="markdown" :maxlength="maxLength" :placeholder="placeholder" rows="10" @input="rawChanged" @paste="pasteRaw" /><div class="markdown-preview"><b>预览</b><RichText :content="markdown" /></div></div>
+    <div v-else class="markdown-editor"><textarea ref="rawInput" v-model="markdown" :maxlength="maxLength" :placeholder="placeholder" rows="10" @input="rawChanged" @paste="pasteRaw" /><div class="markdown-preview"><b>{{ enableRedaction ? '公开打码预览' : '预览' }}</b><RichText :content="previewMarkdown" /></div></div>
+    <p v-if="enableRedaction" class="redaction-help">选中姓名、联系方式或其他敏感文字后点击“打码”。公开页面显示为 ▓▓▓▓▓▓，符合权限的用户点击“去码查看”后才能看到原文。</p>
     <p v-if="error" class="notice danger">{{ error }}</p>
   </div>
 </template>

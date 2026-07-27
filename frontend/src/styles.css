@@ -477,11 +477,14 @@ tbody tr:hover td { background: #fbfaf3; }
 .visual-editor .ProseMirror { min-height: 150px; outline: 0; padding: 11px 12px; color: var(--ink); line-height: 1.75; }
 .visual-editor .ProseMirror p { margin: 0 0 8px; }
 .visual-editor .ProseMirror p.is-editor-empty:first-child::before { content: attr(data-placeholder); float: left; height: 0; color: #9a9b93; pointer-events: none; }
+.visual-editor .redaction-mark { border-radius: 3px; padding: 1px 3px; color: transparent; background: repeating-linear-gradient(135deg, #252c29 0 5px, #36413c 5px 9px); box-decoration-break: clone; -webkit-box-decoration-break: clone; caret-color: #fff; text-shadow: none; }
+.visual-editor .redaction-mark::selection { color: #fff; background: #1f5b47; }
 .visual-editor .ProseMirror img, .rich-text img { display: block; max-width: min(100%, 720px); max-height: 560px; margin: 10px auto; border-radius: 8px; object-fit: contain; }
 .markdown-editor { display: grid; grid-template-columns: 1fr 1fr; min-height: 260px; }
 .markdown-editor textarea { min-height: 260px; border: 0; border-radius: 0 0 0 8px; padding: 12px; background: #fbfaf5; font: 12px/1.65 var(--mono); resize: vertical; }
 .markdown-preview { min-width: 0; border-left: 1px solid var(--line); padding: 11px 13px; }
 .markdown-preview > b { display: block; margin-bottom: 8px; color: var(--muted); font-size: 10px; }
+.redaction-help { margin: 0; border-top: 1px solid #ead9a5; padding: 8px 11px; color: #6c5a25; background: #fff9e8; font-size: 11px; line-height: 1.55; }
 .rich-editor > .notice { margin: 8px; }
 
 /* 移动导航 */

@@ -63,4 +63,16 @@ describe('RichEditor', () => {
     expect(value).toContain('![图片](/uploads/pasted.webp)')
     wrapper.unmount()
   })
+
+  it('marks selected observe text for public redaction', async () => {
+    const wrapper = mount(RichEditor, { props: { modelValue: '张三在现场', enableRedaction: true } })
+    const editor = (wrapper.vm as unknown as { editor: any }).editor
+    editor.commands.setTextSelection({ from: 1, to: 3 })
+    await wrapper.find('[data-testid="redaction-button"]').trigger('click')
+    await nextTick()
+    expect(wrapper.emitted('update:modelValue')?.at(-1)?.[0]).toContain('==张三==')
+    expect(editor.getHTML()).toContain('data-redaction="true"')
+    expect(wrapper.text()).toContain('去码查看')
+    wrapper.unmount()
+  })
 })

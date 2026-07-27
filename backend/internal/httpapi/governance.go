@@ -147,10 +147,12 @@ func (s *Server) createObserve(w http.ResponseWriter, r *http.Request) error {
 	if err := decodeBody(r, &body); err != nil {
 		return err
 	}
+	markedBody := strings.TrimSpace(body.Body)
+	rawBody := stripObserveRedactions(markedBody)
 	if runeLen(strings.TrimSpace(body.Title)) < 4 || runeLen(strings.TrimSpace(body.Title)) > 160 {
 		return validation("title", "String should have at least 4 characters")
 	}
-	if runeLen(strings.TrimSpace(body.Body)) < 10 || runeLen(strings.TrimSpace(body.Body)) > 10000 {
+	if runeLen(rawBody) < 10 || runeLen(rawBody) > 10000 {
 		return validation("body", "String should have at least 10 characters")
 	}
 	tx, err := s.DB.Begin(r.Context())
@@ -161,11 +163,11 @@ func (s *Server) createObserve(w http.ResponseWriter, r *http.Request) error {
 	if err := s.requireCredit(r.Context(), tx, user, "threshold.observe_publish", "发布观察帖"); err != nil {
 		return err
 	}
-	e, _, err := s.createEntity(r.Context(), tx, user.ID, "observe", body.Title+"\n"+body.Body, true, false, true)
+	e, _, err := s.createEntity(r.Context(), tx, user.ID, "observe", body.Title+"\n"+rawBody, true, false, true)
 	if err != nil {
 		return err
 	}
-	o := Observe{ID: e.ID, Title: strings.TrimSpace(body.Title), Raw: strings.TrimSpace(body.Body), Masked: maskObserve(strings.TrimSpace(body.Body))}
+	o := Observe{ID: e.ID, Title: strings.TrimSpace(body.Title), Raw: rawBody, Masked: maskObserve(markedBody)}
 	if _, err := tx.Exec(r.Context(), "INSERT INTO observe_posts(entity_id,title,body_masked,body_raw,response,admin_note) VALUES($1,$2,$3,$4,'','')", o.ID, o.Title, o.Masked, o.Raw); err != nil {
 		return err
 	}
@@ -424,10 +426,16 @@ var (
 	imAccount   = regexp.MustCompile(`(?i)((?:微信|威信|扣扣)号?|\b(?:weixin|wechat|wx|qq)\b)\s*[:：是]?\s*[A-Za-z0-9_-]{5,20}`)
 	idCardMask  = regexp.MustCompile(`\b\d{17}[\dXx]\b`)
 	digitMask   = regexp.MustCompile(`\d{5,18}`)
+	manualMask  = regexp.MustCompile(`==([^=\r\n]+)==`)
 	maskedToken = "▓▓▓▓▓▓"
 )
 
+func stripObserveRedactions(v string) string {
+	return manualMask.ReplaceAllString(v, "$1")
+}
+
 func maskObserve(v string) string {
+	v = manualMask.ReplaceAllString(v, maskedToken)
 	v = emailMask.ReplaceAllString(v, maskedToken)
 	v = idCardMask.ReplaceAllString(v, maskedToken)
 	v = phoneMask.ReplaceAllString(v, "1**********")
