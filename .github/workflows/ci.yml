@@ -125,7 +125,7 @@ jobs:
       - run: go run ./cmd/wutong migrate status
       - run: go run ./cmd/wutong migrate down
       - run: go run ./cmd/wutong migrate up
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: query-plans-${{ github.sha }}
           path: backend/query-plans.json
@@ -199,7 +199,7 @@ jobs:
           docker save "wutong-api:${GITHUB_SHA}" -o /tmp/images/api.tar
           docker save "wutong-worker:${GITHUB_SHA}" -o /tmp/images/worker.tar
           docker save "wutong-web:${GITHUB_SHA}" -o /tmp/images/web.tar
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: scanned-images-${{ github.sha }}
           path: /tmp/images/*.tar
@@ -243,7 +243,7 @@ jobs:
           docker inspect --format '{{join .RepoDigests "\n"}}' "$api" > /tmp/image-digests.txt
           docker inspect --format '{{join .RepoDigests "\n"}}' "$worker" >> /tmp/image-digests.txt
           docker inspect --format '{{join .RepoDigests "\n"}}' "$web" >> /tmp/image-digests.txt
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: release-sbom-and-digests-${{ github.sha }}
           path: |
