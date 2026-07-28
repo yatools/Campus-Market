@@ -24,6 +24,7 @@ import (
 	apispec "github.com/yatools/wutong-campus-wall/backend/api"
 	"github.com/yatools/wutong-campus-wall/backend/internal/config"
 	"github.com/yatools/wutong-campus-wall/backend/internal/database"
+	marketapp "github.com/yatools/wutong-campus-wall/backend/internal/market"
 	operationalmetrics "github.com/yatools/wutong-campus-wall/backend/internal/metrics"
 	"github.com/yatools/wutong-campus-wall/backend/internal/security"
 	storagepkg "github.com/yatools/wutong-campus-wall/backend/internal/storage"
@@ -48,6 +49,7 @@ type Server struct {
 	Storage *storagepkg.Store
 	Metrics *operationalmetrics.Registry
 	Hub     *notificationHub
+	Market  *marketapp.Service
 }
 
 func New(cfg config.Config, db *pgxpool.Pool) http.Handler {
@@ -55,7 +57,16 @@ func New(cfg config.Config, db *pgxpool.Pool) http.Handler {
 	if err != nil {
 		slog.Error("storage_config_invalid", "error", err)
 	}
-	s := &Server{Config: cfg, DB: db, Storage: store, Metrics: operationalmetrics.Default, Hub: newNotificationHub(db)}
+	marketRepository := marketapp.NewPostgresRepository(db)
+	s := &Server{
+		Config: cfg, DB: db, Storage: store, Metrics: operationalmetrics.Default,
+		Hub: newNotificationHub(db),
+		Market: marketapp.NewService(
+			marketRepository,
+			cfg.MarketReservationTTL,
+			cfg.MarketReviewBlindTTL,
+		),
+	}
 	r := chi.NewRouter()
 	// requestContext must run before recoverer so the panic handler can log and echo the
 	// request id, and so panics are still counted by the metrics defer it installs.
