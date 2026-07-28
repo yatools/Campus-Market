@@ -17,6 +17,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -293,6 +294,75 @@ func TestPostgresAuthAndTreeholeWorkflow(t *testing.T) {
 			adminCSRF = cookie.Value
 		}
 	}
+	var memberID int64
+	if err := pool.QueryRow(context.Background(), "SELECT id FROM users WHERE email=$1", email).Scan(&memberID); err != nil {
+		t.Fatal(err)
+	}
+	updatedUser := requestJSON(t, adminClient, http.MethodPatch, server.URL+"/api/v1/admin/users/"+strconv.FormatInt(memberID, 10), map[string]any{
+		"credit": 850, "reason": "integration policy check",
+	}, adminCSRF)
+	if updatedUser.StatusCode != http.StatusOK {
+		t.Fatalf("admin update user: %d %s", updatedUser.StatusCode, readResponse(updatedUser))
+	}
+	assertOpenAPIResponse(t, updatedUser)
+	updatedUser.Body.Close()
+	penaltyResponse := requestJSON(t, adminClient, http.MethodPost, server.URL+"/api/v1/admin/penalties", map[string]any{
+		"user_id": memberID, "violation_type": "integration spam", "result": "warning",
+		"rule": "integration governance rule", "credit_delta": -25,
+	}, adminCSRF)
+	if penaltyResponse.StatusCode != http.StatusCreated {
+		t.Fatalf("create penalty: %d %s", penaltyResponse.StatusCode, readResponse(penaltyResponse))
+	}
+	assertOpenAPIResponse(t, penaltyResponse)
+	var penaltyPayload struct {
+		ID int64 `json:"id"`
+	}
+	if err := json.NewDecoder(penaltyResponse.Body).Decode(&penaltyPayload); err != nil {
+		t.Fatal(err)
+	}
+	penaltyResponse.Body.Close()
+	appealResponse := requestJSON(t, client, http.MethodPost, server.URL+"/api/v1/penalties/"+strconv.FormatInt(penaltyPayload.ID, 10)+"/appeals", map[string]any{
+		"reason": "please review the integration context",
+	}, csrf)
+	if appealResponse.StatusCode != http.StatusCreated {
+		t.Fatalf("appeal penalty: %d %s", appealResponse.StatusCode, readResponse(appealResponse))
+	}
+	assertOpenAPIResponse(t, appealResponse)
+	var appealPayload struct {
+		ID int64 `json:"id"`
+	}
+	if err := json.NewDecoder(appealResponse.Body).Decode(&appealPayload); err != nil {
+		t.Fatal(err)
+	}
+	appealResponse.Body.Close()
+	appealDecision := requestJSON(t, adminClient, http.MethodPost, server.URL+"/api/v1/admin/appeals/"+strconv.FormatInt(appealPayload.ID, 10)+"/decision", map[string]any{
+		"status": "approved", "note": "integration review complete",
+	}, adminCSRF)
+	if appealDecision.StatusCode != http.StatusOK {
+		t.Fatalf("decide appeal: %d %s", appealDecision.StatusCode, readResponse(appealDecision))
+	}
+	assertOpenAPIResponse(t, appealDecision)
+	appealDecision.Body.Close()
+	var postID, moderationCaseID int64
+	if err := pool.QueryRow(context.Background(), `SELECT id FROM content_entities
+		WHERE owner_id=$1 AND type='post' ORDER BY id LIMIT 1`, memberID).Scan(&postID); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(context.Background(), `INSERT INTO moderation_cases(
+		entity_id,source,status,decision,notes,created_at
+	) VALUES($1,'integration','pending','','',now())
+	ON CONFLICT(entity_id) DO UPDATE SET status='pending',decision='',notes=''
+	RETURNING id`, postID).Scan(&moderationCaseID); err != nil {
+		t.Fatal(err)
+	}
+	moderationDecision := requestJSON(t, adminClient, http.MethodPost, server.URL+"/api/v1/admin/moderation-cases/"+strconv.FormatInt(moderationCaseID, 10)+"/decision", map[string]any{
+		"decision": "approve", "note": "integration moderation complete",
+	}, adminCSRF)
+	if moderationDecision.StatusCode != http.StatusOK {
+		t.Fatalf("decide moderation: %d %s", moderationDecision.StatusCode, readResponse(moderationDecision))
+	}
+	assertOpenAPIResponse(t, moderationDecision)
+	moderationDecision.Body.Close()
 	announcement := requestJSON(t, adminClient, http.MethodPost, server.URL+"/api/v1/admin/announcements", map[string]any{
 		"title": "事务结果集回归", "body": "验证强提醒通知和邮件队列", "level": "strong", "audience": "all",
 	}, adminCSRF)
@@ -329,6 +399,14 @@ func TestPostgresAuthAndTreeholeWorkflow(t *testing.T) {
 		"/api/v1/admin/credit-rules", "/api/v1/admin/game-submissions",
 	}
 	assertReadsOK(t, adminClient, server.URL, adminReads)
+	deactivated := requestJSON(t, client, http.MethodPost, server.URL+"/api/v1/me/deactivate", map[string]any{
+		"password": "SafePassword123", "confirmation": "注销我的账号",
+	}, csrf)
+	if deactivated.StatusCode != http.StatusOK {
+		t.Fatalf("deactivate account: %d %s", deactivated.StatusCode, readResponse(deactivated))
+	}
+	assertOpenAPIResponse(t, deactivated)
+	deactivated.Body.Close()
 }
 
 func assertReadsOK(t *testing.T, client *http.Client, baseURL string, paths []string) {

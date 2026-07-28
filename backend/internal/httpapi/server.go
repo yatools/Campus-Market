@@ -24,6 +24,7 @@ import (
 	apispec "github.com/yatools/wutong-campus-wall/backend/api"
 	"github.com/yatools/wutong-campus-wall/backend/internal/config"
 	"github.com/yatools/wutong-campus-wall/backend/internal/database"
+	governanceapp "github.com/yatools/wutong-campus-wall/backend/internal/governance"
 	marketapp "github.com/yatools/wutong-campus-wall/backend/internal/market"
 	operationalmetrics "github.com/yatools/wutong-campus-wall/backend/internal/metrics"
 	"github.com/yatools/wutong-campus-wall/backend/internal/security"
@@ -45,13 +46,14 @@ const requestIDKey contextKey = "request-id"
 const clientIPKey contextKey = "client-ip"
 
 type Server struct {
-	Config  config.Config
-	DB      *pgxpool.Pool
-	Storage *storagepkg.Store
-	Metrics *operationalmetrics.Registry
-	Hub     *notificationHub
-	Market  *marketapp.Service
-	Team    *teamapp.Service
+	Config     config.Config
+	DB         *pgxpool.Pool
+	Storage    *storagepkg.Store
+	Metrics    *operationalmetrics.Registry
+	Hub        *notificationHub
+	Governance *governanceapp.Service
+	Market     *marketapp.Service
+	Team       *teamapp.Service
 }
 
 func New(cfg config.Config, db *pgxpool.Pool) http.Handler {
@@ -61,9 +63,11 @@ func New(cfg config.Config, db *pgxpool.Pool) http.Handler {
 	}
 	marketRepository := marketapp.NewPostgresRepository(db)
 	teamRepository := teamapp.NewPostgresRepository(db)
+	governanceRepository := governanceapp.NewPostgresRepository(db)
 	s := &Server{
 		Config: cfg, DB: db, Storage: store, Metrics: operationalmetrics.Default,
-		Hub: newNotificationHub(db),
+		Hub:        newNotificationHub(db),
+		Governance: governanceapp.NewService(governanceRepository, cfg.SecretKey),
 		Market: marketapp.NewService(
 			marketRepository,
 			cfg.MarketReservationTTL,
