@@ -83,9 +83,6 @@ async function punish(item: User) {
   if (!result) return
   const rule = prompt('依据的社区规则：', '')
   if (!rule) return
-  // Number(null) is 0, so cancelling this prompt used to submit a valid "credit -0"
-  // penalty: the backend accepts 0, and the record — notification, audit entry and public
-  // listing included — could then only be undone through the appeals process.
   const rawDelta = prompt('信用分变化（0 到 -1000）：', '-50')
   if (rawDelta === null) return
   const credit_delta = Number(rawDelta)

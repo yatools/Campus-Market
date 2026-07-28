@@ -8,11 +8,9 @@ on:
 permissions:
   contents: read
 
-# 同一分支的连续推送会并发跑到 publish-images 并竞争同名 tag。
+# 每个分支只保留最新的 PR 检查；main 发布不可中断。
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  # 只取消 PR 的旧运行。对 main 的 push 不能取消：publish-images 中途被打断会留下
-  # 只推了一部分镜像的中间状态。
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -26,11 +24,8 @@ jobs:
       - run: cp .env.staging.example .env.staging
       - run: docker compose --env-file .env config --quiet
       - run: docker compose -p wutong-staging --env-file .env.staging -f docker-compose.yml -f docker-compose.staging.yml config --quiet
-      # 这些脚本的 shebang 是 /usr/bin/env sh。用 bash -n 检查会放行 bashism，
-      # 真正在 dash 下运行时才失败。
+      # 按脚本声明的 POSIX shell 检查语法。
       - run: for script in deploy/*.sh; do sh -n "$script"; done
-      # 只对 POSIX sh 脚本用 -s sh（两个 test-*.sh 是 bash，按 shebang 判断即可），
-      # 并把门槛设在 warning：默认的 style 级别会因 SC2015/SC2016 这类提示直接返回 1。
       - name: shellcheck
         run: |
           posix=$(grep -l '^#!/usr/bin/env sh' deploy/*.sh)
@@ -97,16 +92,11 @@ jobs:
             awk -v package="$package" -v coverage="$coverage" 'BEGIN { if (coverage < 85) { print package " coverage " coverage "% is below 85%"; exit 1 } }'
           done
       - run: go build ./cmd/wutong
-      # 测试清理是否保留 schema 取决于最后执行的包；先做幂等的 migrate up，
-      # 保证查询计划采集不依赖测试顺序，同时保留测试可能留下的数据。
+      # 查询计划采集前确保 schema 位于最新版本。
       - run: go run ./cmd/wutong migrate up
-      # 先采基线，再做 down/up：迁移回滚会清空测试数据。
       - name: Capture query plan baselines
-        # -At：unaligned + tuples-only。psql 默认的对齐输出会给结果套上表头、
-        # 分隔线和 "(N rows)" 尾行，产出的 query-plans.json 并不是合法 JSON。
         run: psql "$TEST_DATABASE_URL" -X -At -v ON_ERROR_STOP=1 -f ../deploy/query-plan-baselines.sql > query-plans.json
-      # query-plan-baselines.sql 里有多条 EXPLAIN(FORMAT JSON)，输出是「每条语句一个
-      # 顶层 JSON 文档」，不是单个 JSON。逐文档校验，避免用 json.load 直接报 Extra data。
+      # 每条 EXPLAIN 输出一个顶层 JSON 文档。
       - name: Validate query plan output
         run: |
           python3 - <<'PY'
@@ -177,8 +167,7 @@ jobs:
 
   container-security:
     runs-on: ubuntu-latest
-    # deployment-config 必须进入依赖链：它是部署脚本与 compose 配置的唯一自动化验证，
-    # 之前它变红也不会阻止镜像被推送到 ghcr。
+    # 只有部署、代码、恢复演练全部通过后才构建发布候选镜像。
     needs: [deployment-config, backend, frontend, restore-drill]
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -191,10 +180,7 @@ jobs:
 
       - run: docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:0.65.0 image --ignore-unfixed --severity HIGH,CRITICAL --exit-code 1 wutong-worker:${{ github.sha }}
       - run: docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:0.65.0 image --ignore-unfixed --severity HIGH,CRITICAL --exit-code 1 wutong-web:${{ github.sha }}
-      # 把扫描通过的这几个镜像原样带到 publish 阶段。之前 publish-images 是在另一台
-      # runner 上重新 docker build，基础镜像用的又是浮动 tag（golang:1.26-bookworm 等），
-      # 因此真正被推送、被部署的 digest 从来没有被扫描过，
-      # README「只接受 CI 已扫描的不可变 digest」并不成立。
+      # 发布阶段加载这些已扫描镜像，不重新构建。
       - name: Export scanned images
         run: |
           mkdir -p /tmp/images
@@ -229,7 +215,7 @@ jobs:
           api="ghcr.io/${GITHUB_REPOSITORY,,}/api:sha-${GITHUB_SHA}"
           worker="ghcr.io/${GITHUB_REPOSITORY,,}/worker:sha-${GITHUB_SHA}"
           web="ghcr.io/${GITHUB_REPOSITORY,,}/web:sha-${GITHUB_SHA}"
-          # Load, do not rebuild: these are byte-for-byte the images trivy cleared.
+          # Load the scanned image artifacts without rebuilding.
           docker load -i /tmp/images/api.tar
           docker load -i /tmp/images/worker.tar
           docker load -i /tmp/images/web.tar

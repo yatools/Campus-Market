@@ -307,10 +307,7 @@ func (s *Server) getPost(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	// Reading a post is a read. It used to take a row-level exclusive lock on the entity
-	// (FOR UPDATE) and hold it across five further queries, so concurrent readers of a
-	// popular post serialised behind each other. Read without the lock and bump the view
-	// counter separately.
+	// Detail reads do not lock the entity; the view counter is updated separately.
 	e, p, err := getEntityPost(r.Context(), s.DB, id, false)
 	if err == pgx.ErrNoRows {
 		return apiError(404, "POST_NOT_FOUND", "帖子不存在")
@@ -620,9 +617,7 @@ func (s *Server) listComments(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-// maxCommentReplies bounds the second level of a comment thread. The reply query used to
-// be unbounded, so a single root comment with thousands of replies made one request return
-// every one of them and issue a handful of queries per reply.
+// maxCommentReplies bounds the second level returned with each root comment.
 const maxCommentReplies = 50
 
 func (s *Server) commentReplies(ctx context.Context, parentID int64, viewer *User) ([]any, error) {
@@ -1355,12 +1350,7 @@ func (s *Server) creditThreshold(ctx context.Context, q queryer, key string) int
 	return value
 }
 
-// attachUploads makes the given uploads the complete public attachment set of an entity.
-//
-// It is a *replace*, not an append. Previously an attachment could only ever move from
-// pending to attached and nothing anywhere set it back, which meant: removing one image
-// from a post was impossible, and re-sending the current attachment_ids on an unrelated
-// edit failed with INVALID_ATTACHMENTS because those ids were no longer 'pending'.
+// attachUploads replaces the caller-owned public attachment set of an entity.
 func (s *Server) attachUploads(ctx context.Context, tx pgx.Tx, userID, entityID int64, ids []int64) error {
 	unique := map[int64]bool{}
 	for _, id := range ids {

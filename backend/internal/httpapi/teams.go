@@ -1298,13 +1298,11 @@ func validVoiceLink(raw string) (string, error) {
 	if len([]rune(v)) > 500 {
 		return "", validation("voice_link", "String should have at most 500 characters")
 	}
-	// Reject control characters outright: they serve no purpose in a URL and are the raw
-	// material for header/attribute injection further downstream.
+	// Control characters are invalid at the URL boundary.
 	if strings.ContainsAny(v, "\r\n\t") {
 		return "", apiError(400, "INVALID_VOICE_LINK", "语音频道链接包含非法字符")
 	}
-	// Parse rather than prefix-match, so "https://" followed by anything at all no longer
-	// counts as a URL and userinfo tricks like https://discord.gg@evil.example are rejected.
+	// Parsed URLs require an HTTP(S) host and forbid userinfo.
 	parsed, err := url.Parse(v)
 	if err != nil {
 		return "", apiError(400, "INVALID_VOICE_LINK", "语音频道链接格式无效")
@@ -1427,10 +1425,7 @@ func cleanStrings(values []string, max int) []string {
 	return out
 }
 
-// joinTags renders a tag list for storage in a VARCHAR(300) column, dropping tags that
-// would push the joined value past the limit. Per-tag length caps do not bound the joined
-// result — eight 80-character tags produced a 647-character string, and PostgreSQL
-// rejected it with 22001, which the API reported as an opaque 500.
+// joinTags enforces both per-tag and persisted aggregate length limits.
 func joinTags(values []string, maxTagRunes, maxTotalRunes int) string {
 	joined := ""
 	for _, tag := range cleanStrings(values, maxTagRunes) {

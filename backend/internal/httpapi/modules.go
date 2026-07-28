@@ -323,9 +323,7 @@ func (s *Server) updateQuestion(w http.ResponseWriter, r *http.Request) error {
 		attachmentsProvided = true
 	}
 	if changed {
-		// Snapshot the values as they were *before* this edit. Passing the already-updated
-		// struct stored the new text as "revision N", so the original was never kept
-		// anywhere — content edited after a report left no trace for moderators to review.
+		// Revisions store the state immediately before this edit.
 		if err := recordRevision(r.Context(), tx, e, user.ID, previousTitle, previousBody); err != nil {
 			return err
 		}
@@ -481,9 +479,7 @@ func (s *Server) acceptAnswer(w http.ResponseWriter, r *http.Request) error {
 	if questionEntity.OwnerID != user.ID {
 		return apiError(403, "ASKER_REQUIRED", "只有提问者可以采纳")
 	}
-	// The answer's status was checked but the question's was not: after deleting their own
-	// question (which already refunds the bounty and marks it settled) the asker could
-	// still accept an answer to it and hand out the 20 XP base reward again.
+	// Answers can only be accepted while the parent question remains published.
 	if questionEntity.Status != "published" {
 		return apiError(409, "QUESTION_NOT_PUBLISHED", "问题已删除或不可见，无法采纳")
 	}
@@ -499,9 +495,7 @@ func (s *Server) acceptAnswer(w http.ResponseWriter, r *http.Request) error {
 	}
 	reward := 20 + q.Bounty
 	if q.Settled {
-		// The bounty was already settled — e.g. the question was moderated away and its
-		// bounty_xp refunded to the asker (adminDecideModeration). If it was later
-		// re-approved, paying 20+bounty again here would double-spend the bounty.
+		// A settled bounty is never paid twice after re-approval.
 		reward = 20
 	}
 	if _, err := tx.Exec(r.Context(), "UPDATE questions SET accepted_answer_id=$1,bounty_settled=true WHERE entity_id=$2", id, q.ID); err != nil {
@@ -536,10 +530,7 @@ func (s *Server) questionPayload(ctx context.Context, qry queryer, e Entity, q Q
 		return nil, err
 	}
 	defer rows.Close()
-	// Read the whole cursor before deriving anything from it. answerPayload issues further
-	// queries, and when qry is a pgx.Tx those share one connection with this still-open
-	// result set: PATCH on a question that already had an answer failed with "conn busy"
-	// and returned 500 every time.
+	// Drain the cursor before answerPayload issues queries on the same connection.
 	type answerRow struct {
 		e Entity
 		a Answer
@@ -780,8 +771,7 @@ func (s *Server) updateHandbook(w http.ResponseWriter, r *http.Request) error {
 		attachmentsProvided = true
 	}
 	if changed {
-		// Snapshot pre-edit values (see updateQuestion): recordRevision must store what the
-		// content looked like *before* this change.
+		// Revisions store the state immediately before this edit.
 		if err := recordRevision(r.Context(), tx, e, user.ID, previousTitle, previousBody); err != nil {
 			return err
 		}
@@ -878,9 +868,7 @@ func (s *Server) publishHandbook(w http.ResponseWriter, r *http.Request) error {
 		if err != nil {
 			return err
 		}
-		// Open a moderation case as well. Flipping the entity to hidden/pending without one
-		// left the article invisible to everyone but its author and absent from the review
-		// queue — unreachable and unappealable until someone edited the database by hand.
+		// Every hidden pending article must remain reachable from the moderation queue.
 		if moderationStatus == "pending" {
 			if _, err := tx.Exec(r.Context(), `INSERT INTO moderation_cases(entity_id,source,status,decision,notes,created_at)
 				VALUES($1,'publish_risk','pending','','',now())
@@ -1370,9 +1358,7 @@ func (s *Server) createActivity(w http.ResponseWriter, r *http.Request) error {
 	if body.Ends != nil && !body.Ends.After(body.Starts) {
 		return apiError(400, "INVALID_END_TIME", "活动结束时间必须晚于开始时间")
 	}
-	// Same bounds updateActivity enforces. Without them capacity 1 (or a negative value)
-	// was accepted at creation, and since the organiser is counted as the first member the
-	// activity was full the moment it existed and nobody could ever join.
+	// The organiser occupies the first slot, so capacity starts at two.
 	if body.Capacity != nil && (*body.Capacity < 2 || *body.Capacity > 10000) {
 		return validation("capacity", "Input should be between 2 and 10000")
 	}

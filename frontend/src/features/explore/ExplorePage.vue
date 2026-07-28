@@ -66,8 +66,7 @@ const observeThreshold = computed(() => auth.creditRule('threshold.observe_publi
 const canPublishObserve = computed(() => Boolean(auth.user && auth.user.credit >= observeThreshold.value))
 const observeCreditGap = computed(() => Math.max(0, observeThreshold.value - (auth.user?.credit || 0)))
 const observePublishLabel = computed(() => !auth.user ? '+ 登录后发布' : canPublishObserve.value ? '+ 发布观察' : `信用不足（${auth.user.credit}/${observeThreshold.value}）`)
-// Unmask gate. The threshold was previously fetched but never shown, so a user just short
-// of it saw neither the button nor any explanation of why.
+// The hint mirrors the server-provided unmask threshold.
 const unmaskThreshold = computed(() => auth.user?.observe_unmask_threshold ?? auth.creditRule('threshold.observe_unmask'))
 const unmaskHint = computed(() => !auth.user
   ? '观察帖默认打码显示。登录并达到信用门槛后可申请查看原文。'
@@ -84,9 +83,7 @@ function resetForm() {
   Object.assign(form, emptyExploreForm())
 }
 
-// Guards against out-of-order responses: switching sections while a request is in flight
-// used to let the older response overwrite `items`, after which the template read fields
-// that only exist on the other section's shape and threw during render (blank page).
+// Ignore responses issued for a section that is no longer active.
 let loadToken = 0
 
 async function load() {
