@@ -33,15 +33,36 @@ function cookie(name: string): string {
     ?.slice(prefix.length) || ''
 }
 
+function csrfHeaders(method: string, source?: HeadersInit): Headers {
+  const headers = new Headers(source)
+  if (!['GET', 'HEAD', 'OPTIONS'].includes(method.toUpperCase())) {
+    const csrf = decodeURIComponent(cookie(appConfig().csrf_cookie_name))
+    if (csrf) headers.set('X-CSRF-Token', csrf)
+  }
+  return headers
+}
+
+/** Fetch implementation shared by generated SDK calls. */
+export async function sdkFetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
+  const requestInput = typeof input === 'string' && input.startsWith('/')
+    ? new URL(input, globalThis.location?.origin || 'http://localhost')
+    : input
+  const request = new Request(requestInput, init)
+  const response = await globalThis.fetch(request, {
+    headers: csrfHeaders(request.method, request.headers),
+    credentials: 'include',
+  })
+  if (response.status === 401) unauthorizedHandler?.()
+  return response
+}
+
+/** @deprecated Use an operationId-named function from generated/sdk in migrated features. */
 export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers)
   if (init.body && !(init.body instanceof FormData)) headers.set('Content-Type', 'application/json')
   const method = (init.method || 'GET').toUpperCase()
-  if (!['GET', 'HEAD', 'OPTIONS'].includes(method)) {
-    const csrf = decodeURIComponent(cookie(appConfig().csrf_cookie_name))
-    if (csrf) headers.set('X-CSRF-Token', csrf)
-  }
-  const response = await fetch(`${appConfig().api_prefix}${path}`, { ...init, headers, credentials: 'include' })
+  const securedHeaders = csrfHeaders(method, headers)
+  const response = await fetch(`${appConfig().api_prefix}${path}`, { ...init, headers: securedHeaders, credentials: 'include' })
   if (response.status === 204) return undefined as T
   const data = await response.json().catch(() => ({}))
   if (!response.ok) {

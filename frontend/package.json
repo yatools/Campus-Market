@@ -11,7 +11,9 @@
     "test:coverage": "vitest run --coverage",
     "lint": "eslint . --max-warnings=0",
     "typecheck": "vue-tsc -b",
-    "generate:api": "openapi-typescript ../backend/api/openapi.yaml -o src/generated/api.d.ts"
+    "check:contracts": "node scripts/check-contracts.mjs",
+    "check:legacy-api": "node scripts/check-legacy-api.mjs",
+    "generate:api": "openapi-typescript ../backend/api/openapi.yaml -o src/generated/api.d.ts && openapi-ts"
   },
   "dependencies": {
     "@tiptap/core": "^3.27.4",
@@ -28,6 +30,7 @@
     "vue-router": "^4.5.1"
   },
   "overrides": {
+    "js-yaml": "^4.3.0",
     "@redocly/openapi-core": {
       "js-yaml": "^4.3.0",
       "minimatch": "^10.2.5"
@@ -42,6 +45,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@hey-api/openapi-ts": "0.99.0",
     "@playwright/test": "^1.53.2",
     "@types/dompurify": "^3.0.5",
     "@types/node": "^22.15.30",
