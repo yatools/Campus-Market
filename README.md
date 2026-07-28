@@ -2,6 +2,23 @@
 
 梧桐墙是面向单校部署的校园社区系统。仓库包含 Vue 3 Web 前端、Go API 与后台 Worker、PostgreSQL 数据库、S3 兼容对象存储，以及用于 HTTPS 入口的 Nginx 配置。
 
+## 前端演示
+
+### 移动端
+
+<img width="509" height="1134" alt="梧桐墙移动端界面" src="https://github.com/user-attachments/assets/9ae94436-9fd0-45bd-ae5c-0dc53179fa4b" />
+
+### 桌面端
+
+<img width="2494" height="1225" alt="梧桐墙桌面端界面" src="https://github.com/user-attachments/assets/6a4773df-632a-4faf-92dc-00b5f35458ca" />
+<img width="2489" height="1196" alt="梧桐墙桌面端界面" src="https://github.com/user-attachments/assets/6513ba7a-6d1c-4864-bbe7-4fcafddded53" />
+<img width="1276" height="835" alt="梧桐墙桌面端界面" src="https://github.com/user-attachments/assets/09c95177-80ec-455d-8b24-783bf4c67acc" />
+<img width="1269" height="886" alt="梧桐墙桌面端界面" src="https://github.com/user-attachments/assets/579d2d72-ea95-4ed3-bae6-a1c99d46e4ad" />
+<img width="1288" height="864" alt="梧桐墙桌面端界面" src="https://github.com/user-attachments/assets/03a61014-981f-45d7-9f25-9551c024d318" />
+<img width="1347" height="933" alt="梧桐墙桌面端界面" src="https://github.com/user-attachments/assets/8b8293a2-a51f-49ce-bc77-0bb7eddfa22d" />
+<img width="1274" height="1032" alt="梧桐墙桌面端界面" src="https://github.com/user-attachments/assets/fcb34640-d8f6-48b3-8de0-58b6d5d7f31f" />
+<img width="1626" height="397" alt="梧桐墙桌面端界面" src="https://github.com/user-attachments/assets/9d8e40ea-3275-411a-acbf-ce6ea1d2c628" />
+
 ## 主要能力
 
 - 校园邮箱注册、Argon2id 密码、服务端会话、CSRF 防护和请求限流。
