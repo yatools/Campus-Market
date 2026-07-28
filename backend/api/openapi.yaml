@@ -16303,6 +16303,14 @@
             "type": "string",
             "format": "binary",
             "title": "File"
+          },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "public",
+              "market_dispute"
+            ],
+            "title": "Scope"
           }
         },
         "type": "object",

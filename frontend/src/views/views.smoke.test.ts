@@ -13,13 +13,38 @@ import SearchView from './SearchView.vue'
 import TeamsView from './TeamsView.vue'
 
 const apiMock = vi.fn()
-vi.mock('../api', () => ({
-  api: (...args: unknown[]) => apiMock(...args),
-  json: (method: string, body?: unknown) => ({ method, body: body === undefined ? undefined : JSON.stringify(body) }),
-  // The auth store registers a global 401 handler at setup time, so every factory mock
-  // of this module must export it or useAuthStore() throws before any test runs.
-  setUnauthorizedHandler: () => {},
-  uploadImage: vi.fn(),
+vi.mock('../api', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../api')>()
+  return {
+    ...actual,
+    api: (...args: unknown[]) => apiMock(...args),
+    json: (method: string, body?: unknown) => ({ method, body: body === undefined ? undefined : JSON.stringify(body) }),
+    // The auth store registers a global 401 handler at setup time, so every factory mock
+    // of this module must export it or useAuthStore() throws before any test runs.
+    setUnauthorizedHandler: () => {},
+    uploadImage: vi.fn(),
+  }
+})
+
+vi.mock('../features/teams/api', () => ({
+  teamsApi: {
+    list: () => apiMock('/teams?page_size=50'),
+    games: () => apiMock('/team-games'),
+    create: (body: unknown) => apiMock('/teams', { method: 'POST', body: JSON.stringify(body) }),
+    join: (teamId: number) => apiMock(`/teams/${teamId}/join`, { method: 'POST' }),
+    submitGame: (body: unknown) => apiMock('/game-submissions', { method: 'POST', body: JSON.stringify(body) }),
+    leave: (teamId: number) => apiMock(`/teams/${teamId}/leave`, { method: 'POST' }),
+    excuse: (teamId: number, runId: number) => apiMock(`/teams/${teamId}/runs/${runId}/excuse`, { method: 'POST' }),
+    checkIn: (teamId: number, runId: number) => apiMock(`/teams/${teamId}/runs/${runId}/check-in`, { method: 'POST' }),
+    cancel: (teamId: number) => apiMock(`/teams/${teamId}/cancel`, { method: 'POST' }),
+    update: (teamId: number, body: unknown) => apiMock(`/teams/${teamId}`, { method: 'PATCH', body: JSON.stringify(body) }),
+    removeMember: (teamId: number, memberId: number) => apiMock(`/teams/${teamId}/members/${memberId}/remove`, { method: 'POST' }),
+    transfer: (teamId: number, userId: number) => apiMock(`/teams/${teamId}/transfer`, { method: 'POST', body: JSON.stringify({ user_id: userId }) }),
+    runs: (teamId: number) => apiMock(`/teams/${teamId}/runs?page_size=100`),
+    createRun: (teamId: number, startsAt: string) => apiMock(`/teams/${teamId}/runs`, { method: 'POST', body: JSON.stringify({ starts_at: startsAt }) }),
+    updateRun: (teamId: number, runId: number, body: unknown) => apiMock(`/teams/${teamId}/runs/${runId}`, { method: 'PATCH', body: JSON.stringify(body) }),
+    rate: (teamId: number, runId: number, body: unknown) => apiMock(`/teams/${teamId}/runs/${runId}/ratings`, { method: 'POST', body: JSON.stringify(body) }),
+  },
 }))
 
 const user = {
@@ -94,6 +119,20 @@ describe('major views', () => {
       if (path.startsWith('/feed?')) return { ...emptyPage, watermark: 'initial' }
       return emptyPage
     })
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = input instanceof Request ? input : new Request(input, init)
+      const url = new URL(request.url)
+      const path = `${url.pathname.replace(/^\/api\/v1/, '')}${url.search}`
+      const body = ['GET', 'HEAD'].includes(request.method) ? undefined : await request.text()
+      const result = await apiMock(path, {
+        method: request.method,
+        body: body || undefined,
+      })
+      return new Response(result === undefined ? null : JSON.stringify(result), {
+        status: result === undefined ? 204 : 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }))
   })
 
   afterEach(() => vi.unstubAllGlobals())
@@ -115,6 +154,70 @@ describe('major views', () => {
       wrapper.unmount()
     })
   }
+
+  for (const [name, component, path, pendingPath, loadingText] of [
+    ['explore', ExploreView, '/explore/questions', '/questions?page=1&page_size=50', '正在加载…'],
+    ['teams', TeamsView, '/teams', '/teams?page_size=50', '正在寻找队友…'],
+    ['account', MeView, '/me', '/me/favorites?page_size=100', '正在加载账户资料…'],
+    ['admin', AdminView, '/admin', '/admin/overview', '正在加载管理工作区…'],
+  ] as const) {
+    it(`shows an explicit loading state for ${name}`, async () => {
+      apiMock.mockImplementation(async (requestPath: string) => {
+        if (requestPath === '/me') return user
+        if (requestPath === '/credit-rules' || requestPath === '/admin/credit-rules') return creditRules
+        if (requestPath === pendingPath) return new Promise(() => {})
+        if (requestPath === '/team-games') return { items: [] }
+        return emptyPage
+      })
+      const wrapper = await mountAt(component, path)
+      expect(wrapper.text()).toContain(loadingText)
+      wrapper.unmount()
+    })
+  }
+
+  for (const [name, component, path, failingPath] of [
+    ['explore', ExploreView, '/explore/questions', '/questions?page=1&page_size=50'],
+    ['teams', TeamsView, '/teams', '/teams?page_size=50'],
+    ['account', MeView, '/me', '/me/favorites?page_size=100'],
+    ['admin', AdminView, '/admin', '/admin/overview'],
+  ] as const) {
+    it(`surfaces the API error state for ${name}`, async () => {
+      apiMock.mockImplementation(async (requestPath: string) => {
+        if (requestPath === '/me') return user
+        if (requestPath === '/credit-rules' || requestPath === '/admin/credit-rules') return creditRules
+        if (requestPath === failingPath) throw new Error(`${name} boundary failed`)
+        if (requestPath === '/team-games') return { items: [] }
+        return emptyPage
+      })
+      const wrapper = await mountAt(component, path)
+      expect(wrapper.text()).toContain(`${name} boundary failed`)
+      wrapper.unmount()
+    })
+  }
+
+  it('shows account and administration permission boundaries', async () => {
+    apiMock.mockImplementation(async (path: string) => {
+      if (path === '/credit-rules') return creditRules
+      if (path === '/me') return { ...user, role: 'user' }
+      return emptyPage
+    })
+    const account = await mountAt(MeView, '/me')
+    expect(account.text()).toContain('当前信用分')
+    account.unmount()
+
+    const admin = await mountAt(AdminView, '/admin')
+    expect(admin.text()).toContain('当前账号没有审核权限')
+    admin.unmount()
+
+    apiMock.mockImplementation(async (path: string) => {
+      if (path === '/credit-rules') return creditRules
+      if (path === '/me') throw new Error('AUTH_REQUIRED')
+      return emptyPage
+    })
+    const guest = await mountAt(MeView, '/me')
+    expect(guest.text()).toContain('登录后才能进入用户后台')
+    guest.unmount()
+  })
 
   it('toggles a conversation block and restores the composer', async () => {
     const conversation = { id: 9, context_type: 'direct', context_id: null, other_user: { id: 2, nickname: '对方' }, last_message: '你好', last_message_at: '2026-07-15T12:00:00Z', unread: 0, blocked_by_me: false }

@@ -1,4 +1,6 @@
 import { flushPromises, mount } from '@vue/test-utils'
+import type { VueWrapper } from '@vue/test-utils'
+import type { Editor } from '@tiptap/core'
 import { nextTick } from 'vue'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import RichEditor from './RichEditor.vue'
@@ -14,6 +16,12 @@ function pasteEvent(file: File): Event {
   return event
 }
 
+function editorOf(wrapper: VueWrapper): Editor {
+  const editor = (wrapper.vm as unknown as { editor: Editor | null }).editor
+  if (!editor) throw new Error('RichEditor was not initialized')
+  return editor
+}
+
 describe('RichEditor', () => {
   beforeEach(() => {
     uploadImage.mockReset()
@@ -22,7 +30,7 @@ describe('RichEditor', () => {
 
   it('does not reset the caret when the parent echoes an internal markdown update', async () => {
     const wrapper = mount(RichEditor, { props: { modelValue: '开头', ariaLabel: '测试正文' } })
-    const editor = (wrapper.vm as unknown as { editor: any }).editor
+    const editor = editorOf(wrapper)
     expect(editor.view.dom.getAttribute('role')).toBe('textbox')
     expect(editor.view.dom.getAttribute('aria-label')).toBe('测试正文')
     expect(editor.view.dom.getAttribute('aria-multiline')).toBe('true')
@@ -39,7 +47,7 @@ describe('RichEditor', () => {
   it('uploads a clipboard image and inserts it at the visual editor selection', async () => {
     const wrapper = mount(RichEditor, { attachTo: document.body, props: { modelValue: '', attachments: [] } })
     await nextTick()
-    const editor = (wrapper.vm as unknown as { editor: any }).editor
+    const editor = editorOf(wrapper)
     editor.view.dom.dispatchEvent(
       pasteEvent(new File(['image'], 'clipboard.webp', { type: 'image/webp' })),
     )
@@ -66,7 +74,7 @@ describe('RichEditor', () => {
 
   it('marks selected observe text for public redaction', async () => {
     const wrapper = mount(RichEditor, { props: { modelValue: '张三在现场', enableRedaction: true } })
-    const editor = (wrapper.vm as unknown as { editor: any }).editor
+    const editor = editorOf(wrapper)
     editor.commands.setTextSelection({ from: 1, to: 3 })
     await wrapper.find('[data-testid="redaction-button"]').trigger('click')
     await nextTick()
