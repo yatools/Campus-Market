@@ -28,6 +28,7 @@ import (
 	operationalmetrics "github.com/yatools/wutong-campus-wall/backend/internal/metrics"
 	"github.com/yatools/wutong-campus-wall/backend/internal/security"
 	storagepkg "github.com/yatools/wutong-campus-wall/backend/internal/storage"
+	teamapp "github.com/yatools/wutong-campus-wall/backend/internal/team"
 )
 
 type contextKey string
@@ -50,6 +51,7 @@ type Server struct {
 	Metrics *operationalmetrics.Registry
 	Hub     *notificationHub
 	Market  *marketapp.Service
+	Team    *teamapp.Service
 }
 
 func New(cfg config.Config, db *pgxpool.Pool) http.Handler {
@@ -58,6 +60,7 @@ func New(cfg config.Config, db *pgxpool.Pool) http.Handler {
 		slog.Error("storage_config_invalid", "error", err)
 	}
 	marketRepository := marketapp.NewPostgresRepository(db)
+	teamRepository := teamapp.NewPostgresRepository(db)
 	s := &Server{
 		Config: cfg, DB: db, Storage: store, Metrics: operationalmetrics.Default,
 		Hub: newNotificationHub(db),
@@ -66,6 +69,7 @@ func New(cfg config.Config, db *pgxpool.Pool) http.Handler {
 			cfg.MarketReservationTTL,
 			cfg.MarketReviewBlindTTL,
 		),
+		Team: teamapp.NewService(teamRepository),
 	}
 	r := chi.NewRouter()
 	// requestContext must run before recoverer so the panic handler can log and echo the
