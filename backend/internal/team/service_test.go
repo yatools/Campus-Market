@@ -331,7 +331,7 @@ func TestOwnerCannotLeave(t *testing.T) {
 }
 
 func TestExcuseIsIdempotentAndMustPrecedeDeparture(t *testing.T) {
-	now := time.Now().UTC()
+	now := time.Date(2026, time.July, 28, 12, 30, 0, 123456789, time.UTC)
 	work := baseWork(now)
 	work.repo.memberships[20] = Membership{ID: 20, UserID: 20, Status: "active"}
 	work.repo.runMembers[20] = RunMember{ID: 20, Status: "joined"}
@@ -342,8 +342,11 @@ func TestExcuseIsIdempotentAndMustPrecedeDeparture(t *testing.T) {
 	if err != nil || first.ExcusedAt == nil {
 		t.Fatalf("result=%+v error=%v", first, err)
 	}
+	if want := now.Truncate(time.Microsecond); !first.ExcusedAt.Equal(want) {
+		t.Fatalf("excused_at=%s want PostgreSQL precision %s", first.ExcusedAt, want)
+	}
 	second, err := service.Excuse(context.Background(), Actor{ID: 20}, 1, 2)
-	if err != nil || second.ExcusedAt == nil || work.commits != 2 {
+	if err != nil || second.ExcusedAt == nil || !second.ExcusedAt.Equal(*first.ExcusedAt) || work.commits != 2 {
 		t.Fatalf("result=%+v error=%v commits=%d", second, err, work.commits)
 	}
 }

@@ -139,7 +139,7 @@ func (s *Service) Excuse(ctx context.Context, actor Actor, teamID, runID int64) 
 			result.ExcusedAt = member.ExcusedAt
 			return nil
 		}
-		now := s.now()
+		now := s.now().Truncate(time.Microsecond)
 		if !now.Before(run.Starts) {
 			return rule("RUN_STARTED")
 		}
