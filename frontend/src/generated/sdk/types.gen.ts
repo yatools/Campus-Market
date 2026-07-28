@@ -196,6 +196,10 @@ export type BodyUploadImageApiV1UploadsImagesPost = {
      * File
      */
     file: Blob | File;
+    /**
+     * Scope
+     */
+    scope?: 'public' | 'market_dispute';
 };
 
 /**

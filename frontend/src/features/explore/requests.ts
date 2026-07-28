@@ -1,17 +1,27 @@
-import type { components } from '../../generated/api'
+import type {
+  ActivityCreate,
+  ActivityUpdate,
+  ArticleCreate,
+  ArticleUpdate,
+  LostCreate,
+  LostUpdate,
+  ObserveCreate,
+  QuestionCreate,
+  QuestionUpdate,
+  ReviewCreate,
+} from '../../generated/sdk'
 
-type Schemas = components['schemas']
 type ExploreRequest =
-  | Schemas['QuestionCreate']
-  | Schemas['QuestionUpdate']
-  | Schemas['ArticleCreate']
-  | Schemas['ArticleUpdate']
-  | Schemas['ReviewCreate']
-  | Schemas['ActivityCreate']
-  | Schemas['ActivityUpdate']
-  | Schemas['LostCreate']
-  | Schemas['LostUpdate']
-  | Schemas['ObserveCreate']
+  | QuestionCreate
+  | QuestionUpdate
+  | ArticleCreate
+  | ArticleUpdate
+  | ReviewCreate
+  | ActivityCreate
+  | ActivityUpdate
+  | LostCreate
+  | LostUpdate
+  | ObserveCreate
 
 export type ExploreRequestKind =
   | 'question.create'
@@ -37,6 +47,17 @@ function optionalDateTime(value: unknown): string | null {
   return value ? new Date(String(value)).toISOString() : null
 }
 
+export function buildExploreRequest(kind: 'question.create', form: Record<string, unknown>, attachmentIds: number[]): QuestionCreate
+export function buildExploreRequest(kind: 'question.update', form: Record<string, unknown>, attachmentIds: number[]): QuestionUpdate
+export function buildExploreRequest(kind: 'article.create', form: Record<string, unknown>, attachmentIds: number[]): ArticleCreate
+export function buildExploreRequest(kind: 'article.update', form: Record<string, unknown>, attachmentIds: number[]): ArticleUpdate
+export function buildExploreRequest(kind: 'review.create', form: Record<string, unknown>, attachmentIds: number[]): ReviewCreate
+export function buildExploreRequest(kind: 'activity.create', form: Record<string, unknown>, attachmentIds: number[]): ActivityCreate
+export function buildExploreRequest(kind: 'activity.update', form: Record<string, unknown>, attachmentIds: number[]): ActivityUpdate
+export function buildExploreRequest(kind: 'lost.create', form: Record<string, unknown>, attachmentIds: number[]): LostCreate
+export function buildExploreRequest(kind: 'lost.update', form: Record<string, unknown>, attachmentIds: number[]): LostUpdate
+export function buildExploreRequest(kind: 'observe.create', form: Record<string, unknown>, attachmentIds: number[]): ObserveCreate
+export function buildExploreRequest(kind: ExploreRequestKind, form: Record<string, unknown>, attachmentIds: number[]): ExploreRequest
 export function buildExploreRequest(
   kind: ExploreRequestKind,
   form: Record<string, unknown>,

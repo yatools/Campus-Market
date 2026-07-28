@@ -2434,6 +2434,11 @@ export interface components {
              * Format: binary
              */
             file: string;
+            /**
+             * Scope
+             * @enum {string}
+             */
+            scope?: "public" | "market_dispute";
         };
         /** CampusServiceCreate */
         CampusServiceCreate: {

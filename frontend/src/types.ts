@@ -179,14 +179,12 @@ export interface CampusService {
   ratings?: CampusServiceRating[]
 }
 
-export interface FeedItem {
+interface FeedItemBase {
   id: number
-  type: string
   title: string
   body: string
   author: string
   route: string
-  meta: Record<string, any>
   attachments: Attachment[]
   likes: number
   favorites: number
@@ -196,6 +194,73 @@ export interface FeedItem {
   created_at: string
   updated_at: string
 }
+
+interface PostFeedMeta {
+  identity_mode: string
+  expires_at: string | null
+  views: number
+}
+
+interface TeamFeedMeta {
+  game: string
+  game_id: number | null
+  capacity: number
+  newbie_level: string
+  vibe: string
+}
+
+interface QuestionFeedMeta {
+  category: string
+  bounty_xp: number
+  accepted: boolean
+}
+
+interface HandbookFeedMeta {
+  category: string
+  featured: boolean
+}
+
+interface CourseReviewFeedMeta {
+  rating: number
+  semester: string
+  tags: string[]
+}
+
+interface ListingFeedMeta {
+  category: string
+  price_cents: number
+  condition: string
+  location: string
+  negotiable: boolean
+}
+
+interface ActivityFeedMeta {
+  category: string
+  location: string
+  starts_at: string
+  capacity: number | null
+}
+
+interface LostItemFeedMeta {
+  kind: string
+  location: string
+  status: string
+}
+
+interface ObserveFeedMeta {
+  responded: boolean
+}
+
+export type FeedItem =
+  | (FeedItemBase & { type: 'post'; meta: PostFeedMeta })
+  | (FeedItemBase & { type: 'team'; meta: TeamFeedMeta })
+  | (FeedItemBase & { type: 'question'; meta: QuestionFeedMeta })
+  | (FeedItemBase & { type: 'handbook'; meta: HandbookFeedMeta })
+  | (FeedItemBase & { type: 'course_review'; meta: CourseReviewFeedMeta })
+  | (FeedItemBase & { type: 'listing'; meta: ListingFeedMeta })
+  | (FeedItemBase & { type: 'activity'; meta: ActivityFeedMeta })
+  | (FeedItemBase & { type: 'lost_item'; meta: LostItemFeedMeta })
+  | (FeedItemBase & { type: 'observe'; meta: ObserveFeedMeta })
 
 export interface HotItem {
   id: number
