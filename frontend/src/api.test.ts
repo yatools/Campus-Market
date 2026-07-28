@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { ApiError, api, json, uploadImage } from './api'
+import { ApiError, api, json, sdkFetch, uploadImage } from './api'
 import { setAppConfigForTest } from './config'
 
 describe('api client', () => {
@@ -27,6 +27,19 @@ describe('api client', () => {
     const headers = new Headers((fetchMock.mock.calls[0][1] as RequestInit).headers)
     expect(headers.has('X-CSRF-Token')).toBe(false)
     expect(headers.has('Content-Type')).toBe(false)
+  })
+
+  it('applies the same session and CSRF policy to generated SDK requests', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 204 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await sdkFetch('/api/v1/teams', { method: 'POST', body: '{}' })
+
+    const request = fetchMock.mock.calls[0][0] as Request
+    const init = fetchMock.mock.calls[0][1] as RequestInit
+    expect(request.url).toBe('http://localhost:3000/api/v1/teams')
+    expect(new Headers(init.headers).get('X-CSRF-Token')).toBe('test-token')
+    expect(init.credentials).toBe('include')
   })
 
   it('returns undefined for successful no-content responses', async () => {

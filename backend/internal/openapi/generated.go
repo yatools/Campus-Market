@@ -22,6 +22,72 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 )
 
+// Defines values for AnnouncementLevel.
+const (
+	Normal AnnouncementLevel = "normal"
+	Strong AnnouncementLevel = "strong"
+)
+
+// Valid indicates whether the value is a known member of the AnnouncementLevel enum.
+func (e AnnouncementLevel) Valid() bool {
+	switch e {
+	case Normal:
+		return true
+	case Strong:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CreditRuleKind.
+const (
+	CreditRuleKindBaseline  CreditRuleKind = "baseline"
+	CreditRuleKindPenalty   CreditRuleKind = "penalty"
+	CreditRuleKindReward    CreditRuleKind = "reward"
+	CreditRuleKindThreshold CreditRuleKind = "threshold"
+)
+
+// Valid indicates whether the value is a known member of the CreditRuleKind enum.
+func (e CreditRuleKind) Valid() bool {
+	switch e {
+	case CreditRuleKindBaseline:
+		return true
+	case CreditRuleKindPenalty:
+		return true
+	case CreditRuleKindReward:
+		return true
+	case CreditRuleKindThreshold:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for GameSubmissionStatus.
+const (
+	GameSubmissionStatusApproved GameSubmissionStatus = "approved"
+	GameSubmissionStatusMerged   GameSubmissionStatus = "merged"
+	GameSubmissionStatusPending  GameSubmissionStatus = "pending"
+	GameSubmissionStatusRejected GameSubmissionStatus = "rejected"
+)
+
+// Valid indicates whether the value is a known member of the GameSubmissionStatus enum.
+func (e GameSubmissionStatus) Valid() bool {
+	switch e {
+	case GameSubmissionStatusApproved:
+		return true
+	case GameSubmissionStatusMerged:
+		return true
+	case GameSubmissionStatusPending:
+		return true
+	case GameSubmissionStatusRejected:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ListingCreateCondition.
 const (
 	ListingCreateConditionExcellent ListingCreateCondition = "excellent"
@@ -283,6 +349,72 @@ func (e MarketTransactionStatus) Valid() bool {
 	}
 }
 
+// Defines values for UserCampusIdentity.
+const (
+	Alumni  UserCampusIdentity = "alumni"
+	Staff   UserCampusIdentity = "staff"
+	Student UserCampusIdentity = "student"
+)
+
+// Valid indicates whether the value is a known member of the UserCampusIdentity enum.
+func (e UserCampusIdentity) Valid() bool {
+	switch e {
+	case Alumni:
+		return true
+	case Staff:
+		return true
+	case Student:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for UserRole.
+const (
+	UserRoleAdmin     UserRole = "admin"
+	UserRoleModerator UserRole = "moderator"
+	UserRoleUser      UserRole = "user"
+)
+
+// Valid indicates whether the value is a known member of the UserRole enum.
+func (e UserRole) Valid() bool {
+	switch e {
+	case UserRoleAdmin:
+		return true
+	case UserRoleModerator:
+		return true
+	case UserRoleUser:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for UserStatus.
+const (
+	Active     UserStatus = "active"
+	Deleted    UserStatus = "deleted"
+	Disabled   UserStatus = "disabled"
+	Restricted UserStatus = "restricted"
+)
+
+// Valid indicates whether the value is a known member of the UserStatus enum.
+func (e UserStatus) Valid() bool {
+	switch e {
+	case Active:
+		return true
+	case Deleted:
+		return true
+	case Disabled:
+		return true
+	case Restricted:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ListListingsParamsCondition.
 const (
 	ListListingsParamsConditionExcellent ListListingsParamsCondition = "excellent"
@@ -312,19 +444,19 @@ func (e ListListingsParamsCondition) Valid() bool {
 
 // Defines values for ListListingsParamsTradeStatus.
 const (
-	Available ListListingsParamsTradeStatus = "available"
-	Completed ListListingsParamsTradeStatus = "completed"
-	Reserved  ListListingsParamsTradeStatus = "reserved"
+	ListListingsParamsTradeStatusAvailable ListListingsParamsTradeStatus = "available"
+	ListListingsParamsTradeStatusCompleted ListListingsParamsTradeStatus = "completed"
+	ListListingsParamsTradeStatusReserved  ListListingsParamsTradeStatus = "reserved"
 )
 
 // Valid indicates whether the value is a known member of the ListListingsParamsTradeStatus enum.
 func (e ListListingsParamsTradeStatus) Valid() bool {
 	switch e {
-	case Available:
+	case ListListingsParamsTradeStatusAvailable:
 		return true
-	case Completed:
+	case ListListingsParamsTradeStatusCompleted:
 		return true
-	case Reserved:
+	case ListListingsParamsTradeStatusReserved:
 		return true
 	default:
 		return false
@@ -355,6 +487,43 @@ func (e ListListingsParamsSort) Valid() bool {
 	}
 }
 
+// AccountDeactivationResult defines model for AccountDeactivationResult.
+type AccountDeactivationResult struct {
+	AnonymizeAfterDays int  `json:"anonymize_after_days"`
+	Ok                 bool `json:"ok"`
+}
+
+// ActiveCountResult defines model for ActiveCountResult.
+type ActiveCountResult struct {
+	Active bool `json:"active"`
+	Count  int  `json:"count"`
+}
+
+// ActiveResult defines model for ActiveResult.
+type ActiveResult struct {
+	Active bool `json:"active"`
+}
+
+// Activity defines model for Activity.
+type Activity struct {
+	Attachments []PublicAttachment `json:"attachments"`
+	Author      string             `json:"author"`
+	Body        string             `json:"body"`
+	Capacity    int64              `json:"capacity"`
+	Category    string             `json:"category"`
+	CreatedAt   time.Time          `json:"created_at"`
+	EndsAt      time.Time          `json:"ends_at"`
+	Id          int64              `json:"id"`
+	Joined      bool               `json:"joined"`
+	Location    string             `json:"location"`
+	MemberCount int                `json:"member_count"`
+	Mine        bool               `json:"mine"`
+	StartsAt    time.Time          `json:"starts_at"`
+	Status      string             `json:"status"`
+	Title       string             `json:"title"`
+	UpdatedAt   time.Time          `json:"updated_at"`
+}
+
 // ActivityCreate defines model for ActivityCreate.
 type ActivityCreate struct {
 	AttachmentIds *[]int     `json:"attachment_ids,omitempty"`
@@ -367,6 +536,14 @@ type ActivityCreate struct {
 	Title         string     `json:"title"`
 }
 
+// ActivityPage defines model for ActivityPage.
+type ActivityPage struct {
+	Items    []Activity `json:"items"`
+	Page     int        `json:"page"`
+	PageSize int        `json:"page_size"`
+	Total    int        `json:"total"`
+}
+
 // ActivityUpdate defines model for ActivityUpdate.
 type ActivityUpdate struct {
 	AttachmentIds *[]int     `json:"attachment_ids,omitempty"`
@@ -377,6 +554,24 @@ type ActivityUpdate struct {
 	Location      *string    `json:"location,omitempty"`
 	StartsAt      *time.Time `json:"starts_at,omitempty"`
 	Title         *string    `json:"title,omitempty"`
+}
+
+// AdminAppeal defines model for AdminAppeal.
+type AdminAppeal struct {
+	AdminNote string `json:"admin_note"`
+	Id        int64  `json:"id"`
+	PenaltyId int64  `json:"penalty_id"`
+	Reason    string `json:"reason"`
+	Status    string `json:"status"`
+	UserId    int64  `json:"user_id"`
+}
+
+// AdminAppealPage defines model for AdminAppealPage.
+type AdminAppealPage struct {
+	Items    []AdminAppeal `json:"items"`
+	Page     int           `json:"page"`
+	PageSize int           `json:"page_size"`
+	Total    int           `json:"total"`
 }
 
 // AdminMarketOption defines model for AdminMarketOption.
@@ -394,6 +589,43 @@ type AdminMarketOption struct {
 type AdminMarketOptionList struct {
 	Items []AdminMarketOption `json:"items"`
 }
+
+// AdminOverview defines model for AdminOverview.
+type AdminOverview struct {
+	FailedEmail       int `json:"failed_email"`
+	PendingAppeals    int `json:"pending_appeals"`
+	PendingEmail      int `json:"pending_email"`
+	PendingModeration int `json:"pending_moderation"`
+	PendingReports    int `json:"pending_reports"`
+	PublishedContent  int `json:"published_content"`
+	UnreadFeedback    int `json:"unread_feedback"`
+	Users             int `json:"users"`
+}
+
+// AdminReport defines model for AdminReport.
+type AdminReport struct {
+	CreatedAt  time.Time `json:"created_at"`
+	Detail     string    `json:"detail"`
+	EntityId   int64     `json:"entity_id"`
+	EntityType string    `json:"entity_type"`
+	Id         int64     `json:"id"`
+	Preview    string    `json:"preview"`
+	Reason     string    `json:"reason"`
+	ReporterId int64     `json:"reporter_id"`
+	Status     string    `json:"status"`
+	Title      string    `json:"title"`
+}
+
+// AdminReportPage defines model for AdminReportPage.
+type AdminReportPage struct {
+	Items    []AdminReport `json:"items"`
+	Page     int           `json:"page"`
+	PageSize int           `json:"page_size"`
+	Total    int           `json:"total"`
+}
+
+// AdminSettings defines model for AdminSettings.
+type AdminSettings map[string]string
 
 // AdminSystemHealth defines model for AdminSystemHealth.
 type AdminSystemHealth struct {
@@ -426,12 +658,35 @@ type AdminSystemHealth struct {
 	} `json:"worker"`
 }
 
+// Announcement defines model for Announcement.
+type Announcement struct {
+	Audience    string            `json:"audience"`
+	Body        string            `json:"body"`
+	Id          int64             `json:"id"`
+	Level       AnnouncementLevel `json:"level"`
+	PublishedAt time.Time         `json:"published_at"`
+	Read        bool              `json:"read"`
+	ReadCount   int               `json:"read_count"`
+	Title       string            `json:"title"`
+}
+
+// AnnouncementLevel defines model for Announcement.Level.
+type AnnouncementLevel string
+
 // AnnouncementCreate defines model for AnnouncementCreate.
 type AnnouncementCreate struct {
 	Audience *string `json:"audience,omitempty"`
 	Body     string  `json:"body"`
 	Level    *string `json:"level,omitempty"`
 	Title    string  `json:"title"`
+}
+
+// AnnouncementPage defines model for AnnouncementPage.
+type AnnouncementPage struct {
+	Items    []Announcement `json:"items"`
+	Page     int            `json:"page"`
+	PageSize int            `json:"page_size"`
+	Total    int            `json:"total"`
 }
 
 // AnswerCreate defines model for AnswerCreate.
@@ -468,9 +723,64 @@ type ArticleUpdate struct {
 	Title         *string `json:"title,omitempty"`
 }
 
+// AuditLog defines model for AuditLog.
+type AuditLog struct {
+	Action     string    `json:"action"`
+	ActorId    *int64    `json:"actor_id"`
+	CreatedAt  time.Time `json:"created_at"`
+	Id         int64     `json:"id"`
+	Reason     string    `json:"reason"`
+	TargetId   int64     `json:"target_id"`
+	TargetType string    `json:"target_type"`
+}
+
+// AuditLogPage defines model for AuditLogPage.
+type AuditLogPage struct {
+	Items    []AuditLog `json:"items"`
+	Page     int        `json:"page"`
+	PageSize int        `json:"page_size"`
+	Total    int        `json:"total"`
+}
+
+// AwardResult defines model for AwardResult.
+type AwardResult struct {
+	AwardedXp int64 `json:"awarded_xp"`
+	Ok        bool  `json:"ok"`
+}
+
+// BackupJob defines model for BackupJob.
+type BackupJob struct {
+	CreatedAt   *time.Time `json:"created_at,omitempty"`
+	DownloadUrl *string    `json:"download_url,omitempty"`
+	Error       *string    `json:"error,omitempty"`
+	FinishedAt  *time.Time `json:"finished_at,omitempty"`
+	Id          int64      `json:"id"`
+	Status      string     `json:"status"`
+}
+
+// BackupJobPage defines model for BackupJobPage.
+type BackupJobPage struct {
+	Items    []BackupJob `json:"items"`
+	Page     int         `json:"page"`
+	PageSize int         `json:"page_size"`
+	Total    int         `json:"total"`
+}
+
 // BodyUploadImageApiV1UploadsImagesPost defines model for Body_upload_image_api_v1_uploads_images_post.
 type BodyUploadImageApiV1UploadsImagesPost struct {
 	File openapi_types.File `json:"file"`
+}
+
+// CampusService defines model for CampusService.
+type CampusService struct {
+	Category     string                 `json:"category"`
+	Id           int64                  `json:"id"`
+	ManagedByMe  bool                   `json:"managed_by_me"`
+	Name         string                 `json:"name"`
+	NextRatingAt *time.Time             `json:"next_rating_at"`
+	RatingCount  int                    `json:"rating_count"`
+	Ratings      *[]CampusServiceRating `json:"ratings,omitempty"`
+	Score        *float64               `json:"score"`
 }
 
 // CampusServiceCreate defines model for CampusServiceCreate.
@@ -478,6 +788,24 @@ type CampusServiceCreate struct {
 	Category      *string `json:"category,omitempty"`
 	ManagerUserId *int    `json:"manager_user_id,omitempty"`
 	Name          string  `json:"name"`
+}
+
+// CampusServiceList defines model for CampusServiceList.
+type CampusServiceList struct {
+	Items []CampusService `json:"items"`
+	Total int             `json:"total"`
+}
+
+// CampusServiceRating defines model for CampusServiceRating.
+type CampusServiceRating struct {
+	Author      string     `json:"author"`
+	Body        string     `json:"body"`
+	CreatedAt   time.Time  `json:"created_at"`
+	Id          int64      `json:"id"`
+	Rating      int64      `json:"rating"`
+	RespondedAt *time.Time `json:"responded_at"`
+	Responder   string     `json:"responder"`
+	Response    string     `json:"response"`
 }
 
 // CampusServiceRatingCreate defines model for CampusServiceRatingCreate.
@@ -497,6 +825,13 @@ type CampusServiceUpdate struct {
 	Category      *string `json:"category,omitempty"`
 	ManagerUserId *int    `json:"manager_user_id,omitempty"`
 	Name          *string `json:"name,omitempty"`
+}
+
+// CheckInResult defines model for CheckInResult.
+type CheckInResult struct {
+	CheckedInAt *time.Time `json:"checked_in_at,omitempty"`
+	CreditDelta int64      `json:"credit_delta"`
+	Ok          bool       `json:"ok"`
 }
 
 // ClaimCreate defines model for ClaimCreate.
@@ -523,12 +858,36 @@ type CommentCreate struct {
 	ParentId      *int    `json:"parent_id,omitempty"`
 }
 
+// ContentSummary defines model for ContentSummary.
+type ContentSummary struct {
+	CreatedAt time.Time `json:"created_at"`
+	Id        int64     `json:"id"`
+	Status    string    `json:"status"`
+	Title     string    `json:"title"`
+	Type      string    `json:"type"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// ContentSummaryPage defines model for ContentSummaryPage.
+type ContentSummaryPage struct {
+	Items    []ContentSummary `json:"items"`
+	Page     int              `json:"page"`
+	PageSize int              `json:"page_size"`
+	Total    int              `json:"total"`
+}
+
 // ConversationCreate defines model for ConversationCreate.
 type ConversationCreate struct {
 	ContextId    *int    `json:"context_id,omitempty"`
 	ContextType  *string `json:"context_type,omitempty"`
 	FirstMessage string  `json:"first_message"`
 	RecipientId  int     `json:"recipient_id"`
+}
+
+// ConversationCreated defines model for ConversationCreated.
+type ConversationCreated struct {
+	Conversation ConversationSummary `json:"conversation"`
+	MessageId    int64               `json:"message_id"`
 }
 
 // ConversationMessage defines model for ConversationMessage.
@@ -587,10 +946,70 @@ type CourseCreate struct {
 	Teacher string `json:"teacher"`
 }
 
+// CourseCreated defines model for CourseCreated.
+type CourseCreated struct {
+	Id      int64  `json:"id"`
+	Name    string `json:"name"`
+	Teacher string `json:"teacher"`
+}
+
+// CourseOffering defines model for CourseOffering.
+type CourseOffering struct {
+	Course            string         `json:"course"`
+	Id                int64          `json:"id"`
+	ReviewCount       int            `json:"review_count"`
+	Reviews           []CourseReview `json:"reviews"`
+	Score             *float64       `json:"score"`
+	ScoreHiddenReason string         `json:"score_hidden_reason"`
+	Section           string         `json:"section"`
+	Semester          string         `json:"semester"`
+	Tags              []string       `json:"tags"`
+	Teacher           string         `json:"teacher"`
+}
+
+// CourseOfferingPage defines model for CourseOfferingPage.
+type CourseOfferingPage struct {
+	Items    []CourseOffering `json:"items"`
+	Page     int              `json:"page"`
+	PageSize int              `json:"page_size"`
+	Total    int              `json:"total"`
+}
+
+// CourseReview defines model for CourseReview.
+type CourseReview struct {
+	Attachments []PublicAttachment `json:"attachments"`
+	Body        string             `json:"body"`
+	Correction  string             `json:"correction"`
+	Id          int64              `json:"id"`
+	Rating      int64              `json:"rating"`
+	Tags        []string           `json:"tags"`
+}
+
+// CreditRule defines model for CreditRule.
+type CreditRule struct {
+	Description string         `json:"description"`
+	Key         string         `json:"key"`
+	Kind        CreditRuleKind `json:"kind"`
+	Label       string         `json:"label"`
+	UpdatedAt   *time.Time     `json:"updated_at,omitempty"`
+	Value       int64          `json:"value"`
+}
+
+// CreditRuleKind defines model for CreditRule.Kind.
+type CreditRuleKind string
+
 // CreditRuleChange defines model for CreditRuleChange.
 type CreditRuleChange struct {
 	Key   string `json:"key"`
 	Value int    `json:"value"`
+}
+
+// CreditRuleSet defines model for CreditRuleSet.
+type CreditRuleSet struct {
+	InitialScore int64            `json:"initial_score"`
+	MaxScore     int64            `json:"max_score"`
+	Rules        []CreditRule     `json:"rules"`
+	Values       map[string]int64 `json:"values"`
 }
 
 // CreditRulesUpdate defines model for CreditRulesUpdate.
@@ -604,10 +1023,64 @@ type DeactivateRequest struct {
 	Password     string `json:"password"`
 }
 
+// DecisionResult defines model for DecisionResult.
+type DecisionResult struct {
+	Decision *string `json:"decision,omitempty"`
+	Id       int64   `json:"id"`
+	Status   string  `json:"status"`
+}
+
 // EmailChange defines model for EmailChange.
 type EmailChange struct {
 	Code     string `json:"code"`
 	NewEmail string `json:"new_email"`
+}
+
+// EmailChangeResult defines model for EmailChangeResult.
+type EmailChangeResult struct {
+	Email string `json:"email"`
+	Ok    bool   `json:"ok"`
+}
+
+// ErrorResponse defines model for ErrorResponse.
+type ErrorResponse struct {
+	Code        string             `json:"code"`
+	FieldErrors *map[string]string `json:"field_errors,omitempty"`
+	Message     string             `json:"message"`
+	RequestId   *string            `json:"request_id,omitempty"`
+}
+
+// ExcuseResult defines model for ExcuseResult.
+type ExcuseResult struct {
+	ExcusedAt *time.Time `json:"excused_at,omitempty"`
+	Ok        bool       `json:"ok"`
+}
+
+// FavoriteSummary defines model for FavoriteSummary.
+type FavoriteSummary struct {
+	FavoritedAt time.Time `json:"favorited_at"`
+	Id          int64     `json:"id"`
+	Title       string    `json:"title"`
+	Type        string    `json:"type"`
+}
+
+// FavoriteSummaryPage defines model for FavoriteSummaryPage.
+type FavoriteSummaryPage struct {
+	Items    []FavoriteSummary `json:"items"`
+	Page     int               `json:"page"`
+	PageSize int               `json:"page_size"`
+	Total    int               `json:"total"`
+}
+
+// Feedback defines model for Feedback.
+type Feedback struct {
+	AdminNote string `json:"admin_note"`
+	Body      string `json:"body"`
+	Id        int64  `json:"id"`
+	Status    string `json:"status"`
+	Title     string `json:"title"`
+	Type      string `json:"type"`
+	UserId    int64  `json:"user_id"`
 }
 
 // FeedbackCreate defines model for FeedbackCreate.
@@ -624,6 +1097,30 @@ type FeedbackDecision struct {
 	Status    string  `json:"status"`
 }
 
+// FeedbackPage defines model for FeedbackPage.
+type FeedbackPage struct {
+	Items    []Feedback `json:"items"`
+	Page     int        `json:"page"`
+	PageSize int        `json:"page_size"`
+	Total    int        `json:"total"`
+}
+
+// GameSubmission defines model for GameSubmission.
+type GameSubmission struct {
+	AdminNote      string               `json:"admin_note"`
+	Aliases        []string             `json:"aliases"`
+	CreatedAt      time.Time            `json:"created_at"`
+	Id             int64                `json:"id"`
+	Name           string               `json:"name"`
+	ResolvedGameId *int64               `json:"resolved_game_id"`
+	ReviewedAt     *time.Time           `json:"reviewed_at,omitempty"`
+	Status         GameSubmissionStatus `json:"status"`
+	SubmitterId    int64                `json:"submitter_id"`
+}
+
+// GameSubmissionStatus defines model for GameSubmission.Status.
+type GameSubmissionStatus string
+
 // GameSubmissionCreate defines model for GameSubmissionCreate.
 type GameSubmissionCreate struct {
 	Aliases *[]string `json:"aliases,omitempty"`
@@ -638,12 +1135,57 @@ type GameSubmissionDecision struct {
 	TargetGameId  *int    `json:"target_game_id,omitempty"`
 }
 
+// GameSubmissionDecisionResult defines model for GameSubmissionDecisionResult.
+type GameSubmissionDecisionResult struct {
+	Game   TeamGame `json:"game"`
+	Id     int64    `json:"id"`
+	Status string   `json:"status"`
+}
+
+// GameSubmissionPage defines model for GameSubmissionPage.
+type GameSubmissionPage struct {
+	Items    []GameSubmission `json:"items"`
+	Page     int              `json:"page"`
+	PageSize int              `json:"page_size"`
+	Total    int              `json:"total"`
+}
+
 // HTTPValidationError defines model for HTTPValidationError.
 type HTTPValidationError struct {
 	Code        string            `json:"code"`
 	FieldErrors map[string]string `json:"field_errors"`
 	Message     string            `json:"message"`
 	RequestId   string            `json:"request_id"`
+}
+
+// HandbookArticle defines model for HandbookArticle.
+type HandbookArticle struct {
+	Attachments   []PublicAttachment `json:"attachments"`
+	Author        string             `json:"author"`
+	Body          string             `json:"body"`
+	Category      string             `json:"category"`
+	CreatedAt     time.Time          `json:"created_at"`
+	FavoriteCount int                `json:"favorite_count"`
+	Featured      bool               `json:"featured"`
+	Id            int64              `json:"id"`
+	Mine          bool               `json:"mine"`
+	Status        string             `json:"status"`
+	Title         string             `json:"title"`
+	UpdatedAt     time.Time          `json:"updated_at"`
+}
+
+// HandbookArticlePage defines model for HandbookArticlePage.
+type HandbookArticlePage struct {
+	Items    []HandbookArticle `json:"items"`
+	Page     int               `json:"page"`
+	PageSize int               `json:"page_size"`
+	Total    int               `json:"total"`
+}
+
+// IdStatusResult defines model for IdStatusResult.
+type IdStatusResult struct {
+	Id     int64  `json:"id"`
+	Status string `json:"status"`
 }
 
 // JoinRequest defines model for JoinRequest.
@@ -689,6 +1231,30 @@ type LoginRequest struct {
 	Password string `json:"password"`
 }
 
+// LoginRequiredResult defines model for LoginRequiredResult.
+type LoginRequiredResult struct {
+	LoginRequired bool `json:"login_required"`
+	Ok            bool `json:"ok"`
+}
+
+// LostClaim defines model for LostClaim.
+type LostClaim struct {
+	Claimant   string    `json:"claimant"`
+	ClaimantId int64     `json:"claimant_id"`
+	CreatedAt  time.Time `json:"created_at"`
+	Id         int64     `json:"id"`
+	Message    string    `json:"message"`
+	Status     string    `json:"status"`
+}
+
+// LostClaimPage defines model for LostClaimPage.
+type LostClaimPage struct {
+	Items    []LostClaim `json:"items"`
+	Page     int         `json:"page"`
+	PageSize int         `json:"page_size"`
+	Total    int         `json:"total"`
+}
+
 // LostCreate defines model for LostCreate.
 type LostCreate struct {
 	AttachmentIds *[]int     `json:"attachment_ids,omitempty"`
@@ -697,6 +1263,29 @@ type LostCreate struct {
 	ItemName      string     `json:"item_name"`
 	Kind          string     `json:"kind"`
 	Location      string     `json:"location"`
+}
+
+// LostItem defines model for LostItem.
+type LostItem struct {
+	Attachments []PublicAttachment `json:"attachments"`
+	Author      string             `json:"author"`
+	ClaimCount  int                `json:"claim_count"`
+	Description string             `json:"description"`
+	HappenedAt  time.Time          `json:"happened_at"`
+	Id          int64              `json:"id"`
+	ItemName    string             `json:"item_name"`
+	Kind        string             `json:"kind"`
+	Location    string             `json:"location"`
+	Mine        bool               `json:"mine"`
+	Status      string             `json:"status"`
+}
+
+// LostItemPage defines model for LostItemPage.
+type LostItemPage struct {
+	Items    []LostItem `json:"items"`
+	Page     int        `json:"page"`
+	PageSize int        `json:"page_size"`
+	Total    int        `json:"total"`
 }
 
 // LostUpdate defines model for LostUpdate.
@@ -939,11 +1528,64 @@ type MessageReadAllResult struct {
 	UnreadNotifications int   `json:"unread_notifications"`
 }
 
+// ModerationCase defines model for ModerationCase.
+type ModerationCase struct {
+	CreatedAt  time.Time `json:"created_at"`
+	EntityId   int64     `json:"entity_id"`
+	EntityType string    `json:"entity_type"`
+	Id         int64     `json:"id"`
+	Notes      string    `json:"notes"`
+	Preview    string    `json:"preview"`
+	Reports    []struct {
+		CreatedAt  time.Time `json:"created_at"`
+		Detail     string    `json:"detail"`
+		Id         int64     `json:"id"`
+		Reason     string    `json:"reason"`
+		ReporterId int64     `json:"reporter_id"`
+	} `json:"reports"`
+	Source string `json:"source"`
+	Status string `json:"status"`
+	Title  string `json:"title"`
+}
+
+// ModerationCasePage defines model for ModerationCasePage.
+type ModerationCasePage struct {
+	Items    []ModerationCase `json:"items"`
+	Page     int              `json:"page"`
+	PageSize int              `json:"page_size"`
+	Total    int              `json:"total"`
+}
+
 // ModerationDecision defines model for ModerationDecision.
 type ModerationDecision struct {
 	Decision     string  `json:"decision"`
 	Note         *string `json:"note,omitempty"`
 	RespondentId *int    `json:"respondent_id,omitempty"`
+}
+
+// Notification defines model for Notification.
+type Notification struct {
+	Body      string     `json:"body"`
+	CreatedAt time.Time  `json:"created_at"`
+	Id        int64      `json:"id"`
+	Link      string     `json:"link"`
+	ReadAt    *time.Time `json:"read_at"`
+	Title     string     `json:"title"`
+	Type      string     `json:"type"`
+}
+
+// NotificationPage defines model for NotificationPage.
+type NotificationPage struct {
+	Items    []Notification `json:"items"`
+	Page     int            `json:"page"`
+	PageSize int            `json:"page_size"`
+	Total    int            `json:"total"`
+}
+
+// ObserveAgreementResult defines model for ObserveAgreementResult.
+type ObserveAgreementResult struct {
+	AgreedVersion       string `json:"agreed_version"`
+	ObserveUnmaskAgreed bool   `json:"observe_unmask_agreed"`
 }
 
 // ObserveCreate defines model for ObserveCreate.
@@ -953,10 +1595,49 @@ type ObserveCreate struct {
 	Title         string `json:"title"`
 }
 
+// ObservePost defines model for ObservePost.
+type ObservePost struct {
+	AdminNote       string             `json:"admin_note"`
+	Attachments     []PublicAttachment `json:"attachments"`
+	Body            string             `json:"body"`
+	CanUnmask       bool               `json:"can_unmask"`
+	CreatedAt       time.Time          `json:"created_at"`
+	Id              int64              `json:"id"`
+	Mine            bool               `json:"mine"`
+	Respondent      bool               `json:"respondent"`
+	Response        string             `json:"response"`
+	Status          string             `json:"status"`
+	Title           string             `json:"title"`
+	UnmaskThreshold *int64             `json:"unmask_threshold,omitempty"`
+	Unmasked        *bool              `json:"unmasked,omitempty"`
+	UpdatedAt       time.Time          `json:"updated_at"`
+}
+
+// ObservePostPage defines model for ObservePostPage.
+type ObservePostPage struct {
+	Items    []ObservePost `json:"items"`
+	Page     int           `json:"page"`
+	PageSize int           `json:"page_size"`
+	Total    int           `json:"total"`
+}
+
 // ObserveResponse defines model for ObserveResponse.
 type ObserveResponse struct {
 	AttachmentIds *[]int `json:"attachment_ids,omitempty"`
 	Body          string `json:"body"`
+}
+
+// ObserveResponseResult defines model for ObserveResponseResult.
+type ObserveResponseResult struct {
+	Ok       bool   `json:"ok"`
+	Response string `json:"response"`
+}
+
+// ObserveRevealResult defines model for ObserveRevealResult.
+type ObserveRevealResult struct {
+	Body     string `json:"body"`
+	Id       int64  `json:"id"`
+	Unmasked bool   `json:"unmasked"`
 }
 
 // OfferingCreate defines model for OfferingCreate.
@@ -979,6 +1660,16 @@ type PasswordResetRequest struct {
 	NewPassword string `json:"new_password"`
 }
 
+// Penalty defines model for Penalty.
+type Penalty struct {
+	CreatedAt     time.Time `json:"created_at"`
+	Id            int64     `json:"id"`
+	Result        string    `json:"result"`
+	Rule          string    `json:"rule"`
+	User          string    `json:"user"`
+	ViolationType string    `json:"violation_type"`
+}
+
 // PenaltyCreate defines model for PenaltyCreate.
 type PenaltyCreate struct {
 	CreditDelta   *int   `json:"credit_delta,omitempty"`
@@ -986,6 +1677,20 @@ type PenaltyCreate struct {
 	Rule          string `json:"rule"`
 	UserId        int    `json:"user_id"`
 	ViolationType string `json:"violation_type"`
+}
+
+// PenaltyCreated defines model for PenaltyCreated.
+type PenaltyCreated struct {
+	Credit int64 `json:"credit"`
+	Id     int64 `json:"id"`
+}
+
+// PenaltyPage defines model for PenaltyPage.
+type PenaltyPage struct {
+	Items    []Penalty `json:"items"`
+	Page     int       `json:"page"`
+	PageSize int       `json:"page_size"`
+	Total    int       `json:"total"`
 }
 
 // PostCreate defines model for PostCreate.
@@ -1004,6 +1709,12 @@ type PostUpdate struct {
 	AttachmentIds *[]int  `json:"attachment_ids,omitempty"`
 	Body          *string `json:"body,omitempty"`
 	Title         *string `json:"title,omitempty"`
+}
+
+// PrivacySettings defines model for PrivacySettings.
+type PrivacySettings struct {
+	DmStrangerOff bool `json:"dm_stranger_off"`
+	HideOnline    bool `json:"hide_online"`
 }
 
 // PrivacyUpdate defines model for PrivacyUpdate.
@@ -1028,6 +1739,37 @@ type PublicAttachment struct {
 	Width        int    `json:"width"`
 }
 
+// Question defines model for Question.
+type Question struct {
+	AcceptedAnswerId *int64             `json:"accepted_answer_id"`
+	AnswerCount      int                `json:"answer_count"`
+	Answers          *[]QuestionAnswer  `json:"answers,omitempty"`
+	Attachments      []PublicAttachment `json:"attachments"`
+	Author           string             `json:"author"`
+	Body             string             `json:"body"`
+	BountyXp         int64              `json:"bounty_xp"`
+	Category         string             `json:"category"`
+	CreatedAt        time.Time          `json:"created_at"`
+	Id               int64              `json:"id"`
+	Mine             bool               `json:"mine"`
+	Status           string             `json:"status"`
+	Tags             []string           `json:"tags"`
+	Title            string             `json:"title"`
+	UpdatedAt        time.Time          `json:"updated_at"`
+}
+
+// QuestionAnswer defines model for QuestionAnswer.
+type QuestionAnswer struct {
+	Attachments []PublicAttachment `json:"attachments"`
+	Author      string             `json:"author"`
+	Body        string             `json:"body"`
+	CreatedAt   time.Time          `json:"created_at"`
+	Id          int64              `json:"id"`
+	Mine        bool               `json:"mine"`
+	Status      string             `json:"status"`
+	UpdatedAt   *time.Time         `json:"updated_at,omitempty"`
+}
+
 // QuestionCreate defines model for QuestionCreate.
 type QuestionCreate struct {
 	AttachmentIds *[]int    `json:"attachment_ids,omitempty"`
@@ -1036,6 +1778,14 @@ type QuestionCreate struct {
 	Category      *string   `json:"category,omitempty"`
 	Tags          *[]string `json:"tags,omitempty"`
 	Title         string    `json:"title"`
+}
+
+// QuestionPage defines model for QuestionPage.
+type QuestionPage struct {
+	Items    []Question `json:"items"`
+	Page     int        `json:"page"`
+	PageSize int        `json:"page_size"`
+	Total    int        `json:"total"`
 }
 
 // QuestionUpdate defines model for QuestionUpdate.
@@ -1077,9 +1827,69 @@ type ReviewCreate struct {
 	Tags          *[]string `json:"tags,omitempty"`
 }
 
+// Session defines model for Session.
+type Session struct {
+	ExpiresAt  time.Time `json:"expires_at"`
+	Id         int64     `json:"id"`
+	IpAddress  string    `json:"ip_address"`
+	LastSeenAt time.Time `json:"last_seen_at"`
+	Revoked    bool      `json:"revoked"`
+	UserAgent  string    `json:"user_agent"`
+}
+
+// SessionPage defines model for SessionPage.
+type SessionPage struct {
+	Items    []Session `json:"items"`
+	Page     int       `json:"page"`
+	PageSize int       `json:"page_size"`
+	Total    int       `json:"total"`
+}
+
+// SettingEntry defines model for SettingEntry.
+type SettingEntry struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
+}
+
 // SettingUpdate defines model for SettingUpdate.
 type SettingUpdate struct {
 	Value string `json:"value"`
+}
+
+// SimpleResult defines model for SimpleResult.
+type SimpleResult struct {
+	Ok bool `json:"ok"`
+}
+
+// Team defines model for Team.
+type Team struct {
+	Capacity                      int            `json:"capacity"`
+	CompletionRate                *float64       `json:"completion_rate,omitempty"`
+	ContentStatus                 *string        `json:"content_status,omitempty"`
+	CreatedAt                     *time.Time     `json:"created_at,omitempty"`
+	Game                          string         `json:"game"`
+	GameId                        *int64         `json:"game_id"`
+	Id                            int64          `json:"id"`
+	Joined                        bool           `json:"joined"`
+	MemberCount                   int            `json:"member_count"`
+	Members                       []TeamMember   `json:"members"`
+	Mine                          bool           `json:"mine"`
+	Mode                          string         `json:"mode"`
+	MyReminderChannels            []string       `json:"my_reminder_channels"`
+	NewbieLevel                   string         `json:"newbie_level"`
+	NextRun                       *TeamRun       `json:"next_run,omitempty"`
+	Notes                         string         `json:"notes"`
+	Owner                         TeamOwner      `json:"owner"`
+	PostDepartureRetentionMinutes int64          `json:"post_departure_retention_minutes"`
+	RankRequirement               string         `json:"rank_requirement"`
+	RatingTags                    map[string]int `json:"rating_tags"`
+	Recurrence                    string         `json:"recurrence"`
+	ReminderChannels              []string       `json:"reminder_channels"`
+	ReminderMinutes               int64          `json:"reminder_minutes"`
+	Status                        string         `json:"status"`
+	Vibe                          string         `json:"vibe"`
+	VoiceLink                     string         `json:"voice_link"`
+	VoiceName                     string         `json:"voice_name"`
 }
 
 // TeamCreate defines model for TeamCreate.
@@ -1101,9 +1911,95 @@ type TeamCreate struct {
 	VoiceName                     *string   `json:"voice_name,omitempty"`
 }
 
+// TeamGame defines model for TeamGame.
+type TeamGame struct {
+	Active  bool     `json:"active"`
+	Aliases []string `json:"aliases"`
+	Id      int64    `json:"id"`
+	Name    string   `json:"name"`
+}
+
+// TeamGameList defines model for TeamGameList.
+type TeamGameList struct {
+	Items []TeamGame `json:"items"`
+	Total int        `json:"total"`
+}
+
+// TeamMember defines model for TeamMember.
+type TeamMember struct {
+	Credit   int64  `json:"credit"`
+	Id       int64  `json:"id"`
+	Nickname string `json:"nickname"`
+}
+
+// TeamMemberHistory defines model for TeamMemberHistory.
+type TeamMemberHistory struct {
+	Id       int64      `json:"id"`
+	JoinedAt time.Time  `json:"joined_at"`
+	LeftAt   *time.Time `json:"left_at"`
+	Nickname string     `json:"nickname"`
+	Role     string     `json:"role"`
+	Status   string     `json:"status"`
+	UserId   int64      `json:"user_id"`
+}
+
+// TeamMemberHistoryPage defines model for TeamMemberHistoryPage.
+type TeamMemberHistoryPage struct {
+	Items    []TeamMemberHistory `json:"items"`
+	Page     int                 `json:"page"`
+	PageSize int                 `json:"page_size"`
+	Total    int                 `json:"total"`
+}
+
+// TeamOwner defines model for TeamOwner.
+type TeamOwner struct {
+	Credit   int64  `json:"credit"`
+	Id       int64  `json:"id"`
+	Nickname string `json:"nickname"`
+	Verified bool   `json:"verified"`
+}
+
+// TeamPage defines model for TeamPage.
+type TeamPage struct {
+	Items    []Team `json:"items"`
+	Page     int    `json:"page"`
+	PageSize int    `json:"page_size"`
+	Total    int    `json:"total"`
+}
+
+// TeamRun defines model for TeamRun.
+type TeamRun struct {
+	CheckedIn   *bool      `json:"checked_in,omitempty"`
+	CreatedAt   *time.Time `json:"created_at,omitempty"`
+	Excused     *bool      `json:"excused,omitempty"`
+	ExpiresAt   *time.Time `json:"expires_at"`
+	Id          int64      `json:"id"`
+	MemberCount int        `json:"member_count"`
+	Members     *[]struct {
+		CheckedInAt   *time.Time `json:"checked_in_at,omitempty"`
+		CreditAwarded *bool      `json:"credit_awarded,omitempty"`
+		ExcusedAt     *time.Time `json:"excused_at,omitempty"`
+		Nickname      string     `json:"nickname"`
+		Status        string     `json:"status"`
+		UserId        int64      `json:"user_id"`
+	} `json:"members,omitempty"`
+	MyStatus *string   `json:"my_status,omitempty"`
+	StartsAt time.Time `json:"starts_at"`
+	Status   string    `json:"status"`
+	TeamId   int64     `json:"team_id"`
+}
+
 // TeamRunCreate defines model for TeamRunCreate.
 type TeamRunCreate struct {
 	StartsAt time.Time `json:"starts_at"`
+}
+
+// TeamRunPage defines model for TeamRunPage.
+type TeamRunPage struct {
+	Items    []TeamRun `json:"items"`
+	Page     int       `json:"page"`
+	PageSize int       `json:"page_size"`
+	Total    int       `json:"total"`
 }
 
 // TeamRunUpdate defines model for TeamRunUpdate.
@@ -1132,6 +2028,46 @@ type TransferRequest struct {
 	UserId int `json:"user_id"`
 }
 
+// UploadImageResult defines model for UploadImageResult.
+type UploadImageResult struct {
+	ContentUrl   *string `json:"content_url,omitempty"`
+	Id           int64   `json:"id"`
+	ThumbnailUrl *string `json:"thumbnail_url,omitempty"`
+	Url          *string `json:"url,omitempty"`
+}
+
+// User defines model for User.
+type User struct {
+	ActiveSessions         *int               `json:"active_sessions,omitempty"`
+	Alias                  string             `json:"alias"`
+	AvatarUrl              *string            `json:"avatar_url"`
+	CampusIdentity         UserCampusIdentity `json:"campus_identity"`
+	CreatedAt              *time.Time         `json:"created_at,omitempty"`
+	Credit                 int64              `json:"credit"`
+	DmStrangerOff          bool               `json:"dm_stranger_off"`
+	Email                  *string            `json:"email"`
+	HideOnline             bool               `json:"hide_online"`
+	Id                     int64              `json:"id"`
+	Nickname               string             `json:"nickname"`
+	ObserveUnmaskAgreed    *bool              `json:"observe_unmask_agreed,omitempty"`
+	ObserveUnmaskThreshold *int64             `json:"observe_unmask_threshold,omitempty"`
+	Role                   UserRole           `json:"role"`
+	Status                 UserStatus         `json:"status"`
+	UnreadMessages         *int               `json:"unread_messages,omitempty"`
+	UnreadNotifications    *int               `json:"unread_notifications,omitempty"`
+	VerifiedAt             *time.Time         `json:"verified_at,omitempty"`
+	Xp                     int64              `json:"xp"`
+}
+
+// UserCampusIdentity defines model for User.CampusIdentity.
+type UserCampusIdentity string
+
+// UserRole defines model for User.Role.
+type UserRole string
+
+// UserStatus defines model for User.Status.
+type UserStatus string
+
 // UserAdminUpdate defines model for UserAdminUpdate.
 type UserAdminUpdate struct {
 	CampusIdentity *string `json:"campus_identity,omitempty"`
@@ -1139,6 +2075,48 @@ type UserAdminUpdate struct {
 	Reason         string  `json:"reason"`
 	Role           *string `json:"role,omitempty"`
 	Status         *string `json:"status,omitempty"`
+}
+
+// UserAppeal defines model for UserAppeal.
+type UserAppeal struct {
+	AdminNote string    `json:"admin_note"`
+	CreatedAt time.Time `json:"created_at"`
+	Id        int64     `json:"id"`
+	PenaltyId int64     `json:"penalty_id"`
+	Status    string    `json:"status"`
+}
+
+// UserAppealPage defines model for UserAppealPage.
+type UserAppealPage struct {
+	Items    []UserAppeal `json:"items"`
+	Page     int          `json:"page"`
+	PageSize int          `json:"page_size"`
+	Total    int          `json:"total"`
+}
+
+// UserPage defines model for UserPage.
+type UserPage struct {
+	Items    []User `json:"items"`
+	Page     int    `json:"page"`
+	PageSize int    `json:"page_size"`
+	Total    int    `json:"total"`
+}
+
+// UserReport defines model for UserReport.
+type UserReport struct {
+	CreatedAt time.Time `json:"created_at"`
+	EntityId  int64     `json:"entity_id"`
+	Id        int64     `json:"id"`
+	Reason    string    `json:"reason"`
+	Status    string    `json:"status"`
+}
+
+// UserReportPage defines model for UserReportPage.
+type UserReportPage struct {
+	Items    []UserReport `json:"items"`
+	Page     int          `json:"page"`
+	PageSize int          `json:"page_size"`
+	Total    int          `json:"total"`
 }
 
 // ValidationError defines model for ValidationError.
@@ -1161,47 +2139,47 @@ type ValidationError_Loc_Item struct {
 	union json.RawMessage
 }
 
-// ListActivitiesApiV1ActivitiesGetParams defines parameters for ListActivitiesApiV1ActivitiesGet.
-type ListActivitiesApiV1ActivitiesGetParams struct {
+// ListActivitiesParams defines parameters for ListActivities.
+type ListActivitiesParams struct {
 	Page     *int    `form:"page,omitempty" json:"page,omitempty"`
 	PageSize *int    `form:"page_size,omitempty" json:"page_size,omitempty"`
 	Category *string `form:"category,omitempty" json:"category,omitempty"`
 }
 
-// ListAppealsApiV1AdminAppealsGetParams defines parameters for ListAppealsApiV1AdminAppealsGet.
-type ListAppealsApiV1AdminAppealsGetParams struct {
+// ListAdminAppealsParams defines parameters for ListAdminAppeals.
+type ListAdminAppealsParams struct {
 	Status   *string `form:"status,omitempty" json:"status,omitempty"`
 	Page     *int    `form:"page,omitempty" json:"page,omitempty"`
 	PageSize *int    `form:"page_size,omitempty" json:"page_size,omitempty"`
 }
 
-// AuditLogsApiV1AdminAuditLogsGetParams defines parameters for AuditLogsApiV1AdminAuditLogsGet.
-type AuditLogsApiV1AdminAuditLogsGetParams struct {
+// ListAuditLogsParams defines parameters for ListAuditLogs.
+type ListAuditLogsParams struct {
 	Page     *int `form:"page,omitempty" json:"page,omitempty"`
 	PageSize *int `form:"page_size,omitempty" json:"page_size,omitempty"`
 }
 
-// DownloadBackupApiV1AdminBackupsJobIdDownloadGetParams defines parameters for DownloadBackupApiV1AdminBackupsJobIdDownloadGet.
-type DownloadBackupApiV1AdminBackupsJobIdDownloadGetParams struct {
+// DownloadBackupParams defines parameters for DownloadBackup.
+type DownloadBackupParams struct {
 	Token string `form:"token" json:"token"`
 }
 
-// FeedbackQueueApiV1AdminFeedbackGetParams defines parameters for FeedbackQueueApiV1AdminFeedbackGet.
-type FeedbackQueueApiV1AdminFeedbackGetParams struct {
+// ListFeedbackParams defines parameters for ListFeedback.
+type ListFeedbackParams struct {
 	Status   *string `form:"status,omitempty" json:"status,omitempty"`
 	Page     *int    `form:"page,omitempty" json:"page,omitempty"`
 	PageSize *int    `form:"page_size,omitempty" json:"page_size,omitempty"`
 }
 
-// ListGameSubmissionsApiV1AdminGameSubmissionsGetParams defines parameters for ListGameSubmissionsApiV1AdminGameSubmissionsGet.
-type ListGameSubmissionsApiV1AdminGameSubmissionsGetParams struct {
+// ListGameSubmissionsParams defines parameters for ListGameSubmissions.
+type ListGameSubmissionsParams struct {
 	Status   *string `form:"status,omitempty" json:"status,omitempty"`
 	Page     *int    `form:"page,omitempty" json:"page,omitempty"`
 	PageSize *int    `form:"page_size,omitempty" json:"page_size,omitempty"`
 }
 
-// ModerationCasesApiV1AdminModerationCasesGetParams defines parameters for ModerationCasesApiV1AdminModerationCasesGet.
-type ModerationCasesApiV1AdminModerationCasesGetParams struct {
+// ListModerationCasesParams defines parameters for ListModerationCases.
+type ListModerationCasesParams struct {
 	Status     *string `form:"status,omitempty" json:"status,omitempty"`
 	Source     *string `form:"source,omitempty" json:"source,omitempty"`
 	EntityType *string `form:"entity_type,omitempty" json:"entity_type,omitempty"`
@@ -1209,52 +2187,52 @@ type ModerationCasesApiV1AdminModerationCasesGetParams struct {
 	PageSize   *int    `form:"page_size,omitempty" json:"page_size,omitempty"`
 }
 
-// ReportQueueApiV1AdminReportsGetParams defines parameters for ReportQueueApiV1AdminReportsGet.
-type ReportQueueApiV1AdminReportsGetParams struct {
+// ListAdminReportsParams defines parameters for ListAdminReports.
+type ListAdminReportsParams struct {
 	Status   *string `form:"status,omitempty" json:"status,omitempty"`
 	Reason   *string `form:"reason,omitempty" json:"reason,omitempty"`
 	Page     *int    `form:"page,omitempty" json:"page,omitempty"`
 	PageSize *int    `form:"page_size,omitempty" json:"page_size,omitempty"`
 }
 
-// AdminUsersApiV1AdminUsersGetParams defines parameters for AdminUsersApiV1AdminUsersGet.
-type AdminUsersApiV1AdminUsersGetParams struct {
+// ListAdminUsersParams defines parameters for ListAdminUsers.
+type ListAdminUsersParams struct {
 	Q        *string `form:"q,omitempty" json:"q,omitempty"`
 	Page     *int    `form:"page,omitempty" json:"page,omitempty"`
 	PageSize *int    `form:"page_size,omitempty" json:"page_size,omitempty"`
 }
 
-// ListAnnouncementsApiV1AnnouncementsGetParams defines parameters for ListAnnouncementsApiV1AnnouncementsGet.
-type ListAnnouncementsApiV1AnnouncementsGetParams struct {
+// ListAnnouncementsParams defines parameters for ListAnnouncements.
+type ListAnnouncementsParams struct {
 	Page     *int `form:"page,omitempty" json:"page,omitempty"`
 	PageSize *int `form:"page_size,omitempty" json:"page_size,omitempty"`
 }
 
-// ListCampusServicesApiV1CampusServicesGetParams defines parameters for ListCampusServicesApiV1CampusServicesGet.
-type ListCampusServicesApiV1CampusServicesGetParams struct {
+// ListCampusServicesParams defines parameters for ListCampusServices.
+type ListCampusServicesParams struct {
 	Category *string `form:"category,omitempty" json:"category,omitempty"`
 }
 
-// ListConversationsApiV1ConversationsGetParams defines parameters for ListConversationsApiV1ConversationsGet.
-type ListConversationsApiV1ConversationsGetParams struct {
+// ListConversationsParams defines parameters for ListConversations.
+type ListConversationsParams struct {
 	Page     *int `form:"page,omitempty" json:"page,omitempty"`
 	PageSize *int `form:"page_size,omitempty" json:"page_size,omitempty"`
 }
 
-// ListMessagesApiV1ConversationsConversationIdMessagesGetParams defines parameters for ListMessagesApiV1ConversationsConversationIdMessagesGet.
-type ListMessagesApiV1ConversationsConversationIdMessagesGetParams struct {
+// ListConversationMessagesParams defines parameters for ListConversationMessages.
+type ListConversationMessagesParams struct {
 	Page     *int `form:"page,omitempty" json:"page,omitempty"`
 	PageSize *int `form:"page_size,omitempty" json:"page_size,omitempty"`
 }
 
-// ListOfferingsApiV1CourseOfferingsGetParams defines parameters for ListOfferingsApiV1CourseOfferingsGet.
-type ListOfferingsApiV1CourseOfferingsGetParams struct {
+// ListCourseOfferingsParams defines parameters for ListCourseOfferings.
+type ListCourseOfferingsParams struct {
 	Page     *int `form:"page,omitempty" json:"page,omitempty"`
 	PageSize *int `form:"page_size,omitempty" json:"page_size,omitempty"`
 }
 
-// DeleteEntityApiV1EntitiesEntityIdDeleteParams defines parameters for DeleteEntityApiV1EntitiesEntityIdDelete.
-type DeleteEntityApiV1EntitiesEntityIdDeleteParams struct {
+// DeleteEntityParams defines parameters for DeleteEntity.
+type DeleteEntityParams struct {
 	Reason *string `form:"reason,omitempty" json:"reason,omitempty"`
 }
 
@@ -1281,8 +2259,8 @@ type FeedChangesApiV1FeedChangesGetParams struct {
 	After time.Time `form:"after" json:"after"`
 }
 
-// ListHandbookApiV1HandbookGetParams defines parameters for ListHandbookApiV1HandbookGet.
-type ListHandbookApiV1HandbookGetParams struct {
+// ListHandbookArticlesParams defines parameters for ListHandbookArticles.
+type ListHandbookArticlesParams struct {
 	Page     *int    `form:"page,omitempty" json:"page,omitempty"`
 	PageSize *int    `form:"page_size,omitempty" json:"page_size,omitempty"`
 	Category *string `form:"category,omitempty" json:"category,omitempty"`
@@ -1314,62 +2292,62 @@ type ListListingsParamsTradeStatus string
 // ListListingsParamsSort defines parameters for ListListings.
 type ListListingsParamsSort string
 
-// ListLostItemsApiV1LostItemsGetParams defines parameters for ListLostItemsApiV1LostItemsGet.
-type ListLostItemsApiV1LostItemsGetParams struct {
+// ListLostItemsParams defines parameters for ListLostItems.
+type ListLostItemsParams struct {
 	Page     *int    `form:"page,omitempty" json:"page,omitempty"`
 	PageSize *int    `form:"page_size,omitempty" json:"page_size,omitempty"`
 	Kind     *string `form:"kind,omitempty" json:"kind,omitempty"`
 }
 
-// MyAppealsApiV1MeAppealsGetParams defines parameters for MyAppealsApiV1MeAppealsGet.
-type MyAppealsApiV1MeAppealsGetParams struct {
+// ListMyAppealsParams defines parameters for ListMyAppeals.
+type ListMyAppealsParams struct {
 	Page     *int    `form:"page,omitempty" json:"page,omitempty"`
 	PageSize *int    `form:"page_size,omitempty" json:"page_size,omitempty"`
 	Status   *string `form:"status,omitempty" json:"status,omitempty"`
 }
 
-// MyContentApiV1MeContentGetParams defines parameters for MyContentApiV1MeContentGet.
-type MyContentApiV1MeContentGetParams struct {
+// ListMyContentParams defines parameters for ListMyContent.
+type ListMyContentParams struct {
 	Page     *int    `form:"page,omitempty" json:"page,omitempty"`
 	PageSize *int    `form:"page_size,omitempty" json:"page_size,omitempty"`
 	Type     *string `form:"type,omitempty" json:"type,omitempty"`
 	Status   *string `form:"status,omitempty" json:"status,omitempty"`
 }
 
-// MyFavoritesApiV1MeFavoritesGetParams defines parameters for MyFavoritesApiV1MeFavoritesGet.
-type MyFavoritesApiV1MeFavoritesGetParams struct {
+// ListMyFavoritesParams defines parameters for ListMyFavorites.
+type ListMyFavoritesParams struct {
 	Page     *int    `form:"page,omitempty" json:"page,omitempty"`
 	PageSize *int    `form:"page_size,omitempty" json:"page_size,omitempty"`
 	Type     *string `form:"type,omitempty" json:"type,omitempty"`
 }
 
-// MyReportsApiV1MeReportsGetParams defines parameters for MyReportsApiV1MeReportsGet.
-type MyReportsApiV1MeReportsGetParams struct {
+// ListMyReportsParams defines parameters for ListMyReports.
+type ListMyReportsParams struct {
 	Page     *int    `form:"page,omitempty" json:"page,omitempty"`
 	PageSize *int    `form:"page_size,omitempty" json:"page_size,omitempty"`
 	Status   *string `form:"status,omitempty" json:"status,omitempty"`
 }
 
-// SessionsApiV1MeSessionsGetParams defines parameters for SessionsApiV1MeSessionsGet.
-type SessionsApiV1MeSessionsGetParams struct {
+// ListSessionsParams defines parameters for ListSessions.
+type ListSessionsParams struct {
 	Page     *int `form:"page,omitempty" json:"page,omitempty"`
 	PageSize *int `form:"page_size,omitempty" json:"page_size,omitempty"`
 }
 
-// ListNotificationsApiV1NotificationsGetParams defines parameters for ListNotificationsApiV1NotificationsGet.
-type ListNotificationsApiV1NotificationsGetParams struct {
+// ListNotificationsParams defines parameters for ListNotifications.
+type ListNotificationsParams struct {
 	Page     *int `form:"page,omitempty" json:"page,omitempty"`
 	PageSize *int `form:"page_size,omitempty" json:"page_size,omitempty"`
 }
 
-// ListObserveApiV1ObservePostsGetParams defines parameters for ListObserveApiV1ObservePostsGet.
-type ListObserveApiV1ObservePostsGetParams struct {
+// ListObservePostsParams defines parameters for ListObservePosts.
+type ListObservePostsParams struct {
 	Page     *int `form:"page,omitempty" json:"page,omitempty"`
 	PageSize *int `form:"page_size,omitempty" json:"page_size,omitempty"`
 }
 
-// PenaltiesApiV1PenaltiesGetParams defines parameters for PenaltiesApiV1PenaltiesGet.
-type PenaltiesApiV1PenaltiesGetParams struct {
+// ListPenaltiesParams defines parameters for ListPenalties.
+type ListPenaltiesParams struct {
 	Page     *int `form:"page,omitempty" json:"page,omitempty"`
 	PageSize *int `form:"page_size,omitempty" json:"page_size,omitempty"`
 }
@@ -1381,8 +2359,8 @@ type ListPostsApiV1PostsGetParams struct {
 	Q        *string `form:"q,omitempty" json:"q,omitempty"`
 }
 
-// ListQuestionsApiV1QuestionsGetParams defines parameters for ListQuestionsApiV1QuestionsGet.
-type ListQuestionsApiV1QuestionsGetParams struct {
+// ListQuestionsParams defines parameters for ListQuestions.
+type ListQuestionsParams struct {
 	Page     *int    `form:"page,omitempty" json:"page,omitempty"`
 	PageSize *int    `form:"page_size,omitempty" json:"page_size,omitempty"`
 	Category *string `form:"category,omitempty" json:"category,omitempty"`
@@ -1395,76 +2373,76 @@ type SearchApiV1SearchGetParams struct {
 	PageSize *int   `form:"page_size,omitempty" json:"page_size,omitempty"`
 }
 
-// ListTeamsApiV1TeamsGetParams defines parameters for ListTeamsApiV1TeamsGet.
-type ListTeamsApiV1TeamsGetParams struct {
+// ListTeamsParams defines parameters for ListTeams.
+type ListTeamsParams struct {
 	Page     *int    `form:"page,omitempty" json:"page,omitempty"`
 	PageSize *int    `form:"page_size,omitempty" json:"page_size,omitempty"`
 	Game     *string `form:"game,omitempty" json:"game,omitempty"`
 	GameId   *int    `form:"game_id,omitempty" json:"game_id,omitempty"`
 }
 
-// JoinTeamApiV1TeamsTeamIdJoinPostJSONBody defines parameters for JoinTeamApiV1TeamsTeamIdJoinPost.
-type JoinTeamApiV1TeamsTeamIdJoinPostJSONBody = JoinRequest
+// JoinTeamJSONBody defines parameters for JoinTeam.
+type JoinTeamJSONBody = JoinRequest
 
-// ListTeamRunsApiV1TeamsTeamIdRunsGetParams defines parameters for ListTeamRunsApiV1TeamsTeamIdRunsGet.
-type ListTeamRunsApiV1TeamsTeamIdRunsGetParams struct {
+// ListTeamRunsParams defines parameters for ListTeamRuns.
+type ListTeamRunsParams struct {
 	Page     *int `form:"page,omitempty" json:"page,omitempty"`
 	PageSize *int `form:"page_size,omitempty" json:"page_size,omitempty"`
 }
 
-// CreateActivityApiV1ActivitiesPostJSONRequestBody defines body for CreateActivityApiV1ActivitiesPost for application/json ContentType.
-type CreateActivityApiV1ActivitiesPostJSONRequestBody = ActivityCreate
+// CreateActivityJSONRequestBody defines body for CreateActivity for application/json ContentType.
+type CreateActivityJSONRequestBody = ActivityCreate
 
-// UpdateActivityApiV1ActivitiesActivityIdPatchJSONRequestBody defines body for UpdateActivityApiV1ActivitiesActivityIdPatch for application/json ContentType.
-type UpdateActivityApiV1ActivitiesActivityIdPatchJSONRequestBody = ActivityUpdate
+// UpdateActivityJSONRequestBody defines body for UpdateActivity for application/json ContentType.
+type UpdateActivityJSONRequestBody = ActivityUpdate
 
-// CreateAnnouncementApiV1AdminAnnouncementsPostJSONRequestBody defines body for CreateAnnouncementApiV1AdminAnnouncementsPost for application/json ContentType.
-type CreateAnnouncementApiV1AdminAnnouncementsPostJSONRequestBody = AnnouncementCreate
+// CreateAnnouncementJSONRequestBody defines body for CreateAnnouncement for application/json ContentType.
+type CreateAnnouncementJSONRequestBody = AnnouncementCreate
 
-// DecideAppealApiV1AdminAppealsAppealIdDecisionPostJSONRequestBody defines body for DecideAppealApiV1AdminAppealsAppealIdDecisionPost for application/json ContentType.
-type DecideAppealApiV1AdminAppealsAppealIdDecisionPostJSONRequestBody = AppealDecision
+// DecideAppealJSONRequestBody defines body for DecideAppeal for application/json ContentType.
+type DecideAppealJSONRequestBody = AppealDecision
 
-// CreateCampusServiceApiV1AdminCampusServicesPostJSONRequestBody defines body for CreateCampusServiceApiV1AdminCampusServicesPost for application/json ContentType.
-type CreateCampusServiceApiV1AdminCampusServicesPostJSONRequestBody = CampusServiceCreate
+// CreateCampusServiceJSONRequestBody defines body for CreateCampusService for application/json ContentType.
+type CreateCampusServiceJSONRequestBody = CampusServiceCreate
 
-// UpdateCampusServiceApiV1AdminCampusServicesServiceIdPatchJSONRequestBody defines body for UpdateCampusServiceApiV1AdminCampusServicesServiceIdPatch for application/json ContentType.
-type UpdateCampusServiceApiV1AdminCampusServicesServiceIdPatchJSONRequestBody = CampusServiceUpdate
+// UpdateCampusServiceJSONRequestBody defines body for UpdateCampusService for application/json ContentType.
+type UpdateCampusServiceJSONRequestBody = CampusServiceUpdate
 
-// UpdateCreditRulesApiV1AdminCreditRulesPatchJSONRequestBody defines body for UpdateCreditRulesApiV1AdminCreditRulesPatch for application/json ContentType.
-type UpdateCreditRulesApiV1AdminCreditRulesPatchJSONRequestBody = CreditRulesUpdate
+// UpdateAdminCreditRulesJSONRequestBody defines body for UpdateAdminCreditRules for application/json ContentType.
+type UpdateAdminCreditRulesJSONRequestBody = CreditRulesUpdate
 
-// DecideFeedbackApiV1AdminFeedbackFeedbackIdDecisionPostJSONRequestBody defines body for DecideFeedbackApiV1AdminFeedbackFeedbackIdDecisionPost for application/json ContentType.
-type DecideFeedbackApiV1AdminFeedbackFeedbackIdDecisionPostJSONRequestBody = FeedbackDecision
+// DecideFeedbackJSONRequestBody defines body for DecideFeedback for application/json ContentType.
+type DecideFeedbackJSONRequestBody = FeedbackDecision
 
-// DecideGameSubmissionApiV1AdminGameSubmissionsSubmissionIdDecisionPostJSONRequestBody defines body for DecideGameSubmissionApiV1AdminGameSubmissionsSubmissionIdDecisionPost for application/json ContentType.
-type DecideGameSubmissionApiV1AdminGameSubmissionsSubmissionIdDecisionPostJSONRequestBody = GameSubmissionDecision
+// DecideGameSubmissionJSONRequestBody defines body for DecideGameSubmission for application/json ContentType.
+type DecideGameSubmissionJSONRequestBody = GameSubmissionDecision
 
-// CreateMarketcategoriesJSONRequestBody defines body for CreateMarketcategories for application/json ContentType.
-type CreateMarketcategoriesJSONRequestBody = MarketOptionInput
+// CreateMarketCategoryJSONRequestBody defines body for CreateMarketCategory for application/json ContentType.
+type CreateMarketCategoryJSONRequestBody = MarketOptionInput
 
-// UpdateMarketcategoriesJSONRequestBody defines body for UpdateMarketcategories for application/json ContentType.
-type UpdateMarketcategoriesJSONRequestBody = MarketOptionInput
+// UpdateMarketCategoryJSONRequestBody defines body for UpdateMarketCategory for application/json ContentType.
+type UpdateMarketCategoryJSONRequestBody = MarketOptionInput
 
 // DecideMarketDisputeJSONRequestBody defines body for DecideMarketDispute for application/json ContentType.
 type DecideMarketDisputeJSONRequestBody = MarketDisputeDecision
 
-// CreateMarketlocationsJSONRequestBody defines body for CreateMarketlocations for application/json ContentType.
-type CreateMarketlocationsJSONRequestBody = MarketOptionInput
+// CreateMarketLocationJSONRequestBody defines body for CreateMarketLocation for application/json ContentType.
+type CreateMarketLocationJSONRequestBody = MarketOptionInput
 
-// UpdateMarketlocationsJSONRequestBody defines body for UpdateMarketlocations for application/json ContentType.
-type UpdateMarketlocationsJSONRequestBody = MarketOptionInput
+// UpdateMarketLocationJSONRequestBody defines body for UpdateMarketLocation for application/json ContentType.
+type UpdateMarketLocationJSONRequestBody = MarketOptionInput
 
-// DecideModerationApiV1AdminModerationCasesCaseIdDecisionPostJSONRequestBody defines body for DecideModerationApiV1AdminModerationCasesCaseIdDecisionPost for application/json ContentType.
-type DecideModerationApiV1AdminModerationCasesCaseIdDecisionPostJSONRequestBody = ModerationDecision
+// DecideModerationCaseJSONRequestBody defines body for DecideModerationCase for application/json ContentType.
+type DecideModerationCaseJSONRequestBody = ModerationDecision
 
-// CreatePenaltyApiV1AdminPenaltiesPostJSONRequestBody defines body for CreatePenaltyApiV1AdminPenaltiesPost for application/json ContentType.
-type CreatePenaltyApiV1AdminPenaltiesPostJSONRequestBody = PenaltyCreate
+// CreatePenaltyJSONRequestBody defines body for CreatePenalty for application/json ContentType.
+type CreatePenaltyJSONRequestBody = PenaltyCreate
 
-// UpdateSettingApiV1AdminSettingsKeyPutJSONRequestBody defines body for UpdateSettingApiV1AdminSettingsKeyPut for application/json ContentType.
-type UpdateSettingApiV1AdminSettingsKeyPutJSONRequestBody = SettingUpdate
+// UpdateAdminSettingJSONRequestBody defines body for UpdateAdminSetting for application/json ContentType.
+type UpdateAdminSettingJSONRequestBody = SettingUpdate
 
-// AdminUpdateUserApiV1AdminUsersUserIdPatchJSONRequestBody defines body for AdminUpdateUserApiV1AdminUsersUserIdPatch for application/json ContentType.
-type AdminUpdateUserApiV1AdminUsersUserIdPatchJSONRequestBody = UserAdminUpdate
+// UpdateAdminUserJSONRequestBody defines body for UpdateAdminUser for application/json ContentType.
+type UpdateAdminUserJSONRequestBody = UserAdminUpdate
 
 // LoginApiV1AuthLoginPostJSONRequestBody defines body for LoginApiV1AuthLoginPost for application/json ContentType.
 type LoginApiV1AuthLoginPostJSONRequestBody = LoginRequest
@@ -1472,35 +2450,35 @@ type LoginApiV1AuthLoginPostJSONRequestBody = LoginRequest
 // RegisterApiV1AuthRegisterPostJSONRequestBody defines body for RegisterApiV1AuthRegisterPost for application/json ContentType.
 type RegisterApiV1AuthRegisterPostJSONRequestBody = RegisterRequest
 
-// RequestCodeApiV1AuthRequestCodePostJSONRequestBody defines body for RequestCodeApiV1AuthRequestCodePost for application/json ContentType.
-type RequestCodeApiV1AuthRequestCodePostJSONRequestBody = CodeRequest
+// RequestVerificationCodeJSONRequestBody defines body for RequestVerificationCode for application/json ContentType.
+type RequestVerificationCodeJSONRequestBody = CodeRequest
 
 // ResetPasswordApiV1AuthResetPasswordPostJSONRequestBody defines body for ResetPasswordApiV1AuthResetPasswordPost for application/json ContentType.
 type ResetPasswordApiV1AuthResetPasswordPostJSONRequestBody = PasswordResetRequest
 
-// RespondToRatingApiV1CampusServiceRatingsRatingIdResponsePostJSONRequestBody defines body for RespondToRatingApiV1CampusServiceRatingsRatingIdResponsePost for application/json ContentType.
-type RespondToRatingApiV1CampusServiceRatingsRatingIdResponsePostJSONRequestBody = CampusServiceResponseCreate
+// RespondToCampusServiceRatingJSONRequestBody defines body for RespondToCampusServiceRating for application/json ContentType.
+type RespondToCampusServiceRatingJSONRequestBody = CampusServiceResponseCreate
 
-// RateCampusServiceApiV1CampusServicesServiceIdRatingsPostJSONRequestBody defines body for RateCampusServiceApiV1CampusServicesServiceIdRatingsPost for application/json ContentType.
-type RateCampusServiceApiV1CampusServicesServiceIdRatingsPostJSONRequestBody = CampusServiceRatingCreate
+// RateCampusServiceJSONRequestBody defines body for RateCampusService for application/json ContentType.
+type RateCampusServiceJSONRequestBody = CampusServiceRatingCreate
 
-// CreateConversationApiV1ConversationsPostJSONRequestBody defines body for CreateConversationApiV1ConversationsPost for application/json ContentType.
-type CreateConversationApiV1ConversationsPostJSONRequestBody = ConversationCreate
+// CreateConversationJSONRequestBody defines body for CreateConversation for application/json ContentType.
+type CreateConversationJSONRequestBody = ConversationCreate
 
-// SendMessageApiV1ConversationsConversationIdMessagesPostJSONRequestBody defines body for SendMessageApiV1ConversationsConversationIdMessagesPost for application/json ContentType.
-type SendMessageApiV1ConversationsConversationIdMessagesPostJSONRequestBody = MessageCreate
+// SendConversationMessageJSONRequestBody defines body for SendConversationMessage for application/json ContentType.
+type SendConversationMessageJSONRequestBody = MessageCreate
 
-// CreateOfferingApiV1CourseOfferingsPostJSONRequestBody defines body for CreateOfferingApiV1CourseOfferingsPost for application/json ContentType.
-type CreateOfferingApiV1CourseOfferingsPostJSONRequestBody = OfferingCreate
+// CreateCourseOfferingJSONRequestBody defines body for CreateCourseOffering for application/json ContentType.
+type CreateCourseOfferingJSONRequestBody = OfferingCreate
 
-// CreateReviewApiV1CourseReviewsPostJSONRequestBody defines body for CreateReviewApiV1CourseReviewsPost for application/json ContentType.
-type CreateReviewApiV1CourseReviewsPostJSONRequestBody = ReviewCreate
+// CreateCourseReviewJSONRequestBody defines body for CreateCourseReview for application/json ContentType.
+type CreateCourseReviewJSONRequestBody = ReviewCreate
 
-// CorrectReviewApiV1CourseReviewsReviewIdCorrectionPostJSONRequestBody defines body for CorrectReviewApiV1CourseReviewsReviewIdCorrectionPost for application/json ContentType.
-type CorrectReviewApiV1CourseReviewsReviewIdCorrectionPostJSONRequestBody = CorrectionCreate
+// CorrectCourseReviewJSONRequestBody defines body for CorrectCourseReview for application/json ContentType.
+type CorrectCourseReviewJSONRequestBody = CorrectionCreate
 
-// CreateCourseApiV1CoursesPostJSONRequestBody defines body for CreateCourseApiV1CoursesPost for application/json ContentType.
-type CreateCourseApiV1CoursesPostJSONRequestBody = CourseCreate
+// CreateCourseJSONRequestBody defines body for CreateCourse for application/json ContentType.
+type CreateCourseJSONRequestBody = CourseCreate
 
 // ReportApiV1EntitiesEntityIdReportsPostJSONRequestBody defines body for ReportApiV1EntitiesEntityIdReportsPost for application/json ContentType.
 type ReportApiV1EntitiesEntityIdReportsPostJSONRequestBody = ReportCreate
@@ -1511,14 +2489,14 @@ type CreateCommentApiV1EntitiesTargetIdCommentsPostJSONRequestBody = CommentCrea
 // CreateFeedbackApiV1FeedbackPostJSONRequestBody defines body for CreateFeedbackApiV1FeedbackPost for application/json ContentType.
 type CreateFeedbackApiV1FeedbackPostJSONRequestBody = FeedbackCreate
 
-// SubmitGameApiV1GameSubmissionsPostJSONRequestBody defines body for SubmitGameApiV1GameSubmissionsPost for application/json ContentType.
-type SubmitGameApiV1GameSubmissionsPostJSONRequestBody = GameSubmissionCreate
+// SubmitGameJSONRequestBody defines body for SubmitGame for application/json ContentType.
+type SubmitGameJSONRequestBody = GameSubmissionCreate
 
-// CreateArticleApiV1HandbookPostJSONRequestBody defines body for CreateArticleApiV1HandbookPost for application/json ContentType.
-type CreateArticleApiV1HandbookPostJSONRequestBody = ArticleCreate
+// CreateHandbookArticleJSONRequestBody defines body for CreateHandbookArticle for application/json ContentType.
+type CreateHandbookArticleJSONRequestBody = ArticleCreate
 
-// UpdateArticleApiV1HandbookArticleIdPatchJSONRequestBody defines body for UpdateArticleApiV1HandbookArticleIdPatch for application/json ContentType.
-type UpdateArticleApiV1HandbookArticleIdPatchJSONRequestBody = ArticleUpdate
+// UpdateHandbookArticleJSONRequestBody defines body for UpdateHandbookArticle for application/json ContentType.
+type UpdateHandbookArticleJSONRequestBody = ArticleUpdate
 
 // CreateListingJSONRequestBody defines body for CreateListing for application/json ContentType.
 type CreateListingJSONRequestBody = ListingCreate
@@ -1532,17 +2510,17 @@ type CancelListingJSONRequestBody = MarketCancelRequest
 // RequestListingTransactionJSONRequestBody defines body for RequestListingTransaction for application/json ContentType.
 type RequestListingTransactionJSONRequestBody = MarketTransactionRequest
 
-// CreateLostItemApiV1LostItemsPostJSONRequestBody defines body for CreateLostItemApiV1LostItemsPost for application/json ContentType.
-type CreateLostItemApiV1LostItemsPostJSONRequestBody = LostCreate
+// CreateLostItemJSONRequestBody defines body for CreateLostItem for application/json ContentType.
+type CreateLostItemJSONRequestBody = LostCreate
 
-// UpdateLostItemApiV1LostItemsItemIdPatchJSONRequestBody defines body for UpdateLostItemApiV1LostItemsItemIdPatch for application/json ContentType.
-type UpdateLostItemApiV1LostItemsItemIdPatchJSONRequestBody = LostUpdate
+// UpdateLostItemJSONRequestBody defines body for UpdateLostItem for application/json ContentType.
+type UpdateLostItemJSONRequestBody = LostUpdate
 
-// CreateClaimApiV1LostItemsItemIdClaimsPostJSONRequestBody defines body for CreateClaimApiV1LostItemsItemIdClaimsPost for application/json ContentType.
-type CreateClaimApiV1LostItemsItemIdClaimsPostJSONRequestBody = ClaimCreate
+// CreateLostClaimJSONRequestBody defines body for CreateLostClaim for application/json ContentType.
+type CreateLostClaimJSONRequestBody = ClaimCreate
 
-// DecideClaimApiV1LostItemsItemIdClaimsClaimIdDecisionPostJSONRequestBody defines body for DecideClaimApiV1LostItemsItemIdClaimsClaimIdDecisionPost for application/json ContentType.
-type DecideClaimApiV1LostItemsItemIdClaimsClaimIdDecisionPostJSONRequestBody = ClaimDecision
+// DecideLostClaimJSONRequestBody defines body for DecideLostClaim for application/json ContentType.
+type DecideLostClaimJSONRequestBody = ClaimDecision
 
 // CancelMarketTransactionJSONRequestBody defines body for CancelMarketTransaction for application/json ContentType.
 type CancelMarketTransactionJSONRequestBody = MarketCancelRequest
@@ -1553,29 +2531,29 @@ type OpenMarketDisputeJSONRequestBody = MarketDisputeRequest
 // CreateMarketReviewJSONRequestBody defines body for CreateMarketReview for application/json ContentType.
 type CreateMarketReviewJSONRequestBody = MarketReviewRequest
 
-// DeactivateAccountApiV1MeDeactivatePostJSONRequestBody defines body for DeactivateAccountApiV1MeDeactivatePost for application/json ContentType.
-type DeactivateAccountApiV1MeDeactivatePostJSONRequestBody = DeactivateRequest
+// DeactivateAccountJSONRequestBody defines body for DeactivateAccount for application/json ContentType.
+type DeactivateAccountJSONRequestBody = DeactivateRequest
 
-// ChangeEmailApiV1MeEmailPostJSONRequestBody defines body for ChangeEmailApiV1MeEmailPost for application/json ContentType.
-type ChangeEmailApiV1MeEmailPostJSONRequestBody = EmailChange
+// ChangeEmailJSONRequestBody defines body for ChangeEmail for application/json ContentType.
+type ChangeEmailJSONRequestBody = EmailChange
 
-// ChangePasswordApiV1MePasswordPostJSONRequestBody defines body for ChangePasswordApiV1MePasswordPost for application/json ContentType.
-type ChangePasswordApiV1MePasswordPostJSONRequestBody = PasswordChange
+// ChangePasswordJSONRequestBody defines body for ChangePassword for application/json ContentType.
+type ChangePasswordJSONRequestBody = PasswordChange
 
-// UpdatePrivacyApiV1MePrivacyPatchJSONRequestBody defines body for UpdatePrivacyApiV1MePrivacyPatch for application/json ContentType.
-type UpdatePrivacyApiV1MePrivacyPatchJSONRequestBody = PrivacyUpdate
+// UpdatePrivacyJSONRequestBody defines body for UpdatePrivacy for application/json ContentType.
+type UpdatePrivacyJSONRequestBody = PrivacyUpdate
 
-// UpdateProfileApiV1MeProfilePatchJSONRequestBody defines body for UpdateProfileApiV1MeProfilePatch for application/json ContentType.
-type UpdateProfileApiV1MeProfilePatchJSONRequestBody = ProfileUpdate
+// UpdateProfileJSONRequestBody defines body for UpdateProfile for application/json ContentType.
+type UpdateProfileJSONRequestBody = ProfileUpdate
 
-// CreateObserveApiV1ObservePostsPostJSONRequestBody defines body for CreateObserveApiV1ObservePostsPost for application/json ContentType.
-type CreateObserveApiV1ObservePostsPostJSONRequestBody = ObserveCreate
+// CreateObservePostJSONRequestBody defines body for CreateObservePost for application/json ContentType.
+type CreateObservePostJSONRequestBody = ObserveCreate
 
-// RespondObserveApiV1ObservePostsObserveIdResponsePostJSONRequestBody defines body for RespondObserveApiV1ObservePostsObserveIdResponsePost for application/json ContentType.
-type RespondObserveApiV1ObservePostsObserveIdResponsePostJSONRequestBody = ObserveResponse
+// RespondToObservePostJSONRequestBody defines body for RespondToObservePost for application/json ContentType.
+type RespondToObservePostJSONRequestBody = ObserveResponse
 
-// AppealPenaltyApiV1PenaltiesPenaltyIdAppealsPostJSONRequestBody defines body for AppealPenaltyApiV1PenaltiesPenaltyIdAppealsPost for application/json ContentType.
-type AppealPenaltyApiV1PenaltiesPenaltyIdAppealsPostJSONRequestBody = AppealCreate
+// AppealPenaltyJSONRequestBody defines body for AppealPenalty for application/json ContentType.
+type AppealPenaltyJSONRequestBody = AppealCreate
 
 // CreatePostApiV1PostsPostJSONRequestBody defines body for CreatePostApiV1PostsPost for application/json ContentType.
 type CreatePostApiV1PostsPostJSONRequestBody = PostCreate
@@ -1583,38 +2561,38 @@ type CreatePostApiV1PostsPostJSONRequestBody = PostCreate
 // UpdatePostApiV1PostsPostIdPatchJSONRequestBody defines body for UpdatePostApiV1PostsPostIdPatch for application/json ContentType.
 type UpdatePostApiV1PostsPostIdPatchJSONRequestBody = PostUpdate
 
-// CreateQuestionApiV1QuestionsPostJSONRequestBody defines body for CreateQuestionApiV1QuestionsPost for application/json ContentType.
-type CreateQuestionApiV1QuestionsPostJSONRequestBody = QuestionCreate
+// CreateQuestionJSONRequestBody defines body for CreateQuestion for application/json ContentType.
+type CreateQuestionJSONRequestBody = QuestionCreate
 
-// UpdateQuestionApiV1QuestionsQuestionIdPatchJSONRequestBody defines body for UpdateQuestionApiV1QuestionsQuestionIdPatch for application/json ContentType.
-type UpdateQuestionApiV1QuestionsQuestionIdPatchJSONRequestBody = QuestionUpdate
+// UpdateQuestionJSONRequestBody defines body for UpdateQuestion for application/json ContentType.
+type UpdateQuestionJSONRequestBody = QuestionUpdate
 
-// CreateAnswerApiV1QuestionsQuestionIdAnswersPostJSONRequestBody defines body for CreateAnswerApiV1QuestionsQuestionIdAnswersPost for application/json ContentType.
-type CreateAnswerApiV1QuestionsQuestionIdAnswersPostJSONRequestBody = AnswerCreate
+// CreateAnswerJSONRequestBody defines body for CreateAnswer for application/json ContentType.
+type CreateAnswerJSONRequestBody = AnswerCreate
 
-// CreateTeamApiV1TeamsPostJSONRequestBody defines body for CreateTeamApiV1TeamsPost for application/json ContentType.
-type CreateTeamApiV1TeamsPostJSONRequestBody = TeamCreate
+// CreateTeamJSONRequestBody defines body for CreateTeam for application/json ContentType.
+type CreateTeamJSONRequestBody = TeamCreate
 
-// UpdateTeamApiV1TeamsTeamIdPatchJSONRequestBody defines body for UpdateTeamApiV1TeamsTeamIdPatch for application/json ContentType.
-type UpdateTeamApiV1TeamsTeamIdPatchJSONRequestBody = TeamUpdate
+// UpdateTeamJSONRequestBody defines body for UpdateTeam for application/json ContentType.
+type UpdateTeamJSONRequestBody = TeamUpdate
 
-// JoinTeamApiV1TeamsTeamIdJoinPostJSONRequestBody defines body for JoinTeamApiV1TeamsTeamIdJoinPost for application/json ContentType.
-type JoinTeamApiV1TeamsTeamIdJoinPostJSONRequestBody = JoinTeamApiV1TeamsTeamIdJoinPostJSONBody
+// JoinTeamJSONRequestBody defines body for JoinTeam for application/json ContentType.
+type JoinTeamJSONRequestBody = JoinTeamJSONBody
 
-// CreateTeamRunApiV1TeamsTeamIdRunsPostJSONRequestBody defines body for CreateTeamRunApiV1TeamsTeamIdRunsPost for application/json ContentType.
-type CreateTeamRunApiV1TeamsTeamIdRunsPostJSONRequestBody = TeamRunCreate
+// CreateTeamRunJSONRequestBody defines body for CreateTeamRun for application/json ContentType.
+type CreateTeamRunJSONRequestBody = TeamRunCreate
 
-// UpdateTeamRunApiV1TeamsTeamIdRunsRunIdPatchJSONRequestBody defines body for UpdateTeamRunApiV1TeamsTeamIdRunsRunIdPatch for application/json ContentType.
-type UpdateTeamRunApiV1TeamsTeamIdRunsRunIdPatchJSONRequestBody = TeamRunUpdate
+// UpdateTeamRunJSONRequestBody defines body for UpdateTeamRun for application/json ContentType.
+type UpdateTeamRunJSONRequestBody = TeamRunUpdate
 
-// RateMemberApiV1TeamsTeamIdRunsRunIdRatingsPostJSONRequestBody defines body for RateMemberApiV1TeamsTeamIdRunsRunIdRatingsPost for application/json ContentType.
-type RateMemberApiV1TeamsTeamIdRunsRunIdRatingsPostJSONRequestBody = RatingRequest
+// RateTeamMemberJSONRequestBody defines body for RateTeamMember for application/json ContentType.
+type RateTeamMemberJSONRequestBody = RatingRequest
 
-// TransferTeamApiV1TeamsTeamIdTransferPostJSONRequestBody defines body for TransferTeamApiV1TeamsTeamIdTransferPost for application/json ContentType.
-type TransferTeamApiV1TeamsTeamIdTransferPostJSONRequestBody = TransferRequest
+// TransferTeamOwnershipJSONRequestBody defines body for TransferTeamOwnership for application/json ContentType.
+type TransferTeamOwnershipJSONRequestBody = TransferRequest
 
-// UploadImageApiV1UploadsImagesPostMultipartRequestBody defines body for UploadImageApiV1UploadsImagesPost for multipart/form-data ContentType.
-type UploadImageApiV1UploadsImagesPostMultipartRequestBody = BodyUploadImageApiV1UploadsImagesPost
+// UploadImageMultipartRequestBody defines body for UploadImage for multipart/form-data ContentType.
+type UploadImageMultipartRequestBody = BodyUploadImageApiV1UploadsImagesPost
 
 // AsValidationErrorLoc0 returns the union data inside the ValidationError_Loc_Item as a ValidationErrorLoc0
 func (t ValidationError_Loc_Item) AsValidationErrorLoc0() (ValidationErrorLoc0, error) {
@@ -1682,79 +2660,79 @@ func (t *ValidationError_Loc_Item) UnmarshalJSON(b []byte) error {
 type ServerInterface interface {
 	// List Activities
 	// (GET /api/v1/activities)
-	ListActivitiesApiV1ActivitiesGet(w http.ResponseWriter, r *http.Request, params ListActivitiesApiV1ActivitiesGetParams)
+	ListActivities(w http.ResponseWriter, r *http.Request, params ListActivitiesParams)
 	// Create Activity
 	// (POST /api/v1/activities)
-	CreateActivityApiV1ActivitiesPost(w http.ResponseWriter, r *http.Request)
+	CreateActivity(w http.ResponseWriter, r *http.Request)
 	// Update Activity
 	// (PATCH /api/v1/activities/{activity_id})
-	UpdateActivityApiV1ActivitiesActivityIdPatch(w http.ResponseWriter, r *http.Request, activityId int)
+	UpdateActivity(w http.ResponseWriter, r *http.Request, activityId int)
 	// Cancel Activity
 	// (POST /api/v1/activities/{activity_id}/cancel)
-	CancelActivityApiV1ActivitiesActivityIdCancelPost(w http.ResponseWriter, r *http.Request, activityId int)
+	CancelActivity(w http.ResponseWriter, r *http.Request, activityId int)
 	// Leave Activity
 	// (DELETE /api/v1/activities/{activity_id}/membership)
-	LeaveActivityApiV1ActivitiesActivityIdMembershipDelete(w http.ResponseWriter, r *http.Request, activityId int)
+	LeaveActivity(w http.ResponseWriter, r *http.Request, activityId int)
 	// Join Activity
 	// (PUT /api/v1/activities/{activity_id}/membership)
-	JoinActivityApiV1ActivitiesActivityIdMembershipPut(w http.ResponseWriter, r *http.Request, activityId int)
+	JoinActivity(w http.ResponseWriter, r *http.Request, activityId int)
 	// Create Announcement
 	// (POST /api/v1/admin/announcements)
-	CreateAnnouncementApiV1AdminAnnouncementsPost(w http.ResponseWriter, r *http.Request)
+	CreateAnnouncement(w http.ResponseWriter, r *http.Request)
 	// List Appeals
 	// (GET /api/v1/admin/appeals)
-	ListAppealsApiV1AdminAppealsGet(w http.ResponseWriter, r *http.Request, params ListAppealsApiV1AdminAppealsGetParams)
+	ListAdminAppeals(w http.ResponseWriter, r *http.Request, params ListAdminAppealsParams)
 	// Decide Appeal
 	// (POST /api/v1/admin/appeals/{appeal_id}/decision)
-	DecideAppealApiV1AdminAppealsAppealIdDecisionPost(w http.ResponseWriter, r *http.Request, appealId int)
+	DecideAppeal(w http.ResponseWriter, r *http.Request, appealId int)
 	// Audit Logs
 	// (GET /api/v1/admin/audit-logs)
-	AuditLogsApiV1AdminAuditLogsGet(w http.ResponseWriter, r *http.Request, params AuditLogsApiV1AdminAuditLogsGetParams)
+	ListAuditLogs(w http.ResponseWriter, r *http.Request, params ListAuditLogsParams)
 	// List Backups
 	// (GET /api/v1/admin/backups)
-	ListBackupsApiV1AdminBackupsGet(w http.ResponseWriter, r *http.Request)
+	ListBackups(w http.ResponseWriter, r *http.Request)
 	// Request Backup
 	// (POST /api/v1/admin/backups)
-	RequestBackupApiV1AdminBackupsPost(w http.ResponseWriter, r *http.Request)
+	RequestBackup(w http.ResponseWriter, r *http.Request)
 	// Download Backup
 	// (GET /api/v1/admin/backups/{job_id}/download)
-	DownloadBackupApiV1AdminBackupsJobIdDownloadGet(w http.ResponseWriter, r *http.Request, jobId int, params DownloadBackupApiV1AdminBackupsJobIdDownloadGetParams)
+	DownloadBackup(w http.ResponseWriter, r *http.Request, jobId int, params DownloadBackupParams)
 	// Create Campus Service
 	// (POST /api/v1/admin/campus-services)
-	CreateCampusServiceApiV1AdminCampusServicesPost(w http.ResponseWriter, r *http.Request)
+	CreateCampusService(w http.ResponseWriter, r *http.Request)
 	// Update Campus Service
 	// (PATCH /api/v1/admin/campus-services/{service_id})
-	UpdateCampusServiceApiV1AdminCampusServicesServiceIdPatch(w http.ResponseWriter, r *http.Request, serviceId int)
+	UpdateCampusService(w http.ResponseWriter, r *http.Request, serviceId int)
 	// Admin Credit Rules
 	// (GET /api/v1/admin/credit-rules)
-	AdminCreditRulesApiV1AdminCreditRulesGet(w http.ResponseWriter, r *http.Request)
+	GetAdminCreditRules(w http.ResponseWriter, r *http.Request)
 	// Update Credit Rules
 	// (PATCH /api/v1/admin/credit-rules)
-	UpdateCreditRulesApiV1AdminCreditRulesPatch(w http.ResponseWriter, r *http.Request)
+	UpdateAdminCreditRules(w http.ResponseWriter, r *http.Request)
 	// Feedback Queue
 	// (GET /api/v1/admin/feedback)
-	FeedbackQueueApiV1AdminFeedbackGet(w http.ResponseWriter, r *http.Request, params FeedbackQueueApiV1AdminFeedbackGetParams)
+	ListFeedback(w http.ResponseWriter, r *http.Request, params ListFeedbackParams)
 	// Decide Feedback
 	// (POST /api/v1/admin/feedback/{feedback_id}/decision)
-	DecideFeedbackApiV1AdminFeedbackFeedbackIdDecisionPost(w http.ResponseWriter, r *http.Request, feedbackId int)
+	DecideFeedback(w http.ResponseWriter, r *http.Request, feedbackId int)
 	// List Game Submissions
 	// (GET /api/v1/admin/game-submissions)
-	ListGameSubmissionsApiV1AdminGameSubmissionsGet(w http.ResponseWriter, r *http.Request, params ListGameSubmissionsApiV1AdminGameSubmissionsGetParams)
+	ListGameSubmissions(w http.ResponseWriter, r *http.Request, params ListGameSubmissionsParams)
 	// Decide Game Submission
 	// (POST /api/v1/admin/game-submissions/{submission_id}/decision)
-	DecideGameSubmissionApiV1AdminGameSubmissionsSubmissionIdDecisionPost(w http.ResponseWriter, r *http.Request, submissionId int)
+	DecideGameSubmission(w http.ResponseWriter, r *http.Request, submissionId int)
 	// List market categories
 	// (GET /api/v1/admin/market/categories)
-	ListMarketcategories(w http.ResponseWriter, r *http.Request)
+	ListMarketCategories(w http.ResponseWriter, r *http.Request)
 	// Create market categories
 	// (POST /api/v1/admin/market/categories)
-	CreateMarketcategories(w http.ResponseWriter, r *http.Request)
+	CreateMarketCategory(w http.ResponseWriter, r *http.Request)
 	// Disable market categories
 	// (DELETE /api/v1/admin/market/categories/{option_id})
-	DeleteMarketcategories(w http.ResponseWriter, r *http.Request, optionId int64)
+	DeleteMarketCategory(w http.ResponseWriter, r *http.Request, optionId int64)
 	// Update market categories
 	// (PATCH /api/v1/admin/market/categories/{option_id})
-	UpdateMarketcategories(w http.ResponseWriter, r *http.Request, optionId int64)
+	UpdateMarketCategory(w http.ResponseWriter, r *http.Request, optionId int64)
 	// Admin disputes
 	// (GET /api/v1/admin/market/disputes)
 	ListMarketDisputes(w http.ResponseWriter, r *http.Request)
@@ -1763,55 +2741,55 @@ type ServerInterface interface {
 	DecideMarketDispute(w http.ResponseWriter, r *http.Request, disputeId int64)
 	// List market locations
 	// (GET /api/v1/admin/market/locations)
-	ListMarketlocations(w http.ResponseWriter, r *http.Request)
+	ListMarketLocations(w http.ResponseWriter, r *http.Request)
 	// Create market locations
 	// (POST /api/v1/admin/market/locations)
-	CreateMarketlocations(w http.ResponseWriter, r *http.Request)
+	CreateMarketLocation(w http.ResponseWriter, r *http.Request)
 	// Disable market locations
 	// (DELETE /api/v1/admin/market/locations/{option_id})
-	DeleteMarketlocations(w http.ResponseWriter, r *http.Request, optionId int64)
+	DeleteMarketLocation(w http.ResponseWriter, r *http.Request, optionId int64)
 	// Update market locations
 	// (PATCH /api/v1/admin/market/locations/{option_id})
-	UpdateMarketlocations(w http.ResponseWriter, r *http.Request, optionId int64)
+	UpdateMarketLocation(w http.ResponseWriter, r *http.Request, optionId int64)
 	// Moderation Cases
 	// (GET /api/v1/admin/moderation-cases)
-	ModerationCasesApiV1AdminModerationCasesGet(w http.ResponseWriter, r *http.Request, params ModerationCasesApiV1AdminModerationCasesGetParams)
+	ListModerationCases(w http.ResponseWriter, r *http.Request, params ListModerationCasesParams)
 	// Decide Moderation
 	// (POST /api/v1/admin/moderation-cases/{case_id}/decision)
-	DecideModerationApiV1AdminModerationCasesCaseIdDecisionPost(w http.ResponseWriter, r *http.Request, caseId int)
+	DecideModerationCase(w http.ResponseWriter, r *http.Request, caseId int)
 	// Admin Overview
 	// (GET /api/v1/admin/overview)
-	AdminOverviewApiV1AdminOverviewGet(w http.ResponseWriter, r *http.Request)
+	GetAdminOverview(w http.ResponseWriter, r *http.Request)
 	// Create Penalty
 	// (POST /api/v1/admin/penalties)
-	CreatePenaltyApiV1AdminPenaltiesPost(w http.ResponseWriter, r *http.Request)
+	CreatePenalty(w http.ResponseWriter, r *http.Request)
 	// Report Queue
 	// (GET /api/v1/admin/reports)
-	ReportQueueApiV1AdminReportsGet(w http.ResponseWriter, r *http.Request, params ReportQueueApiV1AdminReportsGetParams)
+	ListAdminReports(w http.ResponseWriter, r *http.Request, params ListAdminReportsParams)
 	// Settings List
 	// (GET /api/v1/admin/settings)
-	SettingsListApiV1AdminSettingsGet(w http.ResponseWriter, r *http.Request)
+	GetAdminSettings(w http.ResponseWriter, r *http.Request)
 	// Update Setting
 	// (PUT /api/v1/admin/settings/{key})
-	UpdateSettingApiV1AdminSettingsKeyPut(w http.ResponseWriter, r *http.Request, key string)
+	UpdateAdminSetting(w http.ResponseWriter, r *http.Request, key string)
 	// Admin system health
 	// (GET /api/v1/admin/system-health)
 	GetAdminSystemHealth(w http.ResponseWriter, r *http.Request)
 	// Admin Users
 	// (GET /api/v1/admin/users)
-	AdminUsersApiV1AdminUsersGet(w http.ResponseWriter, r *http.Request, params AdminUsersApiV1AdminUsersGetParams)
+	ListAdminUsers(w http.ResponseWriter, r *http.Request, params ListAdminUsersParams)
 	// Admin Update User
 	// (PATCH /api/v1/admin/users/{user_id})
-	AdminUpdateUserApiV1AdminUsersUserIdPatch(w http.ResponseWriter, r *http.Request, userId int)
+	UpdateAdminUser(w http.ResponseWriter, r *http.Request, userId int)
 	// List Announcements
 	// (GET /api/v1/announcements)
-	ListAnnouncementsApiV1AnnouncementsGet(w http.ResponseWriter, r *http.Request, params ListAnnouncementsApiV1AnnouncementsGetParams)
+	ListAnnouncements(w http.ResponseWriter, r *http.Request, params ListAnnouncementsParams)
 	// Read Announcement
 	// (PUT /api/v1/announcements/{announcement_id}/read)
-	ReadAnnouncementApiV1AnnouncementsAnnouncementIdReadPut(w http.ResponseWriter, r *http.Request, announcementId int)
+	ReadAnnouncement(w http.ResponseWriter, r *http.Request, announcementId int)
 	// Accept Answer
 	// (POST /api/v1/answers/{answer_id}/accept)
-	AcceptAnswerApiV1AnswersAnswerIdAcceptPost(w http.ResponseWriter, r *http.Request, answerId int)
+	AcceptAnswer(w http.ResponseWriter, r *http.Request, answerId int)
 	// Login
 	// (POST /api/v1/auth/login)
 	LoginApiV1AuthLoginPost(w http.ResponseWriter, r *http.Request)
@@ -1826,7 +2804,7 @@ type ServerInterface interface {
 	RegisterApiV1AuthRegisterPost(w http.ResponseWriter, r *http.Request)
 	// Request Code
 	// (POST /api/v1/auth/request-code)
-	RequestCodeApiV1AuthRequestCodePost(w http.ResponseWriter, r *http.Request)
+	RequestVerificationCode(w http.ResponseWriter, r *http.Request)
 	// Reset Password
 	// (POST /api/v1/auth/reset-password)
 	ResetPasswordApiV1AuthResetPasswordPost(w http.ResponseWriter, r *http.Request)
@@ -1838,58 +2816,58 @@ type ServerInterface interface {
 	BlockUserApiV1BlocksBlockedIdPut(w http.ResponseWriter, r *http.Request, blockedId int)
 	// Respond To Rating
 	// (POST /api/v1/campus-service-ratings/{rating_id}/response)
-	RespondToRatingApiV1CampusServiceRatingsRatingIdResponsePost(w http.ResponseWriter, r *http.Request, ratingId int)
+	RespondToCampusServiceRating(w http.ResponseWriter, r *http.Request, ratingId int)
 	// List Campus Services
 	// (GET /api/v1/campus-services)
-	ListCampusServicesApiV1CampusServicesGet(w http.ResponseWriter, r *http.Request, params ListCampusServicesApiV1CampusServicesGetParams)
+	ListCampusServices(w http.ResponseWriter, r *http.Request, params ListCampusServicesParams)
 	// Get Campus Service
 	// (GET /api/v1/campus-services/{service_id})
-	GetCampusServiceApiV1CampusServicesServiceIdGet(w http.ResponseWriter, r *http.Request, serviceId int)
+	GetCampusService(w http.ResponseWriter, r *http.Request, serviceId int)
 	// Rate Campus Service
 	// (POST /api/v1/campus-services/{service_id}/ratings)
-	RateCampusServiceApiV1CampusServicesServiceIdRatingsPost(w http.ResponseWriter, r *http.Request, serviceId int)
+	RateCampusService(w http.ResponseWriter, r *http.Request, serviceId int)
 	// List Conversations
 	// (GET /api/v1/conversations)
-	ListConversationsApiV1ConversationsGet(w http.ResponseWriter, r *http.Request, params ListConversationsApiV1ConversationsGetParams)
+	ListConversations(w http.ResponseWriter, r *http.Request, params ListConversationsParams)
 	// Create Conversation
 	// (POST /api/v1/conversations)
-	CreateConversationApiV1ConversationsPost(w http.ResponseWriter, r *http.Request)
+	CreateConversation(w http.ResponseWriter, r *http.Request)
 	// Mark all private messages as read
 	// (POST /api/v1/conversations/read-all)
 	ReadAllMessages(w http.ResponseWriter, r *http.Request)
 	// List Messages
 	// (GET /api/v1/conversations/{conversation_id}/messages)
-	ListMessagesApiV1ConversationsConversationIdMessagesGet(w http.ResponseWriter, r *http.Request, conversationId int, params ListMessagesApiV1ConversationsConversationIdMessagesGetParams)
+	ListConversationMessages(w http.ResponseWriter, r *http.Request, conversationId int, params ListConversationMessagesParams)
 	// Send Message
 	// (POST /api/v1/conversations/{conversation_id}/messages)
-	SendMessageApiV1ConversationsConversationIdMessagesPost(w http.ResponseWriter, r *http.Request, conversationId int)
+	SendConversationMessage(w http.ResponseWriter, r *http.Request, conversationId int)
 	// List Offerings
 	// (GET /api/v1/course-offerings)
-	ListOfferingsApiV1CourseOfferingsGet(w http.ResponseWriter, r *http.Request, params ListOfferingsApiV1CourseOfferingsGetParams)
+	ListCourseOfferings(w http.ResponseWriter, r *http.Request, params ListCourseOfferingsParams)
 	// Create Offering
 	// (POST /api/v1/course-offerings)
-	CreateOfferingApiV1CourseOfferingsPost(w http.ResponseWriter, r *http.Request)
+	CreateCourseOffering(w http.ResponseWriter, r *http.Request)
 	// Create Review
 	// (POST /api/v1/course-reviews)
-	CreateReviewApiV1CourseReviewsPost(w http.ResponseWriter, r *http.Request)
+	CreateCourseReview(w http.ResponseWriter, r *http.Request)
 	// Correct Review
 	// (POST /api/v1/course-reviews/{review_id}/correction)
-	CorrectReviewApiV1CourseReviewsReviewIdCorrectionPost(w http.ResponseWriter, r *http.Request, reviewId int)
+	CorrectCourseReview(w http.ResponseWriter, r *http.Request, reviewId int)
 	// Create Course
 	// (POST /api/v1/courses)
-	CreateCourseApiV1CoursesPost(w http.ResponseWriter, r *http.Request)
+	CreateCourse(w http.ResponseWriter, r *http.Request)
 	// Public Credit Rules
 	// (GET /api/v1/credit-rules)
 	PublicCreditRulesApiV1CreditRulesGet(w http.ResponseWriter, r *http.Request)
 	// Delete Entity
 	// (DELETE /api/v1/entities/{entity_id})
-	DeleteEntityApiV1EntitiesEntityIdDelete(w http.ResponseWriter, r *http.Request, entityId int, params DeleteEntityApiV1EntitiesEntityIdDeleteParams)
+	DeleteEntity(w http.ResponseWriter, r *http.Request, entityId int, params DeleteEntityParams)
 	// Unfavorite
 	// (DELETE /api/v1/entities/{entity_id}/favorite)
-	UnfavoriteApiV1EntitiesEntityIdFavoriteDelete(w http.ResponseWriter, r *http.Request, entityId int)
+	UnfavoriteEntity(w http.ResponseWriter, r *http.Request, entityId int)
 	// Favorite
 	// (PUT /api/v1/entities/{entity_id}/favorite)
-	FavoriteApiV1EntitiesEntityIdFavoritePut(w http.ResponseWriter, r *http.Request, entityId int)
+	FavoriteEntity(w http.ResponseWriter, r *http.Request, entityId int)
 	// Remove Reaction
 	// (DELETE /api/v1/entities/{entity_id}/reactions/{reaction_type})
 	RemoveReactionApiV1EntitiesEntityIdReactionsReactionTypeDelete(w http.ResponseWriter, r *http.Request, entityId int, reactionType string)
@@ -1919,25 +2897,25 @@ type ServerInterface interface {
 	CreateFeedbackApiV1FeedbackPost(w http.ResponseWriter, r *http.Request)
 	// Submit Game
 	// (POST /api/v1/game-submissions)
-	SubmitGameApiV1GameSubmissionsPost(w http.ResponseWriter, r *http.Request)
+	SubmitGame(w http.ResponseWriter, r *http.Request)
 	// List Handbook
 	// (GET /api/v1/handbook)
-	ListHandbookApiV1HandbookGet(w http.ResponseWriter, r *http.Request, params ListHandbookApiV1HandbookGetParams)
+	ListHandbookArticles(w http.ResponseWriter, r *http.Request, params ListHandbookArticlesParams)
 	// Create Article
 	// (POST /api/v1/handbook)
-	CreateArticleApiV1HandbookPost(w http.ResponseWriter, r *http.Request)
+	CreateHandbookArticle(w http.ResponseWriter, r *http.Request)
 	// Get Article
 	// (GET /api/v1/handbook/{article_id})
-	GetArticleApiV1HandbookArticleIdGet(w http.ResponseWriter, r *http.Request, articleId int)
+	GetHandbookArticle(w http.ResponseWriter, r *http.Request, articleId int)
 	// Update Article
 	// (PATCH /api/v1/handbook/{article_id})
-	UpdateArticleApiV1HandbookArticleIdPatch(w http.ResponseWriter, r *http.Request, articleId int)
+	UpdateHandbookArticle(w http.ResponseWriter, r *http.Request, articleId int)
 	// Feature Article
 	// (POST /api/v1/handbook/{article_id}/feature)
-	FeatureArticleApiV1HandbookArticleIdFeaturePost(w http.ResponseWriter, r *http.Request, articleId int)
+	FeatureHandbookArticle(w http.ResponseWriter, r *http.Request, articleId int)
 	// Publish Article
 	// (POST /api/v1/handbook/{article_id}/publish)
-	PublishArticleApiV1HandbookArticleIdPublishPost(w http.ResponseWriter, r *http.Request, articleId int)
+	PublishHandbookArticle(w http.ResponseWriter, r *http.Request, articleId int)
 	// Hot
 	// (GET /api/v1/hot)
 	HotApiV1HotGet(w http.ResponseWriter, r *http.Request)
@@ -1964,22 +2942,22 @@ type ServerInterface interface {
 	RequestListingTransaction(w http.ResponseWriter, r *http.Request, listingId int64)
 	// List Lost Items
 	// (GET /api/v1/lost-items)
-	ListLostItemsApiV1LostItemsGet(w http.ResponseWriter, r *http.Request, params ListLostItemsApiV1LostItemsGetParams)
+	ListLostItems(w http.ResponseWriter, r *http.Request, params ListLostItemsParams)
 	// Create Lost Item
 	// (POST /api/v1/lost-items)
-	CreateLostItemApiV1LostItemsPost(w http.ResponseWriter, r *http.Request)
+	CreateLostItem(w http.ResponseWriter, r *http.Request)
 	// Update Lost Item
 	// (PATCH /api/v1/lost-items/{item_id})
-	UpdateLostItemApiV1LostItemsItemIdPatch(w http.ResponseWriter, r *http.Request, itemId int)
+	UpdateLostItem(w http.ResponseWriter, r *http.Request, itemId int)
 	// List Claims
 	// (GET /api/v1/lost-items/{item_id}/claims)
-	ListClaimsApiV1LostItemsItemIdClaimsGet(w http.ResponseWriter, r *http.Request, itemId int)
+	ListLostClaims(w http.ResponseWriter, r *http.Request, itemId int)
 	// Create Claim
 	// (POST /api/v1/lost-items/{item_id}/claims)
-	CreateClaimApiV1LostItemsItemIdClaimsPost(w http.ResponseWriter, r *http.Request, itemId int)
+	CreateLostClaim(w http.ResponseWriter, r *http.Request, itemId int)
 	// Decide Claim
 	// (POST /api/v1/lost-items/{item_id}/claims/{claim_id}/decision)
-	DecideClaimApiV1LostItemsItemIdClaimsClaimIdDecisionPost(w http.ResponseWriter, r *http.Request, itemId int, claimId int)
+	DecideLostClaim(w http.ResponseWriter, r *http.Request, itemId int, claimId int)
 	// Transaction detail
 	// (GET /api/v1/market-transactions/{transaction_id})
 	GetMarketTransaction(w http.ResponseWriter, r *http.Request, transactionId int64)
@@ -2006,67 +2984,73 @@ type ServerInterface interface {
 	GetMarketOptions(w http.ResponseWriter, r *http.Request)
 	// Me
 	// (GET /api/v1/me)
-	MeApiV1MeGet(w http.ResponseWriter, r *http.Request)
+	GetCurrentUser(w http.ResponseWriter, r *http.Request)
 	// My Appeals
 	// (GET /api/v1/me/appeals)
-	MyAppealsApiV1MeAppealsGet(w http.ResponseWriter, r *http.Request, params MyAppealsApiV1MeAppealsGetParams)
+	ListMyAppeals(w http.ResponseWriter, r *http.Request, params ListMyAppealsParams)
 	// My Content
 	// (GET /api/v1/me/content)
-	MyContentApiV1MeContentGet(w http.ResponseWriter, r *http.Request, params MyContentApiV1MeContentGetParams)
+	ListMyContent(w http.ResponseWriter, r *http.Request, params ListMyContentParams)
 	// Deactivate Account
 	// (POST /api/v1/me/deactivate)
-	DeactivateAccountApiV1MeDeactivatePost(w http.ResponseWriter, r *http.Request)
+	DeactivateAccount(w http.ResponseWriter, r *http.Request)
 	// Change Email
 	// (POST /api/v1/me/email)
-	ChangeEmailApiV1MeEmailPost(w http.ResponseWriter, r *http.Request)
+	ChangeEmail(w http.ResponseWriter, r *http.Request)
 	// My Favorites
 	// (GET /api/v1/me/favorites)
-	MyFavoritesApiV1MeFavoritesGet(w http.ResponseWriter, r *http.Request, params MyFavoritesApiV1MeFavoritesGetParams)
+	ListMyFavorites(w http.ResponseWriter, r *http.Request, params ListMyFavoritesParams)
 	// My market transactions
 	// (GET /api/v1/me/market-transactions)
 	ListMyMarketTransactions(w http.ResponseWriter, r *http.Request)
+	// Accept observe unmask agreement
+	// (POST /api/v1/me/observe-unmask-agreement)
+	AcceptObserveAgreement(w http.ResponseWriter, r *http.Request)
 	// Change Password
 	// (POST /api/v1/me/password)
-	ChangePasswordApiV1MePasswordPost(w http.ResponseWriter, r *http.Request)
+	ChangePassword(w http.ResponseWriter, r *http.Request)
 	// Update Privacy
 	// (PATCH /api/v1/me/privacy)
-	UpdatePrivacyApiV1MePrivacyPatch(w http.ResponseWriter, r *http.Request)
+	UpdatePrivacy(w http.ResponseWriter, r *http.Request)
 	// Update Profile
 	// (PATCH /api/v1/me/profile)
-	UpdateProfileApiV1MeProfilePatch(w http.ResponseWriter, r *http.Request)
+	UpdateProfile(w http.ResponseWriter, r *http.Request)
 	// My Reports
 	// (GET /api/v1/me/reports)
-	MyReportsApiV1MeReportsGet(w http.ResponseWriter, r *http.Request, params MyReportsApiV1MeReportsGetParams)
+	ListMyReports(w http.ResponseWriter, r *http.Request, params ListMyReportsParams)
 	// Sessions
 	// (GET /api/v1/me/sessions)
-	SessionsApiV1MeSessionsGet(w http.ResponseWriter, r *http.Request, params SessionsApiV1MeSessionsGetParams)
+	ListSessions(w http.ResponseWriter, r *http.Request, params ListSessionsParams)
 	// Revoke Session
 	// (DELETE /api/v1/me/sessions/{session_id})
-	RevokeSessionApiV1MeSessionsSessionIdDelete(w http.ResponseWriter, r *http.Request, sessionId int)
+	RevokeSession(w http.ResponseWriter, r *http.Request, sessionId int)
 	// List Notifications
 	// (GET /api/v1/notifications)
-	ListNotificationsApiV1NotificationsGet(w http.ResponseWriter, r *http.Request, params ListNotificationsApiV1NotificationsGetParams)
+	ListNotifications(w http.ResponseWriter, r *http.Request, params ListNotificationsParams)
 	// Read All Notifications
 	// (POST /api/v1/notifications/read-all)
-	ReadAllNotificationsApiV1NotificationsReadAllPost(w http.ResponseWriter, r *http.Request)
+	ReadAllNotifications(w http.ResponseWriter, r *http.Request)
 	// Read Notification
 	// (POST /api/v1/notifications/{notification_id}/read)
-	ReadNotificationApiV1NotificationsNotificationIdReadPost(w http.ResponseWriter, r *http.Request, notificationId int)
+	ReadNotification(w http.ResponseWriter, r *http.Request, notificationId int)
 	// List Observe
 	// (GET /api/v1/observe-posts)
-	ListObserveApiV1ObservePostsGet(w http.ResponseWriter, r *http.Request, params ListObserveApiV1ObservePostsGetParams)
+	ListObservePosts(w http.ResponseWriter, r *http.Request, params ListObservePostsParams)
 	// Create Observe
 	// (POST /api/v1/observe-posts)
-	CreateObserveApiV1ObservePostsPost(w http.ResponseWriter, r *http.Request)
+	CreateObservePost(w http.ResponseWriter, r *http.Request)
 	// Respond Observe
 	// (POST /api/v1/observe-posts/{observe_id}/response)
-	RespondObserveApiV1ObservePostsObserveIdResponsePost(w http.ResponseWriter, r *http.Request, observeId int)
+	RespondToObservePost(w http.ResponseWriter, r *http.Request, observeId int)
+	// Reveal observe post
+	// (POST /api/v1/observe-posts/{observe_id}/reveal)
+	RevealObservePost(w http.ResponseWriter, r *http.Request, observeId int64)
 	// Penalties
 	// (GET /api/v1/penalties)
-	PenaltiesApiV1PenaltiesGet(w http.ResponseWriter, r *http.Request, params PenaltiesApiV1PenaltiesGetParams)
+	ListPenalties(w http.ResponseWriter, r *http.Request, params ListPenaltiesParams)
 	// Appeal Penalty
 	// (POST /api/v1/penalties/{penalty_id}/appeals)
-	AppealPenaltyApiV1PenaltiesPenaltyIdAppealsPost(w http.ResponseWriter, r *http.Request, penaltyId int)
+	AppealPenalty(w http.ResponseWriter, r *http.Request, penaltyId int)
 	// List Posts
 	// (GET /api/v1/posts)
 	ListPostsApiV1PostsGet(w http.ResponseWriter, r *http.Request, params ListPostsApiV1PostsGetParams)
@@ -2081,79 +3065,79 @@ type ServerInterface interface {
 	UpdatePostApiV1PostsPostIdPatch(w http.ResponseWriter, r *http.Request, postId int)
 	// List Questions
 	// (GET /api/v1/questions)
-	ListQuestionsApiV1QuestionsGet(w http.ResponseWriter, r *http.Request, params ListQuestionsApiV1QuestionsGetParams)
+	ListQuestions(w http.ResponseWriter, r *http.Request, params ListQuestionsParams)
 	// Create Question
 	// (POST /api/v1/questions)
-	CreateQuestionApiV1QuestionsPost(w http.ResponseWriter, r *http.Request)
+	CreateQuestion(w http.ResponseWriter, r *http.Request)
 	// Get Question
 	// (GET /api/v1/questions/{question_id})
-	GetQuestionApiV1QuestionsQuestionIdGet(w http.ResponseWriter, r *http.Request, questionId int)
+	GetQuestion(w http.ResponseWriter, r *http.Request, questionId int)
 	// Update Question
 	// (PATCH /api/v1/questions/{question_id})
-	UpdateQuestionApiV1QuestionsQuestionIdPatch(w http.ResponseWriter, r *http.Request, questionId int)
+	UpdateQuestion(w http.ResponseWriter, r *http.Request, questionId int)
 	// Create Answer
 	// (POST /api/v1/questions/{question_id}/answers)
-	CreateAnswerApiV1QuestionsQuestionIdAnswersPost(w http.ResponseWriter, r *http.Request, questionId int)
+	CreateAnswer(w http.ResponseWriter, r *http.Request, questionId int)
 	// Search
 	// (GET /api/v1/search)
 	SearchApiV1SearchGet(w http.ResponseWriter, r *http.Request, params SearchApiV1SearchGetParams)
 	// List Team Games
 	// (GET /api/v1/team-games)
-	ListTeamGamesApiV1TeamGamesGet(w http.ResponseWriter, r *http.Request)
+	ListTeamGames(w http.ResponseWriter, r *http.Request)
 	// List Teams
 	// (GET /api/v1/teams)
-	ListTeamsApiV1TeamsGet(w http.ResponseWriter, r *http.Request, params ListTeamsApiV1TeamsGetParams)
+	ListTeams(w http.ResponseWriter, r *http.Request, params ListTeamsParams)
 	// Create Team
 	// (POST /api/v1/teams)
-	CreateTeamApiV1TeamsPost(w http.ResponseWriter, r *http.Request)
+	CreateTeam(w http.ResponseWriter, r *http.Request)
 	// Get Team
 	// (GET /api/v1/teams/{team_id})
-	GetTeamApiV1TeamsTeamIdGet(w http.ResponseWriter, r *http.Request, teamId int)
+	GetTeam(w http.ResponseWriter, r *http.Request, teamId int)
 	// Update Team
 	// (PATCH /api/v1/teams/{team_id})
-	UpdateTeamApiV1TeamsTeamIdPatch(w http.ResponseWriter, r *http.Request, teamId int)
+	UpdateTeam(w http.ResponseWriter, r *http.Request, teamId int)
 	// Team Calendar
 	// (GET /api/v1/teams/{team_id}/calendar.ics)
-	TeamCalendarApiV1TeamsTeamIdCalendarIcsGet(w http.ResponseWriter, r *http.Request, teamId int)
+	DownloadTeamCalendar(w http.ResponseWriter, r *http.Request, teamId int)
 	// Cancel Team
 	// (POST /api/v1/teams/{team_id}/cancel)
-	CancelTeamApiV1TeamsTeamIdCancelPost(w http.ResponseWriter, r *http.Request, teamId int)
+	CancelTeam(w http.ResponseWriter, r *http.Request, teamId int)
 	// Join Team
 	// (POST /api/v1/teams/{team_id}/join)
-	JoinTeamApiV1TeamsTeamIdJoinPost(w http.ResponseWriter, r *http.Request, teamId int)
+	JoinTeam(w http.ResponseWriter, r *http.Request, teamId int)
 	// Leave Team
 	// (POST /api/v1/teams/{team_id}/leave)
-	LeaveTeamApiV1TeamsTeamIdLeavePost(w http.ResponseWriter, r *http.Request, teamId int)
+	LeaveTeam(w http.ResponseWriter, r *http.Request, teamId int)
 	// Member History
 	// (GET /api/v1/teams/{team_id}/members/history)
-	MemberHistoryApiV1TeamsTeamIdMembersHistoryGet(w http.ResponseWriter, r *http.Request, teamId int)
+	ListTeamMemberHistory(w http.ResponseWriter, r *http.Request, teamId int)
 	// Remove Member
 	// (POST /api/v1/teams/{team_id}/members/{member_id}/remove)
-	RemoveMemberApiV1TeamsTeamIdMembersMemberIdRemovePost(w http.ResponseWriter, r *http.Request, teamId int, memberId int)
+	RemoveTeamMember(w http.ResponseWriter, r *http.Request, teamId int, memberId int)
 	// List Team Runs
 	// (GET /api/v1/teams/{team_id}/runs)
-	ListTeamRunsApiV1TeamsTeamIdRunsGet(w http.ResponseWriter, r *http.Request, teamId int, params ListTeamRunsApiV1TeamsTeamIdRunsGetParams)
+	ListTeamRuns(w http.ResponseWriter, r *http.Request, teamId int, params ListTeamRunsParams)
 	// Create Team Run
 	// (POST /api/v1/teams/{team_id}/runs)
-	CreateTeamRunApiV1TeamsTeamIdRunsPost(w http.ResponseWriter, r *http.Request, teamId int)
+	CreateTeamRun(w http.ResponseWriter, r *http.Request, teamId int)
 	// Update Team Run
 	// (PATCH /api/v1/teams/{team_id}/runs/{run_id})
-	UpdateTeamRunApiV1TeamsTeamIdRunsRunIdPatch(w http.ResponseWriter, r *http.Request, teamId int, runId int)
+	UpdateTeamRun(w http.ResponseWriter, r *http.Request, teamId int, runId int)
 	// Check In
 	// (POST /api/v1/teams/{team_id}/runs/{run_id}/check-in)
-	CheckInApiV1TeamsTeamIdRunsRunIdCheckInPost(w http.ResponseWriter, r *http.Request, teamId int, runId int)
+	CheckInTeamRun(w http.ResponseWriter, r *http.Request, teamId int, runId int)
 	// Excuse
 	// (POST /api/v1/teams/{team_id}/runs/{run_id}/excuse)
-	ExcuseApiV1TeamsTeamIdRunsRunIdExcusePost(w http.ResponseWriter, r *http.Request, teamId int, runId int)
+	ExcuseTeamRun(w http.ResponseWriter, r *http.Request, teamId int, runId int)
 	// Rate Member
 	// (POST /api/v1/teams/{team_id}/runs/{run_id}/ratings)
-	RateMemberApiV1TeamsTeamIdRunsRunIdRatingsPost(w http.ResponseWriter, r *http.Request, teamId int, runId int)
+	RateTeamMember(w http.ResponseWriter, r *http.Request, teamId int, runId int)
 	// Transfer Team
 	// (POST /api/v1/teams/{team_id}/transfer)
-	TransferTeamApiV1TeamsTeamIdTransferPost(w http.ResponseWriter, r *http.Request, teamId int)
+	TransferTeamOwnership(w http.ResponseWriter, r *http.Request, teamId int)
 	// Upload Image
 	// (POST /api/v1/uploads/images)
-	UploadImageApiV1UploadsImagesPost(w http.ResponseWriter, r *http.Request)
+	UploadImage(w http.ResponseWriter, r *http.Request)
 	// Runtime frontend configuration
 	// (GET /app-config.json)
 	GetAppConfig(w http.ResponseWriter, r *http.Request)
@@ -2168,151 +3152,151 @@ type Unimplemented struct{}
 
 // List Activities
 // (GET /api/v1/activities)
-func (_ Unimplemented) ListActivitiesApiV1ActivitiesGet(w http.ResponseWriter, r *http.Request, params ListActivitiesApiV1ActivitiesGetParams) {
+func (_ Unimplemented) ListActivities(w http.ResponseWriter, r *http.Request, params ListActivitiesParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // Create Activity
 // (POST /api/v1/activities)
-func (_ Unimplemented) CreateActivityApiV1ActivitiesPost(w http.ResponseWriter, r *http.Request) {
+func (_ Unimplemented) CreateActivity(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // Update Activity
 // (PATCH /api/v1/activities/{activity_id})
-func (_ Unimplemented) UpdateActivityApiV1ActivitiesActivityIdPatch(w http.ResponseWriter, r *http.Request, activityId int) {
+func (_ Unimplemented) UpdateActivity(w http.ResponseWriter, r *http.Request, activityId int) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // Cancel Activity
 // (POST /api/v1/activities/{activity_id}/cancel)
-func (_ Unimplemented) CancelActivityApiV1ActivitiesActivityIdCancelPost(w http.ResponseWriter, r *http.Request, activityId int) {
+func (_ Unimplemented) CancelActivity(w http.ResponseWriter, r *http.Request, activityId int) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // Leave Activity
 // (DELETE /api/v1/activities/{activity_id}/membership)
-func (_ Unimplemented) LeaveActivityApiV1ActivitiesActivityIdMembershipDelete(w http.ResponseWriter, r *http.Request, activityId int) {
+func (_ Unimplemented) LeaveActivity(w http.ResponseWriter, r *http.Request, activityId int) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // Join Activity
 // (PUT /api/v1/activities/{activity_id}/membership)
-func (_ Unimplemented) JoinActivityApiV1ActivitiesActivityIdMembershipPut(w http.ResponseWriter, r *http.Request, activityId int) {
+func (_ Unimplemented) JoinActivity(w http.ResponseWriter, r *http.Request, activityId int) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // Create Announcement
 // (POST /api/v1/admin/announcements)
-func (_ Unimplemented) CreateAnnouncementApiV1AdminAnnouncementsPost(w http.ResponseWriter, r *http.Request) {
+func (_ Unimplemented) CreateAnnouncement(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // List Appeals
 // (GET /api/v1/admin/appeals)
-func (_ Unimplemented) ListAppealsApiV1AdminAppealsGet(w http.ResponseWriter, r *http.Request, params ListAppealsApiV1AdminAppealsGetParams) {
+func (_ Unimplemented) ListAdminAppeals(w http.ResponseWriter, r *http.Request, params ListAdminAppealsParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // Decide Appeal
 // (POST /api/v1/admin/appeals/{appeal_id}/decision)
-func (_ Unimplemented) DecideAppealApiV1AdminAppealsAppealIdDecisionPost(w http.ResponseWriter, r *http.Request, appealId int) {
+func (_ Unimplemented) DecideAppeal(w http.ResponseWriter, r *http.Request, appealId int) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // Audit Logs
 // (GET /api/v1/admin/audit-logs)
-func (_ Unimplemented) AuditLogsApiV1AdminAuditLogsGet(w http.ResponseWriter, r *http.Request, params AuditLogsApiV1AdminAuditLogsGetParams) {
+func (_ Unimplemented) ListAuditLogs(w http.ResponseWriter, r *http.Request, params ListAuditLogsParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // List Backups
 // (GET /api/v1/admin/backups)
-func (_ Unimplemented) ListBackupsApiV1AdminBackupsGet(w http.ResponseWriter, r *http.Request) {
+func (_ Unimplemented) ListBackups(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // Request Backup
 // (POST /api/v1/admin/backups)
-func (_ Unimplemented) RequestBackupApiV1AdminBackupsPost(w http.ResponseWriter, r *http.Request) {
+func (_ Unimplemented) RequestBackup(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // Download Backup
 // (GET /api/v1/admin/backups/{job_id}/download)
-func (_ Unimplemented) DownloadBackupApiV1AdminBackupsJobIdDownloadGet(w http.ResponseWriter, r *http.Request, jobId int, params DownloadBackupApiV1AdminBackupsJobIdDownloadGetParams) {
+func (_ Unimplemented) DownloadBackup(w http.ResponseWriter, r *http.Request, jobId int, params DownloadBackupParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // Create Campus Service
 // (POST /api/v1/admin/campus-services)
-func (_ Unimplemented) CreateCampusServiceApiV1AdminCampusServicesPost(w http.ResponseWriter, r *http.Request) {
+func (_ Unimplemented) CreateCampusService(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // Update Campus Service
 // (PATCH /api/v1/admin/campus-services/{service_id})
-func (_ Unimplemented) UpdateCampusServiceApiV1AdminCampusServicesServiceIdPatch(w http.ResponseWriter, r *http.Request, serviceId int) {
+func (_ Unimplemented) UpdateCampusService(w http.ResponseWriter, r *http.Request, serviceId int) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // Admin Credit Rules
 // (GET /api/v1/admin/credit-rules)
-func (_ Unimplemented) AdminCreditRulesApiV1AdminCreditRulesGet(w http.ResponseWriter, r *http.Request) {
+func (_ Unimplemented) GetAdminCreditRules(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // Update Credit Rules
 // (PATCH /api/v1/admin/credit-rules)
-func (_ Unimplemented) UpdateCreditRulesApiV1AdminCreditRulesPatch(w http.ResponseWriter, r *http.Request) {
+func (_ Unimplemented) UpdateAdminCreditRules(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // Feedback Queue
 // (GET /api/v1/admin/feedback)
-func (_ Unimplemented) FeedbackQueueApiV1AdminFeedbackGet(w http.ResponseWriter, r *http.Request, params FeedbackQueueApiV1AdminFeedbackGetParams) {
+func (_ Unimplemented) ListFeedback(w http.ResponseWriter, r *http.Request, params ListFeedbackParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // Decide Feedback
 // (POST /api/v1/admin/feedback/{feedback_id}/decision)
-func (_ Unimplemented) DecideFeedbackApiV1AdminFeedbackFeedbackIdDecisionPost(w http.ResponseWriter, r *http.Request, feedbackId int) {
+func (_ Unimplemented) DecideFeedback(w http.ResponseWriter, r *http.Request, feedbackId int) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // List Game Submissions
 // (GET /api/v1/admin/game-submissions)
-func (_ Unimplemented) ListGameSubmissionsApiV1AdminGameSubmissionsGet(w http.ResponseWriter, r *http.Request, params ListGameSubmissionsApiV1AdminGameSubmissionsGetParams) {
+func (_ Unimplemented) ListGameSubmissions(w http.ResponseWriter, r *http.Request, params ListGameSubmissionsParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // Decide Game Submission
 // (POST /api/v1/admin/game-submissions/{submission_id}/decision)
-func (_ Unimplemented) DecideGameSubmissionApiV1AdminGameSubmissionsSubmissionIdDecisionPost(w http.ResponseWriter, r *http.Request, submissionId int) {
+func (_ Unimplemented) DecideGameSubmission(w http.ResponseWriter, r *http.Request, submissionId int) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // List market categories
 // (GET /api/v1/admin/market/categories)
-func (_ Unimplemented) ListMarketcategories(w http.ResponseWriter, r *http.Request) {
+func (_ Unimplemented) ListMarketCategories(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // Create market categories
 // (POST /api/v1/admin/market/categories)
-func (_ Unimplemented) CreateMarketcategories(w http.ResponseWriter, r *http.Request) {
+func (_ Unimplemented) CreateMarketCategory(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // Disable market categories
 // (DELETE /api/v1/admin/market/categories/{option_id})
-func (_ Unimplemented) DeleteMarketcategories(w http.ResponseWriter, r *http.Request, optionId int64) {
+func (_ Unimplemented) DeleteMarketCategory(w http.ResponseWriter, r *http.Request, optionId int64) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // Update market categories
 // (PATCH /api/v1/admin/market/categories/{option_id})
-func (_ Unimplemented) UpdateMarketcategories(w http.ResponseWriter, r *http.Request, optionId int64) {
+func (_ Unimplemented) UpdateMarketCategory(w http.ResponseWriter, r *http.Request, optionId int64) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -2330,67 +3314,67 @@ func (_ Unimplemented) DecideMarketDispute(w http.ResponseWriter, r *http.Reques
 
 // List market locations
 // (GET /api/v1/admin/market/locations)
-func (_ Unimplemented) ListMarketlocations(w http.ResponseWriter, r *http.Request) {
+func (_ Unimplemented) ListMarketLocations(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // Create market locations
 // (POST /api/v1/admin/market/locations)
-func (_ Unimplemented) CreateMarketlocations(w http.ResponseWriter, r *http.Request) {
+func (_ Unimplemented) CreateMarketLocation(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // Disable market locations
 // (DELETE /api/v1/admin/market/locations/{option_id})
-func (_ Unimplemented) DeleteMarketlocations(w http.ResponseWriter, r *http.Request, optionId int64) {
+func (_ Unimplemented) DeleteMarketLocation(w http.ResponseWriter, r *http.Request, optionId int64) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // Update market locations
 // (PATCH /api/v1/admin/market/locations/{option_id})
-func (_ Unimplemented) UpdateMarketlocations(w http.ResponseWriter, r *http.Request, optionId int64) {
+func (_ Unimplemented) UpdateMarketLocation(w http.ResponseWriter, r *http.Request, optionId int64) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // Moderation Cases
 // (GET /api/v1/admin/moderation-cases)
-func (_ Unimplemented) ModerationCasesApiV1AdminModerationCasesGet(w http.ResponseWriter, r *http.Request, params ModerationCasesApiV1AdminModerationCasesGetParams) {
+func (_ Unimplemented) ListModerationCases(w http.ResponseWriter, r *http.Request, params ListModerationCasesParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // Decide Moderation
 // (POST /api/v1/admin/moderation-cases/{case_id}/decision)
-func (_ Unimplemented) DecideModerationApiV1AdminModerationCasesCaseIdDecisionPost(w http.ResponseWriter, r *http.Request, caseId int) {
+func (_ Unimplemented) DecideModerationCase(w http.ResponseWriter, r *http.Request, caseId int) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // Admin Overview
 // (GET /api/v1/admin/overview)
-func (_ Unimplemented) AdminOverviewApiV1AdminOverviewGet(w http.ResponseWriter, r *http.Request) {
+func (_ Unimplemented) GetAdminOverview(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // Create Penalty
 // (POST /api/v1/admin/penalties)
-func (_ Unimplemented) CreatePenaltyApiV1AdminPenaltiesPost(w http.ResponseWriter, r *http.Request) {
+func (_ Unimplemented) CreatePenalty(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // Report Queue
 // (GET /api/v1/admin/reports)
-func (_ Unimplemented) ReportQueueApiV1AdminReportsGet(w http.ResponseWriter, r *http.Request, params ReportQueueApiV1AdminReportsGetParams) {
+func (_ Unimplemented) ListAdminReports(w http.ResponseWriter, r *http.Request, params ListAdminReportsParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // Settings List
 // (GET /api/v1/admin/settings)
-func (_ Unimplemented) SettingsListApiV1AdminSettingsGet(w http.ResponseWriter, r *http.Request) {
+func (_ Unimplemented) GetAdminSettings(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // Update Setting
 // (PUT /api/v1/admin/settings/{key})
-func (_ Unimplemented) UpdateSettingApiV1AdminSettingsKeyPut(w http.ResponseWriter, r *http.Request, key string) {
+func (_ Unimplemented) UpdateAdminSetting(w http.ResponseWriter, r *http.Request, key string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -2402,31 +3386,31 @@ func (_ Unimplemented) GetAdminSystemHealth(w http.ResponseWriter, r *http.Reque
 
 // Admin Users
 // (GET /api/v1/admin/users)
-func (_ Unimplemented) AdminUsersApiV1AdminUsersGet(w http.ResponseWriter, r *http.Request, params AdminUsersApiV1AdminUsersGetParams) {
+func (_ Unimplemented) ListAdminUsers(w http.ResponseWriter, r *http.Request, params ListAdminUsersParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // Admin Update User
 // (PATCH /api/v1/admin/users/{user_id})
-func (_ Unimplemented) AdminUpdateUserApiV1AdminUsersUserIdPatch(w http.ResponseWriter, r *http.Request, userId int) {
+func (_ Unimplemented) UpdateAdminUser(w http.ResponseWriter, r *http.Request, userId int) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // List Announcements
 // (GET /api/v1/announcements)
-func (_ Unimplemented) ListAnnouncementsApiV1AnnouncementsGet(w http.ResponseWriter, r *http.Request, params ListAnnouncementsApiV1AnnouncementsGetParams) {
+func (_ Unimplemented) ListAnnouncements(w http.ResponseWriter, r *http.Request, params ListAnnouncementsParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // Read Announcement
 // (PUT /api/v1/announcements/{announcement_id}/read)
-func (_ Unimplemented) ReadAnnouncementApiV1AnnouncementsAnnouncementIdReadPut(w http.ResponseWriter, r *http.Request, announcementId int) {
+func (_ Unimplemented) ReadAnnouncement(w http.ResponseWriter, r *http.Request, announcementId int) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // Accept Answer
 // (POST /api/v1/answers/{answer_id}/accept)
-func (_ Unimplemented) AcceptAnswerApiV1AnswersAnswerIdAcceptPost(w http.ResponseWriter, r *http.Request, answerId int) {
+func (_ Unimplemented) AcceptAnswer(w http.ResponseWriter, r *http.Request, answerId int) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -2456,7 +3440,7 @@ func (_ Unimplemented) RegisterApiV1AuthRegisterPost(w http.ResponseWriter, r *h
 
 // Request Code
 // (POST /api/v1/auth/request-code)
-func (_ Unimplemented) RequestCodeApiV1AuthRequestCodePost(w http.ResponseWriter, r *http.Request) {
+func (_ Unimplemented) RequestVerificationCode(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -2480,37 +3464,37 @@ func (_ Unimplemented) BlockUserApiV1BlocksBlockedIdPut(w http.ResponseWriter, r
 
 // Respond To Rating
 // (POST /api/v1/campus-service-ratings/{rating_id}/response)
-func (_ Unimplemented) RespondToRatingApiV1CampusServiceRatingsRatingIdResponsePost(w http.ResponseWriter, r *http.Request, ratingId int) {
+func (_ Unimplemented) RespondToCampusServiceRating(w http.ResponseWriter, r *http.Request, ratingId int) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // List Campus Services
 // (GET /api/v1/campus-services)
-func (_ Unimplemented) ListCampusServicesApiV1CampusServicesGet(w http.ResponseWriter, r *http.Request, params ListCampusServicesApiV1CampusServicesGetParams) {
+func (_ Unimplemented) ListCampusServices(w http.ResponseWriter, r *http.Request, params ListCampusServicesParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // Get Campus Service
 // (GET /api/v1/campus-services/{service_id})
-func (_ Unimplemented) GetCampusServiceApiV1CampusServicesServiceIdGet(w http.ResponseWriter, r *http.Request, serviceId int) {
+func (_ Unimplemented) GetCampusService(w http.ResponseWriter, r *http.Request, serviceId int) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // Rate Campus Service
 // (POST /api/v1/campus-services/{service_id}/ratings)
-func (_ Unimplemented) RateCampusServiceApiV1CampusServicesServiceIdRatingsPost(w http.ResponseWriter, r *http.Request, serviceId int) {
+func (_ Unimplemented) RateCampusService(w http.ResponseWriter, r *http.Request, serviceId int) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // List Conversations
 // (GET /api/v1/conversations)
-func (_ Unimplemented) ListConversationsApiV1ConversationsGet(w http.ResponseWriter, r *http.Request, params ListConversationsApiV1ConversationsGetParams) {
+func (_ Unimplemented) ListConversations(w http.ResponseWriter, r *http.Request, params ListConversationsParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // Create Conversation
 // (POST /api/v1/conversations)
-func (_ Unimplemented) CreateConversationApiV1ConversationsPost(w http.ResponseWriter, r *http.Request) {
+func (_ Unimplemented) CreateConversation(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -2522,43 +3506,43 @@ func (_ Unimplemented) ReadAllMessages(w http.ResponseWriter, r *http.Request) {
 
 // List Messages
 // (GET /api/v1/conversations/{conversation_id}/messages)
-func (_ Unimplemented) ListMessagesApiV1ConversationsConversationIdMessagesGet(w http.ResponseWriter, r *http.Request, conversationId int, params ListMessagesApiV1ConversationsConversationIdMessagesGetParams) {
+func (_ Unimplemented) ListConversationMessages(w http.ResponseWriter, r *http.Request, conversationId int, params ListConversationMessagesParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // Send Message
 // (POST /api/v1/conversations/{conversation_id}/messages)
-func (_ Unimplemented) SendMessageApiV1ConversationsConversationIdMessagesPost(w http.ResponseWriter, r *http.Request, conversationId int) {
+func (_ Unimplemented) SendConversationMessage(w http.ResponseWriter, r *http.Request, conversationId int) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // List Offerings
 // (GET /api/v1/course-offerings)
-func (_ Unimplemented) ListOfferingsApiV1CourseOfferingsGet(w http.ResponseWriter, r *http.Request, params ListOfferingsApiV1CourseOfferingsGetParams) {
+func (_ Unimplemented) ListCourseOfferings(w http.ResponseWriter, r *http.Request, params ListCourseOfferingsParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // Create Offering
 // (POST /api/v1/course-offerings)
-func (_ Unimplemented) CreateOfferingApiV1CourseOfferingsPost(w http.ResponseWriter, r *http.Request) {
+func (_ Unimplemented) CreateCourseOffering(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // Create Review
 // (POST /api/v1/course-reviews)
-func (_ Unimplemented) CreateReviewApiV1CourseReviewsPost(w http.ResponseWriter, r *http.Request) {
+func (_ Unimplemented) CreateCourseReview(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // Correct Review
 // (POST /api/v1/course-reviews/{review_id}/correction)
-func (_ Unimplemented) CorrectReviewApiV1CourseReviewsReviewIdCorrectionPost(w http.ResponseWriter, r *http.Request, reviewId int) {
+func (_ Unimplemented) CorrectCourseReview(w http.ResponseWriter, r *http.Request, reviewId int) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // Create Course
 // (POST /api/v1/courses)
-func (_ Unimplemented) CreateCourseApiV1CoursesPost(w http.ResponseWriter, r *http.Request) {
+func (_ Unimplemented) CreateCourse(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -2570,19 +3554,19 @@ func (_ Unimplemented) PublicCreditRulesApiV1CreditRulesGet(w http.ResponseWrite
 
 // Delete Entity
 // (DELETE /api/v1/entities/{entity_id})
-func (_ Unimplemented) DeleteEntityApiV1EntitiesEntityIdDelete(w http.ResponseWriter, r *http.Request, entityId int, params DeleteEntityApiV1EntitiesEntityIdDeleteParams) {
+func (_ Unimplemented) DeleteEntity(w http.ResponseWriter, r *http.Request, entityId int, params DeleteEntityParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // Unfavorite
 // (DELETE /api/v1/entities/{entity_id}/favorite)
-func (_ Unimplemented) UnfavoriteApiV1EntitiesEntityIdFavoriteDelete(w http.ResponseWriter, r *http.Request, entityId int) {
+func (_ Unimplemented) UnfavoriteEntity(w http.ResponseWriter, r *http.Request, entityId int) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // Favorite
 // (PUT /api/v1/entities/{entity_id}/favorite)
-func (_ Unimplemented) FavoriteApiV1EntitiesEntityIdFavoritePut(w http.ResponseWriter, r *http.Request, entityId int) {
+func (_ Unimplemented) FavoriteEntity(w http.ResponseWriter, r *http.Request, entityId int) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -2642,43 +3626,43 @@ func (_ Unimplemented) CreateFeedbackApiV1FeedbackPost(w http.ResponseWriter, r 
 
 // Submit Game
 // (POST /api/v1/game-submissions)
-func (_ Unimplemented) SubmitGameApiV1GameSubmissionsPost(w http.ResponseWriter, r *http.Request) {
+func (_ Unimplemented) SubmitGame(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // List Handbook
 // (GET /api/v1/handbook)
-func (_ Unimplemented) ListHandbookApiV1HandbookGet(w http.ResponseWriter, r *http.Request, params ListHandbookApiV1HandbookGetParams) {
+func (_ Unimplemented) ListHandbookArticles(w http.ResponseWriter, r *http.Request, params ListHandbookArticlesParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // Create Article
 // (POST /api/v1/handbook)
-func (_ Unimplemented) CreateArticleApiV1HandbookPost(w http.ResponseWriter, r *http.Request) {
+func (_ Unimplemented) CreateHandbookArticle(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // Get Article
 // (GET /api/v1/handbook/{article_id})
-func (_ Unimplemented) GetArticleApiV1HandbookArticleIdGet(w http.ResponseWriter, r *http.Request, articleId int) {
+func (_ Unimplemented) GetHandbookArticle(w http.ResponseWriter, r *http.Request, articleId int) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // Update Article
 // (PATCH /api/v1/handbook/{article_id})
-func (_ Unimplemented) UpdateArticleApiV1HandbookArticleIdPatch(w http.ResponseWriter, r *http.Request, articleId int) {
+func (_ Unimplemented) UpdateHandbookArticle(w http.ResponseWriter, r *http.Request, articleId int) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // Feature Article
 // (POST /api/v1/handbook/{article_id}/feature)
-func (_ Unimplemented) FeatureArticleApiV1HandbookArticleIdFeaturePost(w http.ResponseWriter, r *http.Request, articleId int) {
+func (_ Unimplemented) FeatureHandbookArticle(w http.ResponseWriter, r *http.Request, articleId int) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // Publish Article
 // (POST /api/v1/handbook/{article_id}/publish)
-func (_ Unimplemented) PublishArticleApiV1HandbookArticleIdPublishPost(w http.ResponseWriter, r *http.Request, articleId int) {
+func (_ Unimplemented) PublishHandbookArticle(w http.ResponseWriter, r *http.Request, articleId int) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -2732,37 +3716,37 @@ func (_ Unimplemented) RequestListingTransaction(w http.ResponseWriter, r *http.
 
 // List Lost Items
 // (GET /api/v1/lost-items)
-func (_ Unimplemented) ListLostItemsApiV1LostItemsGet(w http.ResponseWriter, r *http.Request, params ListLostItemsApiV1LostItemsGetParams) {
+func (_ Unimplemented) ListLostItems(w http.ResponseWriter, r *http.Request, params ListLostItemsParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // Create Lost Item
 // (POST /api/v1/lost-items)
-func (_ Unimplemented) CreateLostItemApiV1LostItemsPost(w http.ResponseWriter, r *http.Request) {
+func (_ Unimplemented) CreateLostItem(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // Update Lost Item
 // (PATCH /api/v1/lost-items/{item_id})
-func (_ Unimplemented) UpdateLostItemApiV1LostItemsItemIdPatch(w http.ResponseWriter, r *http.Request, itemId int) {
+func (_ Unimplemented) UpdateLostItem(w http.ResponseWriter, r *http.Request, itemId int) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // List Claims
 // (GET /api/v1/lost-items/{item_id}/claims)
-func (_ Unimplemented) ListClaimsApiV1LostItemsItemIdClaimsGet(w http.ResponseWriter, r *http.Request, itemId int) {
+func (_ Unimplemented) ListLostClaims(w http.ResponseWriter, r *http.Request, itemId int) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // Create Claim
 // (POST /api/v1/lost-items/{item_id}/claims)
-func (_ Unimplemented) CreateClaimApiV1LostItemsItemIdClaimsPost(w http.ResponseWriter, r *http.Request, itemId int) {
+func (_ Unimplemented) CreateLostClaim(w http.ResponseWriter, r *http.Request, itemId int) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // Decide Claim
 // (POST /api/v1/lost-items/{item_id}/claims/{claim_id}/decision)
-func (_ Unimplemented) DecideClaimApiV1LostItemsItemIdClaimsClaimIdDecisionPost(w http.ResponseWriter, r *http.Request, itemId int, claimId int) {
+func (_ Unimplemented) DecideLostClaim(w http.ResponseWriter, r *http.Request, itemId int, claimId int) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -2816,37 +3800,37 @@ func (_ Unimplemented) GetMarketOptions(w http.ResponseWriter, r *http.Request) 
 
 // Me
 // (GET /api/v1/me)
-func (_ Unimplemented) MeApiV1MeGet(w http.ResponseWriter, r *http.Request) {
+func (_ Unimplemented) GetCurrentUser(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // My Appeals
 // (GET /api/v1/me/appeals)
-func (_ Unimplemented) MyAppealsApiV1MeAppealsGet(w http.ResponseWriter, r *http.Request, params MyAppealsApiV1MeAppealsGetParams) {
+func (_ Unimplemented) ListMyAppeals(w http.ResponseWriter, r *http.Request, params ListMyAppealsParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // My Content
 // (GET /api/v1/me/content)
-func (_ Unimplemented) MyContentApiV1MeContentGet(w http.ResponseWriter, r *http.Request, params MyContentApiV1MeContentGetParams) {
+func (_ Unimplemented) ListMyContent(w http.ResponseWriter, r *http.Request, params ListMyContentParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // Deactivate Account
 // (POST /api/v1/me/deactivate)
-func (_ Unimplemented) DeactivateAccountApiV1MeDeactivatePost(w http.ResponseWriter, r *http.Request) {
+func (_ Unimplemented) DeactivateAccount(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // Change Email
 // (POST /api/v1/me/email)
-func (_ Unimplemented) ChangeEmailApiV1MeEmailPost(w http.ResponseWriter, r *http.Request) {
+func (_ Unimplemented) ChangeEmail(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // My Favorites
 // (GET /api/v1/me/favorites)
-func (_ Unimplemented) MyFavoritesApiV1MeFavoritesGet(w http.ResponseWriter, r *http.Request, params MyFavoritesApiV1MeFavoritesGetParams) {
+func (_ Unimplemented) ListMyFavorites(w http.ResponseWriter, r *http.Request, params ListMyFavoritesParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -2856,87 +3840,99 @@ func (_ Unimplemented) ListMyMarketTransactions(w http.ResponseWriter, r *http.R
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// Accept observe unmask agreement
+// (POST /api/v1/me/observe-unmask-agreement)
+func (_ Unimplemented) AcceptObserveAgreement(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // Change Password
 // (POST /api/v1/me/password)
-func (_ Unimplemented) ChangePasswordApiV1MePasswordPost(w http.ResponseWriter, r *http.Request) {
+func (_ Unimplemented) ChangePassword(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // Update Privacy
 // (PATCH /api/v1/me/privacy)
-func (_ Unimplemented) UpdatePrivacyApiV1MePrivacyPatch(w http.ResponseWriter, r *http.Request) {
+func (_ Unimplemented) UpdatePrivacy(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // Update Profile
 // (PATCH /api/v1/me/profile)
-func (_ Unimplemented) UpdateProfileApiV1MeProfilePatch(w http.ResponseWriter, r *http.Request) {
+func (_ Unimplemented) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // My Reports
 // (GET /api/v1/me/reports)
-func (_ Unimplemented) MyReportsApiV1MeReportsGet(w http.ResponseWriter, r *http.Request, params MyReportsApiV1MeReportsGetParams) {
+func (_ Unimplemented) ListMyReports(w http.ResponseWriter, r *http.Request, params ListMyReportsParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // Sessions
 // (GET /api/v1/me/sessions)
-func (_ Unimplemented) SessionsApiV1MeSessionsGet(w http.ResponseWriter, r *http.Request, params SessionsApiV1MeSessionsGetParams) {
+func (_ Unimplemented) ListSessions(w http.ResponseWriter, r *http.Request, params ListSessionsParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // Revoke Session
 // (DELETE /api/v1/me/sessions/{session_id})
-func (_ Unimplemented) RevokeSessionApiV1MeSessionsSessionIdDelete(w http.ResponseWriter, r *http.Request, sessionId int) {
+func (_ Unimplemented) RevokeSession(w http.ResponseWriter, r *http.Request, sessionId int) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // List Notifications
 // (GET /api/v1/notifications)
-func (_ Unimplemented) ListNotificationsApiV1NotificationsGet(w http.ResponseWriter, r *http.Request, params ListNotificationsApiV1NotificationsGetParams) {
+func (_ Unimplemented) ListNotifications(w http.ResponseWriter, r *http.Request, params ListNotificationsParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // Read All Notifications
 // (POST /api/v1/notifications/read-all)
-func (_ Unimplemented) ReadAllNotificationsApiV1NotificationsReadAllPost(w http.ResponseWriter, r *http.Request) {
+func (_ Unimplemented) ReadAllNotifications(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // Read Notification
 // (POST /api/v1/notifications/{notification_id}/read)
-func (_ Unimplemented) ReadNotificationApiV1NotificationsNotificationIdReadPost(w http.ResponseWriter, r *http.Request, notificationId int) {
+func (_ Unimplemented) ReadNotification(w http.ResponseWriter, r *http.Request, notificationId int) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // List Observe
 // (GET /api/v1/observe-posts)
-func (_ Unimplemented) ListObserveApiV1ObservePostsGet(w http.ResponseWriter, r *http.Request, params ListObserveApiV1ObservePostsGetParams) {
+func (_ Unimplemented) ListObservePosts(w http.ResponseWriter, r *http.Request, params ListObservePostsParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // Create Observe
 // (POST /api/v1/observe-posts)
-func (_ Unimplemented) CreateObserveApiV1ObservePostsPost(w http.ResponseWriter, r *http.Request) {
+func (_ Unimplemented) CreateObservePost(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // Respond Observe
 // (POST /api/v1/observe-posts/{observe_id}/response)
-func (_ Unimplemented) RespondObserveApiV1ObservePostsObserveIdResponsePost(w http.ResponseWriter, r *http.Request, observeId int) {
+func (_ Unimplemented) RespondToObservePost(w http.ResponseWriter, r *http.Request, observeId int) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Reveal observe post
+// (POST /api/v1/observe-posts/{observe_id}/reveal)
+func (_ Unimplemented) RevealObservePost(w http.ResponseWriter, r *http.Request, observeId int64) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // Penalties
 // (GET /api/v1/penalties)
-func (_ Unimplemented) PenaltiesApiV1PenaltiesGet(w http.ResponseWriter, r *http.Request, params PenaltiesApiV1PenaltiesGetParams) {
+func (_ Unimplemented) ListPenalties(w http.ResponseWriter, r *http.Request, params ListPenaltiesParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // Appeal Penalty
 // (POST /api/v1/penalties/{penalty_id}/appeals)
-func (_ Unimplemented) AppealPenaltyApiV1PenaltiesPenaltyIdAppealsPost(w http.ResponseWriter, r *http.Request, penaltyId int) {
+func (_ Unimplemented) AppealPenalty(w http.ResponseWriter, r *http.Request, penaltyId int) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -2966,31 +3962,31 @@ func (_ Unimplemented) UpdatePostApiV1PostsPostIdPatch(w http.ResponseWriter, r 
 
 // List Questions
 // (GET /api/v1/questions)
-func (_ Unimplemented) ListQuestionsApiV1QuestionsGet(w http.ResponseWriter, r *http.Request, params ListQuestionsApiV1QuestionsGetParams) {
+func (_ Unimplemented) ListQuestions(w http.ResponseWriter, r *http.Request, params ListQuestionsParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // Create Question
 // (POST /api/v1/questions)
-func (_ Unimplemented) CreateQuestionApiV1QuestionsPost(w http.ResponseWriter, r *http.Request) {
+func (_ Unimplemented) CreateQuestion(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // Get Question
 // (GET /api/v1/questions/{question_id})
-func (_ Unimplemented) GetQuestionApiV1QuestionsQuestionIdGet(w http.ResponseWriter, r *http.Request, questionId int) {
+func (_ Unimplemented) GetQuestion(w http.ResponseWriter, r *http.Request, questionId int) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // Update Question
 // (PATCH /api/v1/questions/{question_id})
-func (_ Unimplemented) UpdateQuestionApiV1QuestionsQuestionIdPatch(w http.ResponseWriter, r *http.Request, questionId int) {
+func (_ Unimplemented) UpdateQuestion(w http.ResponseWriter, r *http.Request, questionId int) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // Create Answer
 // (POST /api/v1/questions/{question_id}/answers)
-func (_ Unimplemented) CreateAnswerApiV1QuestionsQuestionIdAnswersPost(w http.ResponseWriter, r *http.Request, questionId int) {
+func (_ Unimplemented) CreateAnswer(w http.ResponseWriter, r *http.Request, questionId int) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -3002,115 +3998,115 @@ func (_ Unimplemented) SearchApiV1SearchGet(w http.ResponseWriter, r *http.Reque
 
 // List Team Games
 // (GET /api/v1/team-games)
-func (_ Unimplemented) ListTeamGamesApiV1TeamGamesGet(w http.ResponseWriter, r *http.Request) {
+func (_ Unimplemented) ListTeamGames(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // List Teams
 // (GET /api/v1/teams)
-func (_ Unimplemented) ListTeamsApiV1TeamsGet(w http.ResponseWriter, r *http.Request, params ListTeamsApiV1TeamsGetParams) {
+func (_ Unimplemented) ListTeams(w http.ResponseWriter, r *http.Request, params ListTeamsParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // Create Team
 // (POST /api/v1/teams)
-func (_ Unimplemented) CreateTeamApiV1TeamsPost(w http.ResponseWriter, r *http.Request) {
+func (_ Unimplemented) CreateTeam(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // Get Team
 // (GET /api/v1/teams/{team_id})
-func (_ Unimplemented) GetTeamApiV1TeamsTeamIdGet(w http.ResponseWriter, r *http.Request, teamId int) {
+func (_ Unimplemented) GetTeam(w http.ResponseWriter, r *http.Request, teamId int) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // Update Team
 // (PATCH /api/v1/teams/{team_id})
-func (_ Unimplemented) UpdateTeamApiV1TeamsTeamIdPatch(w http.ResponseWriter, r *http.Request, teamId int) {
+func (_ Unimplemented) UpdateTeam(w http.ResponseWriter, r *http.Request, teamId int) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // Team Calendar
 // (GET /api/v1/teams/{team_id}/calendar.ics)
-func (_ Unimplemented) TeamCalendarApiV1TeamsTeamIdCalendarIcsGet(w http.ResponseWriter, r *http.Request, teamId int) {
+func (_ Unimplemented) DownloadTeamCalendar(w http.ResponseWriter, r *http.Request, teamId int) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // Cancel Team
 // (POST /api/v1/teams/{team_id}/cancel)
-func (_ Unimplemented) CancelTeamApiV1TeamsTeamIdCancelPost(w http.ResponseWriter, r *http.Request, teamId int) {
+func (_ Unimplemented) CancelTeam(w http.ResponseWriter, r *http.Request, teamId int) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // Join Team
 // (POST /api/v1/teams/{team_id}/join)
-func (_ Unimplemented) JoinTeamApiV1TeamsTeamIdJoinPost(w http.ResponseWriter, r *http.Request, teamId int) {
+func (_ Unimplemented) JoinTeam(w http.ResponseWriter, r *http.Request, teamId int) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // Leave Team
 // (POST /api/v1/teams/{team_id}/leave)
-func (_ Unimplemented) LeaveTeamApiV1TeamsTeamIdLeavePost(w http.ResponseWriter, r *http.Request, teamId int) {
+func (_ Unimplemented) LeaveTeam(w http.ResponseWriter, r *http.Request, teamId int) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // Member History
 // (GET /api/v1/teams/{team_id}/members/history)
-func (_ Unimplemented) MemberHistoryApiV1TeamsTeamIdMembersHistoryGet(w http.ResponseWriter, r *http.Request, teamId int) {
+func (_ Unimplemented) ListTeamMemberHistory(w http.ResponseWriter, r *http.Request, teamId int) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // Remove Member
 // (POST /api/v1/teams/{team_id}/members/{member_id}/remove)
-func (_ Unimplemented) RemoveMemberApiV1TeamsTeamIdMembersMemberIdRemovePost(w http.ResponseWriter, r *http.Request, teamId int, memberId int) {
+func (_ Unimplemented) RemoveTeamMember(w http.ResponseWriter, r *http.Request, teamId int, memberId int) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // List Team Runs
 // (GET /api/v1/teams/{team_id}/runs)
-func (_ Unimplemented) ListTeamRunsApiV1TeamsTeamIdRunsGet(w http.ResponseWriter, r *http.Request, teamId int, params ListTeamRunsApiV1TeamsTeamIdRunsGetParams) {
+func (_ Unimplemented) ListTeamRuns(w http.ResponseWriter, r *http.Request, teamId int, params ListTeamRunsParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // Create Team Run
 // (POST /api/v1/teams/{team_id}/runs)
-func (_ Unimplemented) CreateTeamRunApiV1TeamsTeamIdRunsPost(w http.ResponseWriter, r *http.Request, teamId int) {
+func (_ Unimplemented) CreateTeamRun(w http.ResponseWriter, r *http.Request, teamId int) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // Update Team Run
 // (PATCH /api/v1/teams/{team_id}/runs/{run_id})
-func (_ Unimplemented) UpdateTeamRunApiV1TeamsTeamIdRunsRunIdPatch(w http.ResponseWriter, r *http.Request, teamId int, runId int) {
+func (_ Unimplemented) UpdateTeamRun(w http.ResponseWriter, r *http.Request, teamId int, runId int) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // Check In
 // (POST /api/v1/teams/{team_id}/runs/{run_id}/check-in)
-func (_ Unimplemented) CheckInApiV1TeamsTeamIdRunsRunIdCheckInPost(w http.ResponseWriter, r *http.Request, teamId int, runId int) {
+func (_ Unimplemented) CheckInTeamRun(w http.ResponseWriter, r *http.Request, teamId int, runId int) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // Excuse
 // (POST /api/v1/teams/{team_id}/runs/{run_id}/excuse)
-func (_ Unimplemented) ExcuseApiV1TeamsTeamIdRunsRunIdExcusePost(w http.ResponseWriter, r *http.Request, teamId int, runId int) {
+func (_ Unimplemented) ExcuseTeamRun(w http.ResponseWriter, r *http.Request, teamId int, runId int) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // Rate Member
 // (POST /api/v1/teams/{team_id}/runs/{run_id}/ratings)
-func (_ Unimplemented) RateMemberApiV1TeamsTeamIdRunsRunIdRatingsPost(w http.ResponseWriter, r *http.Request, teamId int, runId int) {
+func (_ Unimplemented) RateTeamMember(w http.ResponseWriter, r *http.Request, teamId int, runId int) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // Transfer Team
 // (POST /api/v1/teams/{team_id}/transfer)
-func (_ Unimplemented) TransferTeamApiV1TeamsTeamIdTransferPost(w http.ResponseWriter, r *http.Request, teamId int) {
+func (_ Unimplemented) TransferTeamOwnership(w http.ResponseWriter, r *http.Request, teamId int) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // Upload Image
 // (POST /api/v1/uploads/images)
-func (_ Unimplemented) UploadImageApiV1UploadsImagesPost(w http.ResponseWriter, r *http.Request) {
+func (_ Unimplemented) UploadImage(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -3135,14 +4131,14 @@ type ServerInterfaceWrapper struct {
 
 type MiddlewareFunc func(http.Handler) http.Handler
 
-// ListActivitiesApiV1ActivitiesGet operation middleware
-func (siw *ServerInterfaceWrapper) ListActivitiesApiV1ActivitiesGet(w http.ResponseWriter, r *http.Request) {
+// ListActivities operation middleware
+func (siw *ServerInterfaceWrapper) ListActivities(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
 
 	// Parameter object where we will unmarshal all parameters from the context
-	var params ListActivitiesApiV1ActivitiesGetParams
+	var params ListActivitiesParams
 
 	// ------------- Optional query parameter "page" -------------
 
@@ -3184,7 +4180,7 @@ func (siw *ServerInterfaceWrapper) ListActivitiesApiV1ActivitiesGet(w http.Respo
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ListActivitiesApiV1ActivitiesGet(w, r, params)
+		siw.Handler.ListActivities(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3194,11 +4190,11 @@ func (siw *ServerInterfaceWrapper) ListActivitiesApiV1ActivitiesGet(w http.Respo
 	handler.ServeHTTP(w, r)
 }
 
-// CreateActivityApiV1ActivitiesPost operation middleware
-func (siw *ServerInterfaceWrapper) CreateActivityApiV1ActivitiesPost(w http.ResponseWriter, r *http.Request) {
+// CreateActivity operation middleware
+func (siw *ServerInterfaceWrapper) CreateActivity(w http.ResponseWriter, r *http.Request) {
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.CreateActivityApiV1ActivitiesPost(w, r)
+		siw.Handler.CreateActivity(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3208,8 +4204,8 @@ func (siw *ServerInterfaceWrapper) CreateActivityApiV1ActivitiesPost(w http.Resp
 	handler.ServeHTTP(w, r)
 }
 
-// UpdateActivityApiV1ActivitiesActivityIdPatch operation middleware
-func (siw *ServerInterfaceWrapper) UpdateActivityApiV1ActivitiesActivityIdPatch(w http.ResponseWriter, r *http.Request) {
+// UpdateActivity operation middleware
+func (siw *ServerInterfaceWrapper) UpdateActivity(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
@@ -3224,7 +4220,7 @@ func (siw *ServerInterfaceWrapper) UpdateActivityApiV1ActivitiesActivityIdPatch(
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.UpdateActivityApiV1ActivitiesActivityIdPatch(w, r, activityId)
+		siw.Handler.UpdateActivity(w, r, activityId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3234,8 +4230,8 @@ func (siw *ServerInterfaceWrapper) UpdateActivityApiV1ActivitiesActivityIdPatch(
 	handler.ServeHTTP(w, r)
 }
 
-// CancelActivityApiV1ActivitiesActivityIdCancelPost operation middleware
-func (siw *ServerInterfaceWrapper) CancelActivityApiV1ActivitiesActivityIdCancelPost(w http.ResponseWriter, r *http.Request) {
+// CancelActivity operation middleware
+func (siw *ServerInterfaceWrapper) CancelActivity(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
@@ -3250,7 +4246,7 @@ func (siw *ServerInterfaceWrapper) CancelActivityApiV1ActivitiesActivityIdCancel
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.CancelActivityApiV1ActivitiesActivityIdCancelPost(w, r, activityId)
+		siw.Handler.CancelActivity(w, r, activityId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3260,8 +4256,8 @@ func (siw *ServerInterfaceWrapper) CancelActivityApiV1ActivitiesActivityIdCancel
 	handler.ServeHTTP(w, r)
 }
 
-// LeaveActivityApiV1ActivitiesActivityIdMembershipDelete operation middleware
-func (siw *ServerInterfaceWrapper) LeaveActivityApiV1ActivitiesActivityIdMembershipDelete(w http.ResponseWriter, r *http.Request) {
+// LeaveActivity operation middleware
+func (siw *ServerInterfaceWrapper) LeaveActivity(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
@@ -3276,7 +4272,7 @@ func (siw *ServerInterfaceWrapper) LeaveActivityApiV1ActivitiesActivityIdMembers
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.LeaveActivityApiV1ActivitiesActivityIdMembershipDelete(w, r, activityId)
+		siw.Handler.LeaveActivity(w, r, activityId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3286,8 +4282,8 @@ func (siw *ServerInterfaceWrapper) LeaveActivityApiV1ActivitiesActivityIdMembers
 	handler.ServeHTTP(w, r)
 }
 
-// JoinActivityApiV1ActivitiesActivityIdMembershipPut operation middleware
-func (siw *ServerInterfaceWrapper) JoinActivityApiV1ActivitiesActivityIdMembershipPut(w http.ResponseWriter, r *http.Request) {
+// JoinActivity operation middleware
+func (siw *ServerInterfaceWrapper) JoinActivity(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
@@ -3302,7 +4298,7 @@ func (siw *ServerInterfaceWrapper) JoinActivityApiV1ActivitiesActivityIdMembersh
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.JoinActivityApiV1ActivitiesActivityIdMembershipPut(w, r, activityId)
+		siw.Handler.JoinActivity(w, r, activityId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3312,11 +4308,11 @@ func (siw *ServerInterfaceWrapper) JoinActivityApiV1ActivitiesActivityIdMembersh
 	handler.ServeHTTP(w, r)
 }
 
-// CreateAnnouncementApiV1AdminAnnouncementsPost operation middleware
-func (siw *ServerInterfaceWrapper) CreateAnnouncementApiV1AdminAnnouncementsPost(w http.ResponseWriter, r *http.Request) {
+// CreateAnnouncement operation middleware
+func (siw *ServerInterfaceWrapper) CreateAnnouncement(w http.ResponseWriter, r *http.Request) {
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.CreateAnnouncementApiV1AdminAnnouncementsPost(w, r)
+		siw.Handler.CreateAnnouncement(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3326,14 +4322,14 @@ func (siw *ServerInterfaceWrapper) CreateAnnouncementApiV1AdminAnnouncementsPost
 	handler.ServeHTTP(w, r)
 }
 
-// ListAppealsApiV1AdminAppealsGet operation middleware
-func (siw *ServerInterfaceWrapper) ListAppealsApiV1AdminAppealsGet(w http.ResponseWriter, r *http.Request) {
+// ListAdminAppeals operation middleware
+func (siw *ServerInterfaceWrapper) ListAdminAppeals(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
 
 	// Parameter object where we will unmarshal all parameters from the context
-	var params ListAppealsApiV1AdminAppealsGetParams
+	var params ListAdminAppealsParams
 
 	// ------------- Optional query parameter "status" -------------
 
@@ -3375,7 +4371,7 @@ func (siw *ServerInterfaceWrapper) ListAppealsApiV1AdminAppealsGet(w http.Respon
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ListAppealsApiV1AdminAppealsGet(w, r, params)
+		siw.Handler.ListAdminAppeals(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3385,8 +4381,8 @@ func (siw *ServerInterfaceWrapper) ListAppealsApiV1AdminAppealsGet(w http.Respon
 	handler.ServeHTTP(w, r)
 }
 
-// DecideAppealApiV1AdminAppealsAppealIdDecisionPost operation middleware
-func (siw *ServerInterfaceWrapper) DecideAppealApiV1AdminAppealsAppealIdDecisionPost(w http.ResponseWriter, r *http.Request) {
+// DecideAppeal operation middleware
+func (siw *ServerInterfaceWrapper) DecideAppeal(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
@@ -3401,7 +4397,7 @@ func (siw *ServerInterfaceWrapper) DecideAppealApiV1AdminAppealsAppealIdDecision
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.DecideAppealApiV1AdminAppealsAppealIdDecisionPost(w, r, appealId)
+		siw.Handler.DecideAppeal(w, r, appealId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3411,14 +4407,14 @@ func (siw *ServerInterfaceWrapper) DecideAppealApiV1AdminAppealsAppealIdDecision
 	handler.ServeHTTP(w, r)
 }
 
-// AuditLogsApiV1AdminAuditLogsGet operation middleware
-func (siw *ServerInterfaceWrapper) AuditLogsApiV1AdminAuditLogsGet(w http.ResponseWriter, r *http.Request) {
+// ListAuditLogs operation middleware
+func (siw *ServerInterfaceWrapper) ListAuditLogs(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
 
 	// Parameter object where we will unmarshal all parameters from the context
-	var params AuditLogsApiV1AdminAuditLogsGetParams
+	var params ListAuditLogsParams
 
 	// ------------- Optional query parameter "page" -------------
 
@@ -3447,7 +4443,7 @@ func (siw *ServerInterfaceWrapper) AuditLogsApiV1AdminAuditLogsGet(w http.Respon
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.AuditLogsApiV1AdminAuditLogsGet(w, r, params)
+		siw.Handler.ListAuditLogs(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3457,11 +4453,11 @@ func (siw *ServerInterfaceWrapper) AuditLogsApiV1AdminAuditLogsGet(w http.Respon
 	handler.ServeHTTP(w, r)
 }
 
-// ListBackupsApiV1AdminBackupsGet operation middleware
-func (siw *ServerInterfaceWrapper) ListBackupsApiV1AdminBackupsGet(w http.ResponseWriter, r *http.Request) {
+// ListBackups operation middleware
+func (siw *ServerInterfaceWrapper) ListBackups(w http.ResponseWriter, r *http.Request) {
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ListBackupsApiV1AdminBackupsGet(w, r)
+		siw.Handler.ListBackups(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3471,11 +4467,11 @@ func (siw *ServerInterfaceWrapper) ListBackupsApiV1AdminBackupsGet(w http.Respon
 	handler.ServeHTTP(w, r)
 }
 
-// RequestBackupApiV1AdminBackupsPost operation middleware
-func (siw *ServerInterfaceWrapper) RequestBackupApiV1AdminBackupsPost(w http.ResponseWriter, r *http.Request) {
+// RequestBackup operation middleware
+func (siw *ServerInterfaceWrapper) RequestBackup(w http.ResponseWriter, r *http.Request) {
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.RequestBackupApiV1AdminBackupsPost(w, r)
+		siw.Handler.RequestBackup(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3485,8 +4481,8 @@ func (siw *ServerInterfaceWrapper) RequestBackupApiV1AdminBackupsPost(w http.Res
 	handler.ServeHTTP(w, r)
 }
 
-// DownloadBackupApiV1AdminBackupsJobIdDownloadGet operation middleware
-func (siw *ServerInterfaceWrapper) DownloadBackupApiV1AdminBackupsJobIdDownloadGet(w http.ResponseWriter, r *http.Request) {
+// DownloadBackup operation middleware
+func (siw *ServerInterfaceWrapper) DownloadBackup(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
@@ -3501,7 +4497,7 @@ func (siw *ServerInterfaceWrapper) DownloadBackupApiV1AdminBackupsJobIdDownloadG
 	}
 
 	// Parameter object where we will unmarshal all parameters from the context
-	var params DownloadBackupApiV1AdminBackupsJobIdDownloadGetParams
+	var params DownloadBackupParams
 
 	// ------------- Required query parameter "token" -------------
 
@@ -3517,7 +4513,7 @@ func (siw *ServerInterfaceWrapper) DownloadBackupApiV1AdminBackupsJobIdDownloadG
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.DownloadBackupApiV1AdminBackupsJobIdDownloadGet(w, r, jobId, params)
+		siw.Handler.DownloadBackup(w, r, jobId, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3527,11 +4523,11 @@ func (siw *ServerInterfaceWrapper) DownloadBackupApiV1AdminBackupsJobIdDownloadG
 	handler.ServeHTTP(w, r)
 }
 
-// CreateCampusServiceApiV1AdminCampusServicesPost operation middleware
-func (siw *ServerInterfaceWrapper) CreateCampusServiceApiV1AdminCampusServicesPost(w http.ResponseWriter, r *http.Request) {
+// CreateCampusService operation middleware
+func (siw *ServerInterfaceWrapper) CreateCampusService(w http.ResponseWriter, r *http.Request) {
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.CreateCampusServiceApiV1AdminCampusServicesPost(w, r)
+		siw.Handler.CreateCampusService(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3541,8 +4537,8 @@ func (siw *ServerInterfaceWrapper) CreateCampusServiceApiV1AdminCampusServicesPo
 	handler.ServeHTTP(w, r)
 }
 
-// UpdateCampusServiceApiV1AdminCampusServicesServiceIdPatch operation middleware
-func (siw *ServerInterfaceWrapper) UpdateCampusServiceApiV1AdminCampusServicesServiceIdPatch(w http.ResponseWriter, r *http.Request) {
+// UpdateCampusService operation middleware
+func (siw *ServerInterfaceWrapper) UpdateCampusService(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
@@ -3557,7 +4553,7 @@ func (siw *ServerInterfaceWrapper) UpdateCampusServiceApiV1AdminCampusServicesSe
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.UpdateCampusServiceApiV1AdminCampusServicesServiceIdPatch(w, r, serviceId)
+		siw.Handler.UpdateCampusService(w, r, serviceId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3567,11 +4563,11 @@ func (siw *ServerInterfaceWrapper) UpdateCampusServiceApiV1AdminCampusServicesSe
 	handler.ServeHTTP(w, r)
 }
 
-// AdminCreditRulesApiV1AdminCreditRulesGet operation middleware
-func (siw *ServerInterfaceWrapper) AdminCreditRulesApiV1AdminCreditRulesGet(w http.ResponseWriter, r *http.Request) {
+// GetAdminCreditRules operation middleware
+func (siw *ServerInterfaceWrapper) GetAdminCreditRules(w http.ResponseWriter, r *http.Request) {
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.AdminCreditRulesApiV1AdminCreditRulesGet(w, r)
+		siw.Handler.GetAdminCreditRules(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3581,11 +4577,11 @@ func (siw *ServerInterfaceWrapper) AdminCreditRulesApiV1AdminCreditRulesGet(w ht
 	handler.ServeHTTP(w, r)
 }
 
-// UpdateCreditRulesApiV1AdminCreditRulesPatch operation middleware
-func (siw *ServerInterfaceWrapper) UpdateCreditRulesApiV1AdminCreditRulesPatch(w http.ResponseWriter, r *http.Request) {
+// UpdateAdminCreditRules operation middleware
+func (siw *ServerInterfaceWrapper) UpdateAdminCreditRules(w http.ResponseWriter, r *http.Request) {
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.UpdateCreditRulesApiV1AdminCreditRulesPatch(w, r)
+		siw.Handler.UpdateAdminCreditRules(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3595,14 +4591,14 @@ func (siw *ServerInterfaceWrapper) UpdateCreditRulesApiV1AdminCreditRulesPatch(w
 	handler.ServeHTTP(w, r)
 }
 
-// FeedbackQueueApiV1AdminFeedbackGet operation middleware
-func (siw *ServerInterfaceWrapper) FeedbackQueueApiV1AdminFeedbackGet(w http.ResponseWriter, r *http.Request) {
+// ListFeedback operation middleware
+func (siw *ServerInterfaceWrapper) ListFeedback(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
 
 	// Parameter object where we will unmarshal all parameters from the context
-	var params FeedbackQueueApiV1AdminFeedbackGetParams
+	var params ListFeedbackParams
 
 	// ------------- Optional query parameter "status" -------------
 
@@ -3644,7 +4640,7 @@ func (siw *ServerInterfaceWrapper) FeedbackQueueApiV1AdminFeedbackGet(w http.Res
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.FeedbackQueueApiV1AdminFeedbackGet(w, r, params)
+		siw.Handler.ListFeedback(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3654,8 +4650,8 @@ func (siw *ServerInterfaceWrapper) FeedbackQueueApiV1AdminFeedbackGet(w http.Res
 	handler.ServeHTTP(w, r)
 }
 
-// DecideFeedbackApiV1AdminFeedbackFeedbackIdDecisionPost operation middleware
-func (siw *ServerInterfaceWrapper) DecideFeedbackApiV1AdminFeedbackFeedbackIdDecisionPost(w http.ResponseWriter, r *http.Request) {
+// DecideFeedback operation middleware
+func (siw *ServerInterfaceWrapper) DecideFeedback(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
@@ -3670,7 +4666,7 @@ func (siw *ServerInterfaceWrapper) DecideFeedbackApiV1AdminFeedbackFeedbackIdDec
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.DecideFeedbackApiV1AdminFeedbackFeedbackIdDecisionPost(w, r, feedbackId)
+		siw.Handler.DecideFeedback(w, r, feedbackId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3680,14 +4676,14 @@ func (siw *ServerInterfaceWrapper) DecideFeedbackApiV1AdminFeedbackFeedbackIdDec
 	handler.ServeHTTP(w, r)
 }
 
-// ListGameSubmissionsApiV1AdminGameSubmissionsGet operation middleware
-func (siw *ServerInterfaceWrapper) ListGameSubmissionsApiV1AdminGameSubmissionsGet(w http.ResponseWriter, r *http.Request) {
+// ListGameSubmissions operation middleware
+func (siw *ServerInterfaceWrapper) ListGameSubmissions(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
 
 	// Parameter object where we will unmarshal all parameters from the context
-	var params ListGameSubmissionsApiV1AdminGameSubmissionsGetParams
+	var params ListGameSubmissionsParams
 
 	// ------------- Optional query parameter "status" -------------
 
@@ -3729,7 +4725,7 @@ func (siw *ServerInterfaceWrapper) ListGameSubmissionsApiV1AdminGameSubmissionsG
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ListGameSubmissionsApiV1AdminGameSubmissionsGet(w, r, params)
+		siw.Handler.ListGameSubmissions(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3739,8 +4735,8 @@ func (siw *ServerInterfaceWrapper) ListGameSubmissionsApiV1AdminGameSubmissionsG
 	handler.ServeHTTP(w, r)
 }
 
-// DecideGameSubmissionApiV1AdminGameSubmissionsSubmissionIdDecisionPost operation middleware
-func (siw *ServerInterfaceWrapper) DecideGameSubmissionApiV1AdminGameSubmissionsSubmissionIdDecisionPost(w http.ResponseWriter, r *http.Request) {
+// DecideGameSubmission operation middleware
+func (siw *ServerInterfaceWrapper) DecideGameSubmission(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
@@ -3755,7 +4751,7 @@ func (siw *ServerInterfaceWrapper) DecideGameSubmissionApiV1AdminGameSubmissions
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.DecideGameSubmissionApiV1AdminGameSubmissionsSubmissionIdDecisionPost(w, r, submissionId)
+		siw.Handler.DecideGameSubmission(w, r, submissionId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3765,11 +4761,11 @@ func (siw *ServerInterfaceWrapper) DecideGameSubmissionApiV1AdminGameSubmissions
 	handler.ServeHTTP(w, r)
 }
 
-// ListMarketcategories operation middleware
-func (siw *ServerInterfaceWrapper) ListMarketcategories(w http.ResponseWriter, r *http.Request) {
+// ListMarketCategories operation middleware
+func (siw *ServerInterfaceWrapper) ListMarketCategories(w http.ResponseWriter, r *http.Request) {
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ListMarketcategories(w, r)
+		siw.Handler.ListMarketCategories(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3779,11 +4775,11 @@ func (siw *ServerInterfaceWrapper) ListMarketcategories(w http.ResponseWriter, r
 	handler.ServeHTTP(w, r)
 }
 
-// CreateMarketcategories operation middleware
-func (siw *ServerInterfaceWrapper) CreateMarketcategories(w http.ResponseWriter, r *http.Request) {
+// CreateMarketCategory operation middleware
+func (siw *ServerInterfaceWrapper) CreateMarketCategory(w http.ResponseWriter, r *http.Request) {
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.CreateMarketcategories(w, r)
+		siw.Handler.CreateMarketCategory(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3793,8 +4789,8 @@ func (siw *ServerInterfaceWrapper) CreateMarketcategories(w http.ResponseWriter,
 	handler.ServeHTTP(w, r)
 }
 
-// DeleteMarketcategories operation middleware
-func (siw *ServerInterfaceWrapper) DeleteMarketcategories(w http.ResponseWriter, r *http.Request) {
+// DeleteMarketCategory operation middleware
+func (siw *ServerInterfaceWrapper) DeleteMarketCategory(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
@@ -3809,7 +4805,7 @@ func (siw *ServerInterfaceWrapper) DeleteMarketcategories(w http.ResponseWriter,
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.DeleteMarketcategories(w, r, optionId)
+		siw.Handler.DeleteMarketCategory(w, r, optionId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3819,8 +4815,8 @@ func (siw *ServerInterfaceWrapper) DeleteMarketcategories(w http.ResponseWriter,
 	handler.ServeHTTP(w, r)
 }
 
-// UpdateMarketcategories operation middleware
-func (siw *ServerInterfaceWrapper) UpdateMarketcategories(w http.ResponseWriter, r *http.Request) {
+// UpdateMarketCategory operation middleware
+func (siw *ServerInterfaceWrapper) UpdateMarketCategory(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
@@ -3835,7 +4831,7 @@ func (siw *ServerInterfaceWrapper) UpdateMarketcategories(w http.ResponseWriter,
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.UpdateMarketcategories(w, r, optionId)
+		siw.Handler.UpdateMarketCategory(w, r, optionId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3885,11 +4881,11 @@ func (siw *ServerInterfaceWrapper) DecideMarketDispute(w http.ResponseWriter, r 
 	handler.ServeHTTP(w, r)
 }
 
-// ListMarketlocations operation middleware
-func (siw *ServerInterfaceWrapper) ListMarketlocations(w http.ResponseWriter, r *http.Request) {
+// ListMarketLocations operation middleware
+func (siw *ServerInterfaceWrapper) ListMarketLocations(w http.ResponseWriter, r *http.Request) {
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ListMarketlocations(w, r)
+		siw.Handler.ListMarketLocations(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3899,11 +4895,11 @@ func (siw *ServerInterfaceWrapper) ListMarketlocations(w http.ResponseWriter, r 
 	handler.ServeHTTP(w, r)
 }
 
-// CreateMarketlocations operation middleware
-func (siw *ServerInterfaceWrapper) CreateMarketlocations(w http.ResponseWriter, r *http.Request) {
+// CreateMarketLocation operation middleware
+func (siw *ServerInterfaceWrapper) CreateMarketLocation(w http.ResponseWriter, r *http.Request) {
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.CreateMarketlocations(w, r)
+		siw.Handler.CreateMarketLocation(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3913,8 +4909,8 @@ func (siw *ServerInterfaceWrapper) CreateMarketlocations(w http.ResponseWriter, 
 	handler.ServeHTTP(w, r)
 }
 
-// DeleteMarketlocations operation middleware
-func (siw *ServerInterfaceWrapper) DeleteMarketlocations(w http.ResponseWriter, r *http.Request) {
+// DeleteMarketLocation operation middleware
+func (siw *ServerInterfaceWrapper) DeleteMarketLocation(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
@@ -3929,7 +4925,7 @@ func (siw *ServerInterfaceWrapper) DeleteMarketlocations(w http.ResponseWriter, 
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.DeleteMarketlocations(w, r, optionId)
+		siw.Handler.DeleteMarketLocation(w, r, optionId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3939,8 +4935,8 @@ func (siw *ServerInterfaceWrapper) DeleteMarketlocations(w http.ResponseWriter, 
 	handler.ServeHTTP(w, r)
 }
 
-// UpdateMarketlocations operation middleware
-func (siw *ServerInterfaceWrapper) UpdateMarketlocations(w http.ResponseWriter, r *http.Request) {
+// UpdateMarketLocation operation middleware
+func (siw *ServerInterfaceWrapper) UpdateMarketLocation(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
@@ -3955,7 +4951,7 @@ func (siw *ServerInterfaceWrapper) UpdateMarketlocations(w http.ResponseWriter, 
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.UpdateMarketlocations(w, r, optionId)
+		siw.Handler.UpdateMarketLocation(w, r, optionId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3965,14 +4961,14 @@ func (siw *ServerInterfaceWrapper) UpdateMarketlocations(w http.ResponseWriter, 
 	handler.ServeHTTP(w, r)
 }
 
-// ModerationCasesApiV1AdminModerationCasesGet operation middleware
-func (siw *ServerInterfaceWrapper) ModerationCasesApiV1AdminModerationCasesGet(w http.ResponseWriter, r *http.Request) {
+// ListModerationCases operation middleware
+func (siw *ServerInterfaceWrapper) ListModerationCases(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
 
 	// Parameter object where we will unmarshal all parameters from the context
-	var params ModerationCasesApiV1AdminModerationCasesGetParams
+	var params ListModerationCasesParams
 
 	// ------------- Optional query parameter "status" -------------
 
@@ -4040,7 +5036,7 @@ func (siw *ServerInterfaceWrapper) ModerationCasesApiV1AdminModerationCasesGet(w
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ModerationCasesApiV1AdminModerationCasesGet(w, r, params)
+		siw.Handler.ListModerationCases(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -4050,8 +5046,8 @@ func (siw *ServerInterfaceWrapper) ModerationCasesApiV1AdminModerationCasesGet(w
 	handler.ServeHTTP(w, r)
 }
 
-// DecideModerationApiV1AdminModerationCasesCaseIdDecisionPost operation middleware
-func (siw *ServerInterfaceWrapper) DecideModerationApiV1AdminModerationCasesCaseIdDecisionPost(w http.ResponseWriter, r *http.Request) {
+// DecideModerationCase operation middleware
+func (siw *ServerInterfaceWrapper) DecideModerationCase(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
@@ -4066,7 +5062,7 @@ func (siw *ServerInterfaceWrapper) DecideModerationApiV1AdminModerationCasesCase
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.DecideModerationApiV1AdminModerationCasesCaseIdDecisionPost(w, r, caseId)
+		siw.Handler.DecideModerationCase(w, r, caseId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -4076,11 +5072,11 @@ func (siw *ServerInterfaceWrapper) DecideModerationApiV1AdminModerationCasesCase
 	handler.ServeHTTP(w, r)
 }
 
-// AdminOverviewApiV1AdminOverviewGet operation middleware
-func (siw *ServerInterfaceWrapper) AdminOverviewApiV1AdminOverviewGet(w http.ResponseWriter, r *http.Request) {
+// GetAdminOverview operation middleware
+func (siw *ServerInterfaceWrapper) GetAdminOverview(w http.ResponseWriter, r *http.Request) {
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.AdminOverviewApiV1AdminOverviewGet(w, r)
+		siw.Handler.GetAdminOverview(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -4090,11 +5086,11 @@ func (siw *ServerInterfaceWrapper) AdminOverviewApiV1AdminOverviewGet(w http.Res
 	handler.ServeHTTP(w, r)
 }
 
-// CreatePenaltyApiV1AdminPenaltiesPost operation middleware
-func (siw *ServerInterfaceWrapper) CreatePenaltyApiV1AdminPenaltiesPost(w http.ResponseWriter, r *http.Request) {
+// CreatePenalty operation middleware
+func (siw *ServerInterfaceWrapper) CreatePenalty(w http.ResponseWriter, r *http.Request) {
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.CreatePenaltyApiV1AdminPenaltiesPost(w, r)
+		siw.Handler.CreatePenalty(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -4104,14 +5100,14 @@ func (siw *ServerInterfaceWrapper) CreatePenaltyApiV1AdminPenaltiesPost(w http.R
 	handler.ServeHTTP(w, r)
 }
 
-// ReportQueueApiV1AdminReportsGet operation middleware
-func (siw *ServerInterfaceWrapper) ReportQueueApiV1AdminReportsGet(w http.ResponseWriter, r *http.Request) {
+// ListAdminReports operation middleware
+func (siw *ServerInterfaceWrapper) ListAdminReports(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
 
 	// Parameter object where we will unmarshal all parameters from the context
-	var params ReportQueueApiV1AdminReportsGetParams
+	var params ListAdminReportsParams
 
 	// ------------- Optional query parameter "status" -------------
 
@@ -4166,7 +5162,7 @@ func (siw *ServerInterfaceWrapper) ReportQueueApiV1AdminReportsGet(w http.Respon
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ReportQueueApiV1AdminReportsGet(w, r, params)
+		siw.Handler.ListAdminReports(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -4176,11 +5172,11 @@ func (siw *ServerInterfaceWrapper) ReportQueueApiV1AdminReportsGet(w http.Respon
 	handler.ServeHTTP(w, r)
 }
 
-// SettingsListApiV1AdminSettingsGet operation middleware
-func (siw *ServerInterfaceWrapper) SettingsListApiV1AdminSettingsGet(w http.ResponseWriter, r *http.Request) {
+// GetAdminSettings operation middleware
+func (siw *ServerInterfaceWrapper) GetAdminSettings(w http.ResponseWriter, r *http.Request) {
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.SettingsListApiV1AdminSettingsGet(w, r)
+		siw.Handler.GetAdminSettings(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -4190,8 +5186,8 @@ func (siw *ServerInterfaceWrapper) SettingsListApiV1AdminSettingsGet(w http.Resp
 	handler.ServeHTTP(w, r)
 }
 
-// UpdateSettingApiV1AdminSettingsKeyPut operation middleware
-func (siw *ServerInterfaceWrapper) UpdateSettingApiV1AdminSettingsKeyPut(w http.ResponseWriter, r *http.Request) {
+// UpdateAdminSetting operation middleware
+func (siw *ServerInterfaceWrapper) UpdateAdminSetting(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
@@ -4206,7 +5202,7 @@ func (siw *ServerInterfaceWrapper) UpdateSettingApiV1AdminSettingsKeyPut(w http.
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.UpdateSettingApiV1AdminSettingsKeyPut(w, r, key)
+		siw.Handler.UpdateAdminSetting(w, r, key)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -4230,14 +5226,14 @@ func (siw *ServerInterfaceWrapper) GetAdminSystemHealth(w http.ResponseWriter, r
 	handler.ServeHTTP(w, r)
 }
 
-// AdminUsersApiV1AdminUsersGet operation middleware
-func (siw *ServerInterfaceWrapper) AdminUsersApiV1AdminUsersGet(w http.ResponseWriter, r *http.Request) {
+// ListAdminUsers operation middleware
+func (siw *ServerInterfaceWrapper) ListAdminUsers(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
 
 	// Parameter object where we will unmarshal all parameters from the context
-	var params AdminUsersApiV1AdminUsersGetParams
+	var params ListAdminUsersParams
 
 	// ------------- Optional query parameter "q" -------------
 
@@ -4279,7 +5275,7 @@ func (siw *ServerInterfaceWrapper) AdminUsersApiV1AdminUsersGet(w http.ResponseW
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.AdminUsersApiV1AdminUsersGet(w, r, params)
+		siw.Handler.ListAdminUsers(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -4289,8 +5285,8 @@ func (siw *ServerInterfaceWrapper) AdminUsersApiV1AdminUsersGet(w http.ResponseW
 	handler.ServeHTTP(w, r)
 }
 
-// AdminUpdateUserApiV1AdminUsersUserIdPatch operation middleware
-func (siw *ServerInterfaceWrapper) AdminUpdateUserApiV1AdminUsersUserIdPatch(w http.ResponseWriter, r *http.Request) {
+// UpdateAdminUser operation middleware
+func (siw *ServerInterfaceWrapper) UpdateAdminUser(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
@@ -4305,7 +5301,7 @@ func (siw *ServerInterfaceWrapper) AdminUpdateUserApiV1AdminUsersUserIdPatch(w h
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.AdminUpdateUserApiV1AdminUsersUserIdPatch(w, r, userId)
+		siw.Handler.UpdateAdminUser(w, r, userId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -4315,14 +5311,14 @@ func (siw *ServerInterfaceWrapper) AdminUpdateUserApiV1AdminUsersUserIdPatch(w h
 	handler.ServeHTTP(w, r)
 }
 
-// ListAnnouncementsApiV1AnnouncementsGet operation middleware
-func (siw *ServerInterfaceWrapper) ListAnnouncementsApiV1AnnouncementsGet(w http.ResponseWriter, r *http.Request) {
+// ListAnnouncements operation middleware
+func (siw *ServerInterfaceWrapper) ListAnnouncements(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
 
 	// Parameter object where we will unmarshal all parameters from the context
-	var params ListAnnouncementsApiV1AnnouncementsGetParams
+	var params ListAnnouncementsParams
 
 	// ------------- Optional query parameter "page" -------------
 
@@ -4351,7 +5347,7 @@ func (siw *ServerInterfaceWrapper) ListAnnouncementsApiV1AnnouncementsGet(w http
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ListAnnouncementsApiV1AnnouncementsGet(w, r, params)
+		siw.Handler.ListAnnouncements(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -4361,8 +5357,8 @@ func (siw *ServerInterfaceWrapper) ListAnnouncementsApiV1AnnouncementsGet(w http
 	handler.ServeHTTP(w, r)
 }
 
-// ReadAnnouncementApiV1AnnouncementsAnnouncementIdReadPut operation middleware
-func (siw *ServerInterfaceWrapper) ReadAnnouncementApiV1AnnouncementsAnnouncementIdReadPut(w http.ResponseWriter, r *http.Request) {
+// ReadAnnouncement operation middleware
+func (siw *ServerInterfaceWrapper) ReadAnnouncement(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
@@ -4377,7 +5373,7 @@ func (siw *ServerInterfaceWrapper) ReadAnnouncementApiV1AnnouncementsAnnouncemen
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ReadAnnouncementApiV1AnnouncementsAnnouncementIdReadPut(w, r, announcementId)
+		siw.Handler.ReadAnnouncement(w, r, announcementId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -4387,8 +5383,8 @@ func (siw *ServerInterfaceWrapper) ReadAnnouncementApiV1AnnouncementsAnnouncemen
 	handler.ServeHTTP(w, r)
 }
 
-// AcceptAnswerApiV1AnswersAnswerIdAcceptPost operation middleware
-func (siw *ServerInterfaceWrapper) AcceptAnswerApiV1AnswersAnswerIdAcceptPost(w http.ResponseWriter, r *http.Request) {
+// AcceptAnswer operation middleware
+func (siw *ServerInterfaceWrapper) AcceptAnswer(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
@@ -4403,7 +5399,7 @@ func (siw *ServerInterfaceWrapper) AcceptAnswerApiV1AnswersAnswerIdAcceptPost(w 
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.AcceptAnswerApiV1AnswersAnswerIdAcceptPost(w, r, answerId)
+		siw.Handler.AcceptAnswer(w, r, answerId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -4469,11 +5465,11 @@ func (siw *ServerInterfaceWrapper) RegisterApiV1AuthRegisterPost(w http.Response
 	handler.ServeHTTP(w, r)
 }
 
-// RequestCodeApiV1AuthRequestCodePost operation middleware
-func (siw *ServerInterfaceWrapper) RequestCodeApiV1AuthRequestCodePost(w http.ResponseWriter, r *http.Request) {
+// RequestVerificationCode operation middleware
+func (siw *ServerInterfaceWrapper) RequestVerificationCode(w http.ResponseWriter, r *http.Request) {
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.RequestCodeApiV1AuthRequestCodePost(w, r)
+		siw.Handler.RequestVerificationCode(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -4549,8 +5545,8 @@ func (siw *ServerInterfaceWrapper) BlockUserApiV1BlocksBlockedIdPut(w http.Respo
 	handler.ServeHTTP(w, r)
 }
 
-// RespondToRatingApiV1CampusServiceRatingsRatingIdResponsePost operation middleware
-func (siw *ServerInterfaceWrapper) RespondToRatingApiV1CampusServiceRatingsRatingIdResponsePost(w http.ResponseWriter, r *http.Request) {
+// RespondToCampusServiceRating operation middleware
+func (siw *ServerInterfaceWrapper) RespondToCampusServiceRating(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
@@ -4565,7 +5561,7 @@ func (siw *ServerInterfaceWrapper) RespondToRatingApiV1CampusServiceRatingsRatin
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.RespondToRatingApiV1CampusServiceRatingsRatingIdResponsePost(w, r, ratingId)
+		siw.Handler.RespondToCampusServiceRating(w, r, ratingId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -4575,14 +5571,14 @@ func (siw *ServerInterfaceWrapper) RespondToRatingApiV1CampusServiceRatingsRatin
 	handler.ServeHTTP(w, r)
 }
 
-// ListCampusServicesApiV1CampusServicesGet operation middleware
-func (siw *ServerInterfaceWrapper) ListCampusServicesApiV1CampusServicesGet(w http.ResponseWriter, r *http.Request) {
+// ListCampusServices operation middleware
+func (siw *ServerInterfaceWrapper) ListCampusServices(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
 
 	// Parameter object where we will unmarshal all parameters from the context
-	var params ListCampusServicesApiV1CampusServicesGetParams
+	var params ListCampusServicesParams
 
 	// ------------- Optional query parameter "category" -------------
 
@@ -4598,7 +5594,7 @@ func (siw *ServerInterfaceWrapper) ListCampusServicesApiV1CampusServicesGet(w ht
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ListCampusServicesApiV1CampusServicesGet(w, r, params)
+		siw.Handler.ListCampusServices(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -4608,8 +5604,8 @@ func (siw *ServerInterfaceWrapper) ListCampusServicesApiV1CampusServicesGet(w ht
 	handler.ServeHTTP(w, r)
 }
 
-// GetCampusServiceApiV1CampusServicesServiceIdGet operation middleware
-func (siw *ServerInterfaceWrapper) GetCampusServiceApiV1CampusServicesServiceIdGet(w http.ResponseWriter, r *http.Request) {
+// GetCampusService operation middleware
+func (siw *ServerInterfaceWrapper) GetCampusService(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
@@ -4624,7 +5620,7 @@ func (siw *ServerInterfaceWrapper) GetCampusServiceApiV1CampusServicesServiceIdG
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.GetCampusServiceApiV1CampusServicesServiceIdGet(w, r, serviceId)
+		siw.Handler.GetCampusService(w, r, serviceId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -4634,8 +5630,8 @@ func (siw *ServerInterfaceWrapper) GetCampusServiceApiV1CampusServicesServiceIdG
 	handler.ServeHTTP(w, r)
 }
 
-// RateCampusServiceApiV1CampusServicesServiceIdRatingsPost operation middleware
-func (siw *ServerInterfaceWrapper) RateCampusServiceApiV1CampusServicesServiceIdRatingsPost(w http.ResponseWriter, r *http.Request) {
+// RateCampusService operation middleware
+func (siw *ServerInterfaceWrapper) RateCampusService(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
@@ -4650,7 +5646,7 @@ func (siw *ServerInterfaceWrapper) RateCampusServiceApiV1CampusServicesServiceId
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.RateCampusServiceApiV1CampusServicesServiceIdRatingsPost(w, r, serviceId)
+		siw.Handler.RateCampusService(w, r, serviceId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -4660,14 +5656,14 @@ func (siw *ServerInterfaceWrapper) RateCampusServiceApiV1CampusServicesServiceId
 	handler.ServeHTTP(w, r)
 }
 
-// ListConversationsApiV1ConversationsGet operation middleware
-func (siw *ServerInterfaceWrapper) ListConversationsApiV1ConversationsGet(w http.ResponseWriter, r *http.Request) {
+// ListConversations operation middleware
+func (siw *ServerInterfaceWrapper) ListConversations(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
 
 	// Parameter object where we will unmarshal all parameters from the context
-	var params ListConversationsApiV1ConversationsGetParams
+	var params ListConversationsParams
 
 	// ------------- Optional query parameter "page" -------------
 
@@ -4696,7 +5692,7 @@ func (siw *ServerInterfaceWrapper) ListConversationsApiV1ConversationsGet(w http
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ListConversationsApiV1ConversationsGet(w, r, params)
+		siw.Handler.ListConversations(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -4706,11 +5702,11 @@ func (siw *ServerInterfaceWrapper) ListConversationsApiV1ConversationsGet(w http
 	handler.ServeHTTP(w, r)
 }
 
-// CreateConversationApiV1ConversationsPost operation middleware
-func (siw *ServerInterfaceWrapper) CreateConversationApiV1ConversationsPost(w http.ResponseWriter, r *http.Request) {
+// CreateConversation operation middleware
+func (siw *ServerInterfaceWrapper) CreateConversation(w http.ResponseWriter, r *http.Request) {
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.CreateConversationApiV1ConversationsPost(w, r)
+		siw.Handler.CreateConversation(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -4734,8 +5730,8 @@ func (siw *ServerInterfaceWrapper) ReadAllMessages(w http.ResponseWriter, r *htt
 	handler.ServeHTTP(w, r)
 }
 
-// ListMessagesApiV1ConversationsConversationIdMessagesGet operation middleware
-func (siw *ServerInterfaceWrapper) ListMessagesApiV1ConversationsConversationIdMessagesGet(w http.ResponseWriter, r *http.Request) {
+// ListConversationMessages operation middleware
+func (siw *ServerInterfaceWrapper) ListConversationMessages(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
@@ -4750,7 +5746,7 @@ func (siw *ServerInterfaceWrapper) ListMessagesApiV1ConversationsConversationIdM
 	}
 
 	// Parameter object where we will unmarshal all parameters from the context
-	var params ListMessagesApiV1ConversationsConversationIdMessagesGetParams
+	var params ListConversationMessagesParams
 
 	// ------------- Optional query parameter "page" -------------
 
@@ -4779,7 +5775,7 @@ func (siw *ServerInterfaceWrapper) ListMessagesApiV1ConversationsConversationIdM
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ListMessagesApiV1ConversationsConversationIdMessagesGet(w, r, conversationId, params)
+		siw.Handler.ListConversationMessages(w, r, conversationId, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -4789,8 +5785,8 @@ func (siw *ServerInterfaceWrapper) ListMessagesApiV1ConversationsConversationIdM
 	handler.ServeHTTP(w, r)
 }
 
-// SendMessageApiV1ConversationsConversationIdMessagesPost operation middleware
-func (siw *ServerInterfaceWrapper) SendMessageApiV1ConversationsConversationIdMessagesPost(w http.ResponseWriter, r *http.Request) {
+// SendConversationMessage operation middleware
+func (siw *ServerInterfaceWrapper) SendConversationMessage(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
@@ -4805,7 +5801,7 @@ func (siw *ServerInterfaceWrapper) SendMessageApiV1ConversationsConversationIdMe
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.SendMessageApiV1ConversationsConversationIdMessagesPost(w, r, conversationId)
+		siw.Handler.SendConversationMessage(w, r, conversationId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -4815,14 +5811,14 @@ func (siw *ServerInterfaceWrapper) SendMessageApiV1ConversationsConversationIdMe
 	handler.ServeHTTP(w, r)
 }
 
-// ListOfferingsApiV1CourseOfferingsGet operation middleware
-func (siw *ServerInterfaceWrapper) ListOfferingsApiV1CourseOfferingsGet(w http.ResponseWriter, r *http.Request) {
+// ListCourseOfferings operation middleware
+func (siw *ServerInterfaceWrapper) ListCourseOfferings(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
 
 	// Parameter object where we will unmarshal all parameters from the context
-	var params ListOfferingsApiV1CourseOfferingsGetParams
+	var params ListCourseOfferingsParams
 
 	// ------------- Optional query parameter "page" -------------
 
@@ -4851,7 +5847,7 @@ func (siw *ServerInterfaceWrapper) ListOfferingsApiV1CourseOfferingsGet(w http.R
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ListOfferingsApiV1CourseOfferingsGet(w, r, params)
+		siw.Handler.ListCourseOfferings(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -4861,11 +5857,11 @@ func (siw *ServerInterfaceWrapper) ListOfferingsApiV1CourseOfferingsGet(w http.R
 	handler.ServeHTTP(w, r)
 }
 
-// CreateOfferingApiV1CourseOfferingsPost operation middleware
-func (siw *ServerInterfaceWrapper) CreateOfferingApiV1CourseOfferingsPost(w http.ResponseWriter, r *http.Request) {
+// CreateCourseOffering operation middleware
+func (siw *ServerInterfaceWrapper) CreateCourseOffering(w http.ResponseWriter, r *http.Request) {
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.CreateOfferingApiV1CourseOfferingsPost(w, r)
+		siw.Handler.CreateCourseOffering(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -4875,11 +5871,11 @@ func (siw *ServerInterfaceWrapper) CreateOfferingApiV1CourseOfferingsPost(w http
 	handler.ServeHTTP(w, r)
 }
 
-// CreateReviewApiV1CourseReviewsPost operation middleware
-func (siw *ServerInterfaceWrapper) CreateReviewApiV1CourseReviewsPost(w http.ResponseWriter, r *http.Request) {
+// CreateCourseReview operation middleware
+func (siw *ServerInterfaceWrapper) CreateCourseReview(w http.ResponseWriter, r *http.Request) {
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.CreateReviewApiV1CourseReviewsPost(w, r)
+		siw.Handler.CreateCourseReview(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -4889,8 +5885,8 @@ func (siw *ServerInterfaceWrapper) CreateReviewApiV1CourseReviewsPost(w http.Res
 	handler.ServeHTTP(w, r)
 }
 
-// CorrectReviewApiV1CourseReviewsReviewIdCorrectionPost operation middleware
-func (siw *ServerInterfaceWrapper) CorrectReviewApiV1CourseReviewsReviewIdCorrectionPost(w http.ResponseWriter, r *http.Request) {
+// CorrectCourseReview operation middleware
+func (siw *ServerInterfaceWrapper) CorrectCourseReview(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
@@ -4905,7 +5901,7 @@ func (siw *ServerInterfaceWrapper) CorrectReviewApiV1CourseReviewsReviewIdCorrec
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.CorrectReviewApiV1CourseReviewsReviewIdCorrectionPost(w, r, reviewId)
+		siw.Handler.CorrectCourseReview(w, r, reviewId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -4915,11 +5911,11 @@ func (siw *ServerInterfaceWrapper) CorrectReviewApiV1CourseReviewsReviewIdCorrec
 	handler.ServeHTTP(w, r)
 }
 
-// CreateCourseApiV1CoursesPost operation middleware
-func (siw *ServerInterfaceWrapper) CreateCourseApiV1CoursesPost(w http.ResponseWriter, r *http.Request) {
+// CreateCourse operation middleware
+func (siw *ServerInterfaceWrapper) CreateCourse(w http.ResponseWriter, r *http.Request) {
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.CreateCourseApiV1CoursesPost(w, r)
+		siw.Handler.CreateCourse(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -4943,8 +5939,8 @@ func (siw *ServerInterfaceWrapper) PublicCreditRulesApiV1CreditRulesGet(w http.R
 	handler.ServeHTTP(w, r)
 }
 
-// DeleteEntityApiV1EntitiesEntityIdDelete operation middleware
-func (siw *ServerInterfaceWrapper) DeleteEntityApiV1EntitiesEntityIdDelete(w http.ResponseWriter, r *http.Request) {
+// DeleteEntity operation middleware
+func (siw *ServerInterfaceWrapper) DeleteEntity(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
@@ -4959,7 +5955,7 @@ func (siw *ServerInterfaceWrapper) DeleteEntityApiV1EntitiesEntityIdDelete(w htt
 	}
 
 	// Parameter object where we will unmarshal all parameters from the context
-	var params DeleteEntityApiV1EntitiesEntityIdDeleteParams
+	var params DeleteEntityParams
 
 	// ------------- Optional query parameter "reason" -------------
 
@@ -4975,7 +5971,7 @@ func (siw *ServerInterfaceWrapper) DeleteEntityApiV1EntitiesEntityIdDelete(w htt
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.DeleteEntityApiV1EntitiesEntityIdDelete(w, r, entityId, params)
+		siw.Handler.DeleteEntity(w, r, entityId, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -4985,8 +5981,8 @@ func (siw *ServerInterfaceWrapper) DeleteEntityApiV1EntitiesEntityIdDelete(w htt
 	handler.ServeHTTP(w, r)
 }
 
-// UnfavoriteApiV1EntitiesEntityIdFavoriteDelete operation middleware
-func (siw *ServerInterfaceWrapper) UnfavoriteApiV1EntitiesEntityIdFavoriteDelete(w http.ResponseWriter, r *http.Request) {
+// UnfavoriteEntity operation middleware
+func (siw *ServerInterfaceWrapper) UnfavoriteEntity(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
@@ -5001,7 +5997,7 @@ func (siw *ServerInterfaceWrapper) UnfavoriteApiV1EntitiesEntityIdFavoriteDelete
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.UnfavoriteApiV1EntitiesEntityIdFavoriteDelete(w, r, entityId)
+		siw.Handler.UnfavoriteEntity(w, r, entityId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -5011,8 +6007,8 @@ func (siw *ServerInterfaceWrapper) UnfavoriteApiV1EntitiesEntityIdFavoriteDelete
 	handler.ServeHTTP(w, r)
 }
 
-// FavoriteApiV1EntitiesEntityIdFavoritePut operation middleware
-func (siw *ServerInterfaceWrapper) FavoriteApiV1EntitiesEntityIdFavoritePut(w http.ResponseWriter, r *http.Request) {
+// FavoriteEntity operation middleware
+func (siw *ServerInterfaceWrapper) FavoriteEntity(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
@@ -5027,7 +6023,7 @@ func (siw *ServerInterfaceWrapper) FavoriteApiV1EntitiesEntityIdFavoritePut(w ht
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.FavoriteApiV1EntitiesEntityIdFavoritePut(w, r, entityId)
+		siw.Handler.FavoriteEntity(w, r, entityId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -5362,11 +6358,11 @@ func (siw *ServerInterfaceWrapper) CreateFeedbackApiV1FeedbackPost(w http.Respon
 	handler.ServeHTTP(w, r)
 }
 
-// SubmitGameApiV1GameSubmissionsPost operation middleware
-func (siw *ServerInterfaceWrapper) SubmitGameApiV1GameSubmissionsPost(w http.ResponseWriter, r *http.Request) {
+// SubmitGame operation middleware
+func (siw *ServerInterfaceWrapper) SubmitGame(w http.ResponseWriter, r *http.Request) {
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.SubmitGameApiV1GameSubmissionsPost(w, r)
+		siw.Handler.SubmitGame(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -5376,14 +6372,14 @@ func (siw *ServerInterfaceWrapper) SubmitGameApiV1GameSubmissionsPost(w http.Res
 	handler.ServeHTTP(w, r)
 }
 
-// ListHandbookApiV1HandbookGet operation middleware
-func (siw *ServerInterfaceWrapper) ListHandbookApiV1HandbookGet(w http.ResponseWriter, r *http.Request) {
+// ListHandbookArticles operation middleware
+func (siw *ServerInterfaceWrapper) ListHandbookArticles(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
 
 	// Parameter object where we will unmarshal all parameters from the context
-	var params ListHandbookApiV1HandbookGetParams
+	var params ListHandbookArticlesParams
 
 	// ------------- Optional query parameter "page" -------------
 
@@ -5425,7 +6421,7 @@ func (siw *ServerInterfaceWrapper) ListHandbookApiV1HandbookGet(w http.ResponseW
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ListHandbookApiV1HandbookGet(w, r, params)
+		siw.Handler.ListHandbookArticles(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -5435,11 +6431,11 @@ func (siw *ServerInterfaceWrapper) ListHandbookApiV1HandbookGet(w http.ResponseW
 	handler.ServeHTTP(w, r)
 }
 
-// CreateArticleApiV1HandbookPost operation middleware
-func (siw *ServerInterfaceWrapper) CreateArticleApiV1HandbookPost(w http.ResponseWriter, r *http.Request) {
+// CreateHandbookArticle operation middleware
+func (siw *ServerInterfaceWrapper) CreateHandbookArticle(w http.ResponseWriter, r *http.Request) {
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.CreateArticleApiV1HandbookPost(w, r)
+		siw.Handler.CreateHandbookArticle(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -5449,8 +6445,8 @@ func (siw *ServerInterfaceWrapper) CreateArticleApiV1HandbookPost(w http.Respons
 	handler.ServeHTTP(w, r)
 }
 
-// GetArticleApiV1HandbookArticleIdGet operation middleware
-func (siw *ServerInterfaceWrapper) GetArticleApiV1HandbookArticleIdGet(w http.ResponseWriter, r *http.Request) {
+// GetHandbookArticle operation middleware
+func (siw *ServerInterfaceWrapper) GetHandbookArticle(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
@@ -5465,7 +6461,7 @@ func (siw *ServerInterfaceWrapper) GetArticleApiV1HandbookArticleIdGet(w http.Re
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.GetArticleApiV1HandbookArticleIdGet(w, r, articleId)
+		siw.Handler.GetHandbookArticle(w, r, articleId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -5475,8 +6471,8 @@ func (siw *ServerInterfaceWrapper) GetArticleApiV1HandbookArticleIdGet(w http.Re
 	handler.ServeHTTP(w, r)
 }
 
-// UpdateArticleApiV1HandbookArticleIdPatch operation middleware
-func (siw *ServerInterfaceWrapper) UpdateArticleApiV1HandbookArticleIdPatch(w http.ResponseWriter, r *http.Request) {
+// UpdateHandbookArticle operation middleware
+func (siw *ServerInterfaceWrapper) UpdateHandbookArticle(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
@@ -5491,7 +6487,7 @@ func (siw *ServerInterfaceWrapper) UpdateArticleApiV1HandbookArticleIdPatch(w ht
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.UpdateArticleApiV1HandbookArticleIdPatch(w, r, articleId)
+		siw.Handler.UpdateHandbookArticle(w, r, articleId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -5501,8 +6497,8 @@ func (siw *ServerInterfaceWrapper) UpdateArticleApiV1HandbookArticleIdPatch(w ht
 	handler.ServeHTTP(w, r)
 }
 
-// FeatureArticleApiV1HandbookArticleIdFeaturePost operation middleware
-func (siw *ServerInterfaceWrapper) FeatureArticleApiV1HandbookArticleIdFeaturePost(w http.ResponseWriter, r *http.Request) {
+// FeatureHandbookArticle operation middleware
+func (siw *ServerInterfaceWrapper) FeatureHandbookArticle(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
@@ -5517,7 +6513,7 @@ func (siw *ServerInterfaceWrapper) FeatureArticleApiV1HandbookArticleIdFeaturePo
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.FeatureArticleApiV1HandbookArticleIdFeaturePost(w, r, articleId)
+		siw.Handler.FeatureHandbookArticle(w, r, articleId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -5527,8 +6523,8 @@ func (siw *ServerInterfaceWrapper) FeatureArticleApiV1HandbookArticleIdFeaturePo
 	handler.ServeHTTP(w, r)
 }
 
-// PublishArticleApiV1HandbookArticleIdPublishPost operation middleware
-func (siw *ServerInterfaceWrapper) PublishArticleApiV1HandbookArticleIdPublishPost(w http.ResponseWriter, r *http.Request) {
+// PublishHandbookArticle operation middleware
+func (siw *ServerInterfaceWrapper) PublishHandbookArticle(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
@@ -5543,7 +6539,7 @@ func (siw *ServerInterfaceWrapper) PublishArticleApiV1HandbookArticleIdPublishPo
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.PublishArticleApiV1HandbookArticleIdPublishPost(w, r, articleId)
+		siw.Handler.PublishHandbookArticle(w, r, articleId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -5900,14 +6896,14 @@ func (siw *ServerInterfaceWrapper) RequestListingTransaction(w http.ResponseWrit
 	handler.ServeHTTP(w, r)
 }
 
-// ListLostItemsApiV1LostItemsGet operation middleware
-func (siw *ServerInterfaceWrapper) ListLostItemsApiV1LostItemsGet(w http.ResponseWriter, r *http.Request) {
+// ListLostItems operation middleware
+func (siw *ServerInterfaceWrapper) ListLostItems(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
 
 	// Parameter object where we will unmarshal all parameters from the context
-	var params ListLostItemsApiV1LostItemsGetParams
+	var params ListLostItemsParams
 
 	// ------------- Optional query parameter "page" -------------
 
@@ -5949,7 +6945,7 @@ func (siw *ServerInterfaceWrapper) ListLostItemsApiV1LostItemsGet(w http.Respons
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ListLostItemsApiV1LostItemsGet(w, r, params)
+		siw.Handler.ListLostItems(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -5959,11 +6955,11 @@ func (siw *ServerInterfaceWrapper) ListLostItemsApiV1LostItemsGet(w http.Respons
 	handler.ServeHTTP(w, r)
 }
 
-// CreateLostItemApiV1LostItemsPost operation middleware
-func (siw *ServerInterfaceWrapper) CreateLostItemApiV1LostItemsPost(w http.ResponseWriter, r *http.Request) {
+// CreateLostItem operation middleware
+func (siw *ServerInterfaceWrapper) CreateLostItem(w http.ResponseWriter, r *http.Request) {
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.CreateLostItemApiV1LostItemsPost(w, r)
+		siw.Handler.CreateLostItem(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -5973,8 +6969,8 @@ func (siw *ServerInterfaceWrapper) CreateLostItemApiV1LostItemsPost(w http.Respo
 	handler.ServeHTTP(w, r)
 }
 
-// UpdateLostItemApiV1LostItemsItemIdPatch operation middleware
-func (siw *ServerInterfaceWrapper) UpdateLostItemApiV1LostItemsItemIdPatch(w http.ResponseWriter, r *http.Request) {
+// UpdateLostItem operation middleware
+func (siw *ServerInterfaceWrapper) UpdateLostItem(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
@@ -5989,7 +6985,7 @@ func (siw *ServerInterfaceWrapper) UpdateLostItemApiV1LostItemsItemIdPatch(w htt
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.UpdateLostItemApiV1LostItemsItemIdPatch(w, r, itemId)
+		siw.Handler.UpdateLostItem(w, r, itemId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -5999,8 +6995,8 @@ func (siw *ServerInterfaceWrapper) UpdateLostItemApiV1LostItemsItemIdPatch(w htt
 	handler.ServeHTTP(w, r)
 }
 
-// ListClaimsApiV1LostItemsItemIdClaimsGet operation middleware
-func (siw *ServerInterfaceWrapper) ListClaimsApiV1LostItemsItemIdClaimsGet(w http.ResponseWriter, r *http.Request) {
+// ListLostClaims operation middleware
+func (siw *ServerInterfaceWrapper) ListLostClaims(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
@@ -6015,7 +7011,7 @@ func (siw *ServerInterfaceWrapper) ListClaimsApiV1LostItemsItemIdClaimsGet(w htt
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ListClaimsApiV1LostItemsItemIdClaimsGet(w, r, itemId)
+		siw.Handler.ListLostClaims(w, r, itemId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -6025,8 +7021,8 @@ func (siw *ServerInterfaceWrapper) ListClaimsApiV1LostItemsItemIdClaimsGet(w htt
 	handler.ServeHTTP(w, r)
 }
 
-// CreateClaimApiV1LostItemsItemIdClaimsPost operation middleware
-func (siw *ServerInterfaceWrapper) CreateClaimApiV1LostItemsItemIdClaimsPost(w http.ResponseWriter, r *http.Request) {
+// CreateLostClaim operation middleware
+func (siw *ServerInterfaceWrapper) CreateLostClaim(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
@@ -6041,7 +7037,7 @@ func (siw *ServerInterfaceWrapper) CreateClaimApiV1LostItemsItemIdClaimsPost(w h
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.CreateClaimApiV1LostItemsItemIdClaimsPost(w, r, itemId)
+		siw.Handler.CreateLostClaim(w, r, itemId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -6051,8 +7047,8 @@ func (siw *ServerInterfaceWrapper) CreateClaimApiV1LostItemsItemIdClaimsPost(w h
 	handler.ServeHTTP(w, r)
 }
 
-// DecideClaimApiV1LostItemsItemIdClaimsClaimIdDecisionPost operation middleware
-func (siw *ServerInterfaceWrapper) DecideClaimApiV1LostItemsItemIdClaimsClaimIdDecisionPost(w http.ResponseWriter, r *http.Request) {
+// DecideLostClaim operation middleware
+func (siw *ServerInterfaceWrapper) DecideLostClaim(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
@@ -6076,7 +7072,7 @@ func (siw *ServerInterfaceWrapper) DecideClaimApiV1LostItemsItemIdClaimsClaimIdD
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.DecideClaimApiV1LostItemsItemIdClaimsClaimIdDecisionPost(w, r, itemId, claimId)
+		siw.Handler.DecideLostClaim(w, r, itemId, claimId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -6282,11 +7278,11 @@ func (siw *ServerInterfaceWrapper) GetMarketOptions(w http.ResponseWriter, r *ht
 	handler.ServeHTTP(w, r)
 }
 
-// MeApiV1MeGet operation middleware
-func (siw *ServerInterfaceWrapper) MeApiV1MeGet(w http.ResponseWriter, r *http.Request) {
+// GetCurrentUser operation middleware
+func (siw *ServerInterfaceWrapper) GetCurrentUser(w http.ResponseWriter, r *http.Request) {
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.MeApiV1MeGet(w, r)
+		siw.Handler.GetCurrentUser(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -6296,14 +7292,14 @@ func (siw *ServerInterfaceWrapper) MeApiV1MeGet(w http.ResponseWriter, r *http.R
 	handler.ServeHTTP(w, r)
 }
 
-// MyAppealsApiV1MeAppealsGet operation middleware
-func (siw *ServerInterfaceWrapper) MyAppealsApiV1MeAppealsGet(w http.ResponseWriter, r *http.Request) {
+// ListMyAppeals operation middleware
+func (siw *ServerInterfaceWrapper) ListMyAppeals(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
 
 	// Parameter object where we will unmarshal all parameters from the context
-	var params MyAppealsApiV1MeAppealsGetParams
+	var params ListMyAppealsParams
 
 	// ------------- Optional query parameter "page" -------------
 
@@ -6345,7 +7341,7 @@ func (siw *ServerInterfaceWrapper) MyAppealsApiV1MeAppealsGet(w http.ResponseWri
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.MyAppealsApiV1MeAppealsGet(w, r, params)
+		siw.Handler.ListMyAppeals(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -6355,14 +7351,14 @@ func (siw *ServerInterfaceWrapper) MyAppealsApiV1MeAppealsGet(w http.ResponseWri
 	handler.ServeHTTP(w, r)
 }
 
-// MyContentApiV1MeContentGet operation middleware
-func (siw *ServerInterfaceWrapper) MyContentApiV1MeContentGet(w http.ResponseWriter, r *http.Request) {
+// ListMyContent operation middleware
+func (siw *ServerInterfaceWrapper) ListMyContent(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
 
 	// Parameter object where we will unmarshal all parameters from the context
-	var params MyContentApiV1MeContentGetParams
+	var params ListMyContentParams
 
 	// ------------- Optional query parameter "page" -------------
 
@@ -6417,7 +7413,7 @@ func (siw *ServerInterfaceWrapper) MyContentApiV1MeContentGet(w http.ResponseWri
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.MyContentApiV1MeContentGet(w, r, params)
+		siw.Handler.ListMyContent(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -6427,11 +7423,11 @@ func (siw *ServerInterfaceWrapper) MyContentApiV1MeContentGet(w http.ResponseWri
 	handler.ServeHTTP(w, r)
 }
 
-// DeactivateAccountApiV1MeDeactivatePost operation middleware
-func (siw *ServerInterfaceWrapper) DeactivateAccountApiV1MeDeactivatePost(w http.ResponseWriter, r *http.Request) {
+// DeactivateAccount operation middleware
+func (siw *ServerInterfaceWrapper) DeactivateAccount(w http.ResponseWriter, r *http.Request) {
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.DeactivateAccountApiV1MeDeactivatePost(w, r)
+		siw.Handler.DeactivateAccount(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -6441,11 +7437,11 @@ func (siw *ServerInterfaceWrapper) DeactivateAccountApiV1MeDeactivatePost(w http
 	handler.ServeHTTP(w, r)
 }
 
-// ChangeEmailApiV1MeEmailPost operation middleware
-func (siw *ServerInterfaceWrapper) ChangeEmailApiV1MeEmailPost(w http.ResponseWriter, r *http.Request) {
+// ChangeEmail operation middleware
+func (siw *ServerInterfaceWrapper) ChangeEmail(w http.ResponseWriter, r *http.Request) {
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ChangeEmailApiV1MeEmailPost(w, r)
+		siw.Handler.ChangeEmail(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -6455,14 +7451,14 @@ func (siw *ServerInterfaceWrapper) ChangeEmailApiV1MeEmailPost(w http.ResponseWr
 	handler.ServeHTTP(w, r)
 }
 
-// MyFavoritesApiV1MeFavoritesGet operation middleware
-func (siw *ServerInterfaceWrapper) MyFavoritesApiV1MeFavoritesGet(w http.ResponseWriter, r *http.Request) {
+// ListMyFavorites operation middleware
+func (siw *ServerInterfaceWrapper) ListMyFavorites(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
 
 	// Parameter object where we will unmarshal all parameters from the context
-	var params MyFavoritesApiV1MeFavoritesGetParams
+	var params ListMyFavoritesParams
 
 	// ------------- Optional query parameter "page" -------------
 
@@ -6504,7 +7500,7 @@ func (siw *ServerInterfaceWrapper) MyFavoritesApiV1MeFavoritesGet(w http.Respons
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.MyFavoritesApiV1MeFavoritesGet(w, r, params)
+		siw.Handler.ListMyFavorites(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -6528,11 +7524,11 @@ func (siw *ServerInterfaceWrapper) ListMyMarketTransactions(w http.ResponseWrite
 	handler.ServeHTTP(w, r)
 }
 
-// ChangePasswordApiV1MePasswordPost operation middleware
-func (siw *ServerInterfaceWrapper) ChangePasswordApiV1MePasswordPost(w http.ResponseWriter, r *http.Request) {
+// AcceptObserveAgreement operation middleware
+func (siw *ServerInterfaceWrapper) AcceptObserveAgreement(w http.ResponseWriter, r *http.Request) {
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ChangePasswordApiV1MePasswordPost(w, r)
+		siw.Handler.AcceptObserveAgreement(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -6542,11 +7538,11 @@ func (siw *ServerInterfaceWrapper) ChangePasswordApiV1MePasswordPost(w http.Resp
 	handler.ServeHTTP(w, r)
 }
 
-// UpdatePrivacyApiV1MePrivacyPatch operation middleware
-func (siw *ServerInterfaceWrapper) UpdatePrivacyApiV1MePrivacyPatch(w http.ResponseWriter, r *http.Request) {
+// ChangePassword operation middleware
+func (siw *ServerInterfaceWrapper) ChangePassword(w http.ResponseWriter, r *http.Request) {
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.UpdatePrivacyApiV1MePrivacyPatch(w, r)
+		siw.Handler.ChangePassword(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -6556,11 +7552,11 @@ func (siw *ServerInterfaceWrapper) UpdatePrivacyApiV1MePrivacyPatch(w http.Respo
 	handler.ServeHTTP(w, r)
 }
 
-// UpdateProfileApiV1MeProfilePatch operation middleware
-func (siw *ServerInterfaceWrapper) UpdateProfileApiV1MeProfilePatch(w http.ResponseWriter, r *http.Request) {
+// UpdatePrivacy operation middleware
+func (siw *ServerInterfaceWrapper) UpdatePrivacy(w http.ResponseWriter, r *http.Request) {
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.UpdateProfileApiV1MeProfilePatch(w, r)
+		siw.Handler.UpdatePrivacy(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -6570,14 +7566,28 @@ func (siw *ServerInterfaceWrapper) UpdateProfileApiV1MeProfilePatch(w http.Respo
 	handler.ServeHTTP(w, r)
 }
 
-// MyReportsApiV1MeReportsGet operation middleware
-func (siw *ServerInterfaceWrapper) MyReportsApiV1MeReportsGet(w http.ResponseWriter, r *http.Request) {
+// UpdateProfile operation middleware
+func (siw *ServerInterfaceWrapper) UpdateProfile(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateProfile(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListMyReports operation middleware
+func (siw *ServerInterfaceWrapper) ListMyReports(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
 
 	// Parameter object where we will unmarshal all parameters from the context
-	var params MyReportsApiV1MeReportsGetParams
+	var params ListMyReportsParams
 
 	// ------------- Optional query parameter "page" -------------
 
@@ -6619,7 +7629,7 @@ func (siw *ServerInterfaceWrapper) MyReportsApiV1MeReportsGet(w http.ResponseWri
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.MyReportsApiV1MeReportsGet(w, r, params)
+		siw.Handler.ListMyReports(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -6629,14 +7639,14 @@ func (siw *ServerInterfaceWrapper) MyReportsApiV1MeReportsGet(w http.ResponseWri
 	handler.ServeHTTP(w, r)
 }
 
-// SessionsApiV1MeSessionsGet operation middleware
-func (siw *ServerInterfaceWrapper) SessionsApiV1MeSessionsGet(w http.ResponseWriter, r *http.Request) {
+// ListSessions operation middleware
+func (siw *ServerInterfaceWrapper) ListSessions(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
 
 	// Parameter object where we will unmarshal all parameters from the context
-	var params SessionsApiV1MeSessionsGetParams
+	var params ListSessionsParams
 
 	// ------------- Optional query parameter "page" -------------
 
@@ -6665,7 +7675,7 @@ func (siw *ServerInterfaceWrapper) SessionsApiV1MeSessionsGet(w http.ResponseWri
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.SessionsApiV1MeSessionsGet(w, r, params)
+		siw.Handler.ListSessions(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -6675,8 +7685,8 @@ func (siw *ServerInterfaceWrapper) SessionsApiV1MeSessionsGet(w http.ResponseWri
 	handler.ServeHTTP(w, r)
 }
 
-// RevokeSessionApiV1MeSessionsSessionIdDelete operation middleware
-func (siw *ServerInterfaceWrapper) RevokeSessionApiV1MeSessionsSessionIdDelete(w http.ResponseWriter, r *http.Request) {
+// RevokeSession operation middleware
+func (siw *ServerInterfaceWrapper) RevokeSession(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
@@ -6691,7 +7701,7 @@ func (siw *ServerInterfaceWrapper) RevokeSessionApiV1MeSessionsSessionIdDelete(w
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.RevokeSessionApiV1MeSessionsSessionIdDelete(w, r, sessionId)
+		siw.Handler.RevokeSession(w, r, sessionId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -6701,14 +7711,14 @@ func (siw *ServerInterfaceWrapper) RevokeSessionApiV1MeSessionsSessionIdDelete(w
 	handler.ServeHTTP(w, r)
 }
 
-// ListNotificationsApiV1NotificationsGet operation middleware
-func (siw *ServerInterfaceWrapper) ListNotificationsApiV1NotificationsGet(w http.ResponseWriter, r *http.Request) {
+// ListNotifications operation middleware
+func (siw *ServerInterfaceWrapper) ListNotifications(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
 
 	// Parameter object where we will unmarshal all parameters from the context
-	var params ListNotificationsApiV1NotificationsGetParams
+	var params ListNotificationsParams
 
 	// ------------- Optional query parameter "page" -------------
 
@@ -6737,7 +7747,7 @@ func (siw *ServerInterfaceWrapper) ListNotificationsApiV1NotificationsGet(w http
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ListNotificationsApiV1NotificationsGet(w, r, params)
+		siw.Handler.ListNotifications(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -6747,11 +7757,11 @@ func (siw *ServerInterfaceWrapper) ListNotificationsApiV1NotificationsGet(w http
 	handler.ServeHTTP(w, r)
 }
 
-// ReadAllNotificationsApiV1NotificationsReadAllPost operation middleware
-func (siw *ServerInterfaceWrapper) ReadAllNotificationsApiV1NotificationsReadAllPost(w http.ResponseWriter, r *http.Request) {
+// ReadAllNotifications operation middleware
+func (siw *ServerInterfaceWrapper) ReadAllNotifications(w http.ResponseWriter, r *http.Request) {
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ReadAllNotificationsApiV1NotificationsReadAllPost(w, r)
+		siw.Handler.ReadAllNotifications(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -6761,8 +7771,8 @@ func (siw *ServerInterfaceWrapper) ReadAllNotificationsApiV1NotificationsReadAll
 	handler.ServeHTTP(w, r)
 }
 
-// ReadNotificationApiV1NotificationsNotificationIdReadPost operation middleware
-func (siw *ServerInterfaceWrapper) ReadNotificationApiV1NotificationsNotificationIdReadPost(w http.ResponseWriter, r *http.Request) {
+// ReadNotification operation middleware
+func (siw *ServerInterfaceWrapper) ReadNotification(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
@@ -6777,7 +7787,7 @@ func (siw *ServerInterfaceWrapper) ReadNotificationApiV1NotificationsNotificatio
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ReadNotificationApiV1NotificationsNotificationIdReadPost(w, r, notificationId)
+		siw.Handler.ReadNotification(w, r, notificationId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -6787,14 +7797,14 @@ func (siw *ServerInterfaceWrapper) ReadNotificationApiV1NotificationsNotificatio
 	handler.ServeHTTP(w, r)
 }
 
-// ListObserveApiV1ObservePostsGet operation middleware
-func (siw *ServerInterfaceWrapper) ListObserveApiV1ObservePostsGet(w http.ResponseWriter, r *http.Request) {
+// ListObservePosts operation middleware
+func (siw *ServerInterfaceWrapper) ListObservePosts(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
 
 	// Parameter object where we will unmarshal all parameters from the context
-	var params ListObserveApiV1ObservePostsGetParams
+	var params ListObservePostsParams
 
 	// ------------- Optional query parameter "page" -------------
 
@@ -6823,7 +7833,7 @@ func (siw *ServerInterfaceWrapper) ListObserveApiV1ObservePostsGet(w http.Respon
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ListObserveApiV1ObservePostsGet(w, r, params)
+		siw.Handler.ListObservePosts(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -6833,11 +7843,11 @@ func (siw *ServerInterfaceWrapper) ListObserveApiV1ObservePostsGet(w http.Respon
 	handler.ServeHTTP(w, r)
 }
 
-// CreateObserveApiV1ObservePostsPost operation middleware
-func (siw *ServerInterfaceWrapper) CreateObserveApiV1ObservePostsPost(w http.ResponseWriter, r *http.Request) {
+// CreateObservePost operation middleware
+func (siw *ServerInterfaceWrapper) CreateObservePost(w http.ResponseWriter, r *http.Request) {
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.CreateObserveApiV1ObservePostsPost(w, r)
+		siw.Handler.CreateObservePost(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -6847,8 +7857,8 @@ func (siw *ServerInterfaceWrapper) CreateObserveApiV1ObservePostsPost(w http.Res
 	handler.ServeHTTP(w, r)
 }
 
-// RespondObserveApiV1ObservePostsObserveIdResponsePost operation middleware
-func (siw *ServerInterfaceWrapper) RespondObserveApiV1ObservePostsObserveIdResponsePost(w http.ResponseWriter, r *http.Request) {
+// RespondToObservePost operation middleware
+func (siw *ServerInterfaceWrapper) RespondToObservePost(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
@@ -6863,7 +7873,7 @@ func (siw *ServerInterfaceWrapper) RespondObserveApiV1ObservePostsObserveIdRespo
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.RespondObserveApiV1ObservePostsObserveIdResponsePost(w, r, observeId)
+		siw.Handler.RespondToObservePost(w, r, observeId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -6873,14 +7883,40 @@ func (siw *ServerInterfaceWrapper) RespondObserveApiV1ObservePostsObserveIdRespo
 	handler.ServeHTTP(w, r)
 }
 
-// PenaltiesApiV1PenaltiesGet operation middleware
-func (siw *ServerInterfaceWrapper) PenaltiesApiV1PenaltiesGet(w http.ResponseWriter, r *http.Request) {
+// RevealObservePost operation middleware
+func (siw *ServerInterfaceWrapper) RevealObservePost(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "observe_id" -------------
+	var observeId int64
+
+	err = runtime.BindStyledParameterWithOptions("simple", "observe_id", chi.URLParam(r, "observe_id"), &observeId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "observe_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RevealObservePost(w, r, observeId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListPenalties operation middleware
+func (siw *ServerInterfaceWrapper) ListPenalties(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
 
 	// Parameter object where we will unmarshal all parameters from the context
-	var params PenaltiesApiV1PenaltiesGetParams
+	var params ListPenaltiesParams
 
 	// ------------- Optional query parameter "page" -------------
 
@@ -6909,7 +7945,7 @@ func (siw *ServerInterfaceWrapper) PenaltiesApiV1PenaltiesGet(w http.ResponseWri
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.PenaltiesApiV1PenaltiesGet(w, r, params)
+		siw.Handler.ListPenalties(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -6919,8 +7955,8 @@ func (siw *ServerInterfaceWrapper) PenaltiesApiV1PenaltiesGet(w http.ResponseWri
 	handler.ServeHTTP(w, r)
 }
 
-// AppealPenaltyApiV1PenaltiesPenaltyIdAppealsPost operation middleware
-func (siw *ServerInterfaceWrapper) AppealPenaltyApiV1PenaltiesPenaltyIdAppealsPost(w http.ResponseWriter, r *http.Request) {
+// AppealPenalty operation middleware
+func (siw *ServerInterfaceWrapper) AppealPenalty(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
@@ -6935,7 +7971,7 @@ func (siw *ServerInterfaceWrapper) AppealPenaltyApiV1PenaltiesPenaltyIdAppealsPo
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.AppealPenaltyApiV1PenaltiesPenaltyIdAppealsPost(w, r, penaltyId)
+		siw.Handler.AppealPenalty(w, r, penaltyId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -7070,14 +8106,14 @@ func (siw *ServerInterfaceWrapper) UpdatePostApiV1PostsPostIdPatch(w http.Respon
 	handler.ServeHTTP(w, r)
 }
 
-// ListQuestionsApiV1QuestionsGet operation middleware
-func (siw *ServerInterfaceWrapper) ListQuestionsApiV1QuestionsGet(w http.ResponseWriter, r *http.Request) {
+// ListQuestions operation middleware
+func (siw *ServerInterfaceWrapper) ListQuestions(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
 
 	// Parameter object where we will unmarshal all parameters from the context
-	var params ListQuestionsApiV1QuestionsGetParams
+	var params ListQuestionsParams
 
 	// ------------- Optional query parameter "page" -------------
 
@@ -7119,7 +8155,7 @@ func (siw *ServerInterfaceWrapper) ListQuestionsApiV1QuestionsGet(w http.Respons
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ListQuestionsApiV1QuestionsGet(w, r, params)
+		siw.Handler.ListQuestions(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -7129,11 +8165,11 @@ func (siw *ServerInterfaceWrapper) ListQuestionsApiV1QuestionsGet(w http.Respons
 	handler.ServeHTTP(w, r)
 }
 
-// CreateQuestionApiV1QuestionsPost operation middleware
-func (siw *ServerInterfaceWrapper) CreateQuestionApiV1QuestionsPost(w http.ResponseWriter, r *http.Request) {
+// CreateQuestion operation middleware
+func (siw *ServerInterfaceWrapper) CreateQuestion(w http.ResponseWriter, r *http.Request) {
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.CreateQuestionApiV1QuestionsPost(w, r)
+		siw.Handler.CreateQuestion(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -7143,8 +8179,8 @@ func (siw *ServerInterfaceWrapper) CreateQuestionApiV1QuestionsPost(w http.Respo
 	handler.ServeHTTP(w, r)
 }
 
-// GetQuestionApiV1QuestionsQuestionIdGet operation middleware
-func (siw *ServerInterfaceWrapper) GetQuestionApiV1QuestionsQuestionIdGet(w http.ResponseWriter, r *http.Request) {
+// GetQuestion operation middleware
+func (siw *ServerInterfaceWrapper) GetQuestion(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
@@ -7159,7 +8195,7 @@ func (siw *ServerInterfaceWrapper) GetQuestionApiV1QuestionsQuestionIdGet(w http
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.GetQuestionApiV1QuestionsQuestionIdGet(w, r, questionId)
+		siw.Handler.GetQuestion(w, r, questionId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -7169,8 +8205,8 @@ func (siw *ServerInterfaceWrapper) GetQuestionApiV1QuestionsQuestionIdGet(w http
 	handler.ServeHTTP(w, r)
 }
 
-// UpdateQuestionApiV1QuestionsQuestionIdPatch operation middleware
-func (siw *ServerInterfaceWrapper) UpdateQuestionApiV1QuestionsQuestionIdPatch(w http.ResponseWriter, r *http.Request) {
+// UpdateQuestion operation middleware
+func (siw *ServerInterfaceWrapper) UpdateQuestion(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
@@ -7185,7 +8221,7 @@ func (siw *ServerInterfaceWrapper) UpdateQuestionApiV1QuestionsQuestionIdPatch(w
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.UpdateQuestionApiV1QuestionsQuestionIdPatch(w, r, questionId)
+		siw.Handler.UpdateQuestion(w, r, questionId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -7195,8 +8231,8 @@ func (siw *ServerInterfaceWrapper) UpdateQuestionApiV1QuestionsQuestionIdPatch(w
 	handler.ServeHTTP(w, r)
 }
 
-// CreateAnswerApiV1QuestionsQuestionIdAnswersPost operation middleware
-func (siw *ServerInterfaceWrapper) CreateAnswerApiV1QuestionsQuestionIdAnswersPost(w http.ResponseWriter, r *http.Request) {
+// CreateAnswer operation middleware
+func (siw *ServerInterfaceWrapper) CreateAnswer(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
@@ -7211,7 +8247,7 @@ func (siw *ServerInterfaceWrapper) CreateAnswerApiV1QuestionsQuestionIdAnswersPo
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.CreateAnswerApiV1QuestionsQuestionIdAnswersPost(w, r, questionId)
+		siw.Handler.CreateAnswer(w, r, questionId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -7280,11 +8316,11 @@ func (siw *ServerInterfaceWrapper) SearchApiV1SearchGet(w http.ResponseWriter, r
 	handler.ServeHTTP(w, r)
 }
 
-// ListTeamGamesApiV1TeamGamesGet operation middleware
-func (siw *ServerInterfaceWrapper) ListTeamGamesApiV1TeamGamesGet(w http.ResponseWriter, r *http.Request) {
+// ListTeamGames operation middleware
+func (siw *ServerInterfaceWrapper) ListTeamGames(w http.ResponseWriter, r *http.Request) {
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ListTeamGamesApiV1TeamGamesGet(w, r)
+		siw.Handler.ListTeamGames(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -7294,14 +8330,14 @@ func (siw *ServerInterfaceWrapper) ListTeamGamesApiV1TeamGamesGet(w http.Respons
 	handler.ServeHTTP(w, r)
 }
 
-// ListTeamsApiV1TeamsGet operation middleware
-func (siw *ServerInterfaceWrapper) ListTeamsApiV1TeamsGet(w http.ResponseWriter, r *http.Request) {
+// ListTeams operation middleware
+func (siw *ServerInterfaceWrapper) ListTeams(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
 
 	// Parameter object where we will unmarshal all parameters from the context
-	var params ListTeamsApiV1TeamsGetParams
+	var params ListTeamsParams
 
 	// ------------- Optional query parameter "page" -------------
 
@@ -7356,7 +8392,7 @@ func (siw *ServerInterfaceWrapper) ListTeamsApiV1TeamsGet(w http.ResponseWriter,
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ListTeamsApiV1TeamsGet(w, r, params)
+		siw.Handler.ListTeams(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -7366,11 +8402,11 @@ func (siw *ServerInterfaceWrapper) ListTeamsApiV1TeamsGet(w http.ResponseWriter,
 	handler.ServeHTTP(w, r)
 }
 
-// CreateTeamApiV1TeamsPost operation middleware
-func (siw *ServerInterfaceWrapper) CreateTeamApiV1TeamsPost(w http.ResponseWriter, r *http.Request) {
+// CreateTeam operation middleware
+func (siw *ServerInterfaceWrapper) CreateTeam(w http.ResponseWriter, r *http.Request) {
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.CreateTeamApiV1TeamsPost(w, r)
+		siw.Handler.CreateTeam(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -7380,8 +8416,8 @@ func (siw *ServerInterfaceWrapper) CreateTeamApiV1TeamsPost(w http.ResponseWrite
 	handler.ServeHTTP(w, r)
 }
 
-// GetTeamApiV1TeamsTeamIdGet operation middleware
-func (siw *ServerInterfaceWrapper) GetTeamApiV1TeamsTeamIdGet(w http.ResponseWriter, r *http.Request) {
+// GetTeam operation middleware
+func (siw *ServerInterfaceWrapper) GetTeam(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
@@ -7396,7 +8432,7 @@ func (siw *ServerInterfaceWrapper) GetTeamApiV1TeamsTeamIdGet(w http.ResponseWri
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.GetTeamApiV1TeamsTeamIdGet(w, r, teamId)
+		siw.Handler.GetTeam(w, r, teamId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -7406,8 +8442,8 @@ func (siw *ServerInterfaceWrapper) GetTeamApiV1TeamsTeamIdGet(w http.ResponseWri
 	handler.ServeHTTP(w, r)
 }
 
-// UpdateTeamApiV1TeamsTeamIdPatch operation middleware
-func (siw *ServerInterfaceWrapper) UpdateTeamApiV1TeamsTeamIdPatch(w http.ResponseWriter, r *http.Request) {
+// UpdateTeam operation middleware
+func (siw *ServerInterfaceWrapper) UpdateTeam(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
@@ -7422,7 +8458,7 @@ func (siw *ServerInterfaceWrapper) UpdateTeamApiV1TeamsTeamIdPatch(w http.Respon
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.UpdateTeamApiV1TeamsTeamIdPatch(w, r, teamId)
+		siw.Handler.UpdateTeam(w, r, teamId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -7432,8 +8468,8 @@ func (siw *ServerInterfaceWrapper) UpdateTeamApiV1TeamsTeamIdPatch(w http.Respon
 	handler.ServeHTTP(w, r)
 }
 
-// TeamCalendarApiV1TeamsTeamIdCalendarIcsGet operation middleware
-func (siw *ServerInterfaceWrapper) TeamCalendarApiV1TeamsTeamIdCalendarIcsGet(w http.ResponseWriter, r *http.Request) {
+// DownloadTeamCalendar operation middleware
+func (siw *ServerInterfaceWrapper) DownloadTeamCalendar(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
@@ -7448,7 +8484,7 @@ func (siw *ServerInterfaceWrapper) TeamCalendarApiV1TeamsTeamIdCalendarIcsGet(w 
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.TeamCalendarApiV1TeamsTeamIdCalendarIcsGet(w, r, teamId)
+		siw.Handler.DownloadTeamCalendar(w, r, teamId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -7458,8 +8494,8 @@ func (siw *ServerInterfaceWrapper) TeamCalendarApiV1TeamsTeamIdCalendarIcsGet(w 
 	handler.ServeHTTP(w, r)
 }
 
-// CancelTeamApiV1TeamsTeamIdCancelPost operation middleware
-func (siw *ServerInterfaceWrapper) CancelTeamApiV1TeamsTeamIdCancelPost(w http.ResponseWriter, r *http.Request) {
+// CancelTeam operation middleware
+func (siw *ServerInterfaceWrapper) CancelTeam(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
@@ -7474,7 +8510,7 @@ func (siw *ServerInterfaceWrapper) CancelTeamApiV1TeamsTeamIdCancelPost(w http.R
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.CancelTeamApiV1TeamsTeamIdCancelPost(w, r, teamId)
+		siw.Handler.CancelTeam(w, r, teamId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -7484,8 +8520,8 @@ func (siw *ServerInterfaceWrapper) CancelTeamApiV1TeamsTeamIdCancelPost(w http.R
 	handler.ServeHTTP(w, r)
 }
 
-// JoinTeamApiV1TeamsTeamIdJoinPost operation middleware
-func (siw *ServerInterfaceWrapper) JoinTeamApiV1TeamsTeamIdJoinPost(w http.ResponseWriter, r *http.Request) {
+// JoinTeam operation middleware
+func (siw *ServerInterfaceWrapper) JoinTeam(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
@@ -7500,7 +8536,7 @@ func (siw *ServerInterfaceWrapper) JoinTeamApiV1TeamsTeamIdJoinPost(w http.Respo
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.JoinTeamApiV1TeamsTeamIdJoinPost(w, r, teamId)
+		siw.Handler.JoinTeam(w, r, teamId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -7510,8 +8546,8 @@ func (siw *ServerInterfaceWrapper) JoinTeamApiV1TeamsTeamIdJoinPost(w http.Respo
 	handler.ServeHTTP(w, r)
 }
 
-// LeaveTeamApiV1TeamsTeamIdLeavePost operation middleware
-func (siw *ServerInterfaceWrapper) LeaveTeamApiV1TeamsTeamIdLeavePost(w http.ResponseWriter, r *http.Request) {
+// LeaveTeam operation middleware
+func (siw *ServerInterfaceWrapper) LeaveTeam(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
@@ -7526,7 +8562,7 @@ func (siw *ServerInterfaceWrapper) LeaveTeamApiV1TeamsTeamIdLeavePost(w http.Res
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.LeaveTeamApiV1TeamsTeamIdLeavePost(w, r, teamId)
+		siw.Handler.LeaveTeam(w, r, teamId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -7536,8 +8572,8 @@ func (siw *ServerInterfaceWrapper) LeaveTeamApiV1TeamsTeamIdLeavePost(w http.Res
 	handler.ServeHTTP(w, r)
 }
 
-// MemberHistoryApiV1TeamsTeamIdMembersHistoryGet operation middleware
-func (siw *ServerInterfaceWrapper) MemberHistoryApiV1TeamsTeamIdMembersHistoryGet(w http.ResponseWriter, r *http.Request) {
+// ListTeamMemberHistory operation middleware
+func (siw *ServerInterfaceWrapper) ListTeamMemberHistory(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
@@ -7552,7 +8588,7 @@ func (siw *ServerInterfaceWrapper) MemberHistoryApiV1TeamsTeamIdMembersHistoryGe
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.MemberHistoryApiV1TeamsTeamIdMembersHistoryGet(w, r, teamId)
+		siw.Handler.ListTeamMemberHistory(w, r, teamId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -7562,8 +8598,8 @@ func (siw *ServerInterfaceWrapper) MemberHistoryApiV1TeamsTeamIdMembersHistoryGe
 	handler.ServeHTTP(w, r)
 }
 
-// RemoveMemberApiV1TeamsTeamIdMembersMemberIdRemovePost operation middleware
-func (siw *ServerInterfaceWrapper) RemoveMemberApiV1TeamsTeamIdMembersMemberIdRemovePost(w http.ResponseWriter, r *http.Request) {
+// RemoveTeamMember operation middleware
+func (siw *ServerInterfaceWrapper) RemoveTeamMember(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
@@ -7587,7 +8623,7 @@ func (siw *ServerInterfaceWrapper) RemoveMemberApiV1TeamsTeamIdMembersMemberIdRe
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.RemoveMemberApiV1TeamsTeamIdMembersMemberIdRemovePost(w, r, teamId, memberId)
+		siw.Handler.RemoveTeamMember(w, r, teamId, memberId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -7597,8 +8633,8 @@ func (siw *ServerInterfaceWrapper) RemoveMemberApiV1TeamsTeamIdMembersMemberIdRe
 	handler.ServeHTTP(w, r)
 }
 
-// ListTeamRunsApiV1TeamsTeamIdRunsGet operation middleware
-func (siw *ServerInterfaceWrapper) ListTeamRunsApiV1TeamsTeamIdRunsGet(w http.ResponseWriter, r *http.Request) {
+// ListTeamRuns operation middleware
+func (siw *ServerInterfaceWrapper) ListTeamRuns(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
@@ -7613,7 +8649,7 @@ func (siw *ServerInterfaceWrapper) ListTeamRunsApiV1TeamsTeamIdRunsGet(w http.Re
 	}
 
 	// Parameter object where we will unmarshal all parameters from the context
-	var params ListTeamRunsApiV1TeamsTeamIdRunsGetParams
+	var params ListTeamRunsParams
 
 	// ------------- Optional query parameter "page" -------------
 
@@ -7642,7 +8678,7 @@ func (siw *ServerInterfaceWrapper) ListTeamRunsApiV1TeamsTeamIdRunsGet(w http.Re
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ListTeamRunsApiV1TeamsTeamIdRunsGet(w, r, teamId, params)
+		siw.Handler.ListTeamRuns(w, r, teamId, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -7652,8 +8688,8 @@ func (siw *ServerInterfaceWrapper) ListTeamRunsApiV1TeamsTeamIdRunsGet(w http.Re
 	handler.ServeHTTP(w, r)
 }
 
-// CreateTeamRunApiV1TeamsTeamIdRunsPost operation middleware
-func (siw *ServerInterfaceWrapper) CreateTeamRunApiV1TeamsTeamIdRunsPost(w http.ResponseWriter, r *http.Request) {
+// CreateTeamRun operation middleware
+func (siw *ServerInterfaceWrapper) CreateTeamRun(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
@@ -7668,7 +8704,7 @@ func (siw *ServerInterfaceWrapper) CreateTeamRunApiV1TeamsTeamIdRunsPost(w http.
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.CreateTeamRunApiV1TeamsTeamIdRunsPost(w, r, teamId)
+		siw.Handler.CreateTeamRun(w, r, teamId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -7678,43 +8714,8 @@ func (siw *ServerInterfaceWrapper) CreateTeamRunApiV1TeamsTeamIdRunsPost(w http.
 	handler.ServeHTTP(w, r)
 }
 
-// UpdateTeamRunApiV1TeamsTeamIdRunsRunIdPatch operation middleware
-func (siw *ServerInterfaceWrapper) UpdateTeamRunApiV1TeamsTeamIdRunsRunIdPatch(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "team_id" -------------
-	var teamId int
-
-	err = runtime.BindStyledParameterWithOptions("simple", "team_id", chi.URLParam(r, "team_id"), &teamId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "team_id", Err: err})
-		return
-	}
-
-	// ------------- Path parameter "run_id" -------------
-	var runId int
-
-	err = runtime.BindStyledParameterWithOptions("simple", "run_id", chi.URLParam(r, "run_id"), &runId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "run_id", Err: err})
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.UpdateTeamRunApiV1TeamsTeamIdRunsRunIdPatch(w, r, teamId, runId)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// CheckInApiV1TeamsTeamIdRunsRunIdCheckInPost operation middleware
-func (siw *ServerInterfaceWrapper) CheckInApiV1TeamsTeamIdRunsRunIdCheckInPost(w http.ResponseWriter, r *http.Request) {
+// UpdateTeamRun operation middleware
+func (siw *ServerInterfaceWrapper) UpdateTeamRun(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
@@ -7738,7 +8739,7 @@ func (siw *ServerInterfaceWrapper) CheckInApiV1TeamsTeamIdRunsRunIdCheckInPost(w
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.CheckInApiV1TeamsTeamIdRunsRunIdCheckInPost(w, r, teamId, runId)
+		siw.Handler.UpdateTeamRun(w, r, teamId, runId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -7748,8 +8749,8 @@ func (siw *ServerInterfaceWrapper) CheckInApiV1TeamsTeamIdRunsRunIdCheckInPost(w
 	handler.ServeHTTP(w, r)
 }
 
-// ExcuseApiV1TeamsTeamIdRunsRunIdExcusePost operation middleware
-func (siw *ServerInterfaceWrapper) ExcuseApiV1TeamsTeamIdRunsRunIdExcusePost(w http.ResponseWriter, r *http.Request) {
+// CheckInTeamRun operation middleware
+func (siw *ServerInterfaceWrapper) CheckInTeamRun(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
@@ -7773,7 +8774,7 @@ func (siw *ServerInterfaceWrapper) ExcuseApiV1TeamsTeamIdRunsRunIdExcusePost(w h
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ExcuseApiV1TeamsTeamIdRunsRunIdExcusePost(w, r, teamId, runId)
+		siw.Handler.CheckInTeamRun(w, r, teamId, runId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -7783,8 +8784,8 @@ func (siw *ServerInterfaceWrapper) ExcuseApiV1TeamsTeamIdRunsRunIdExcusePost(w h
 	handler.ServeHTTP(w, r)
 }
 
-// RateMemberApiV1TeamsTeamIdRunsRunIdRatingsPost operation middleware
-func (siw *ServerInterfaceWrapper) RateMemberApiV1TeamsTeamIdRunsRunIdRatingsPost(w http.ResponseWriter, r *http.Request) {
+// ExcuseTeamRun operation middleware
+func (siw *ServerInterfaceWrapper) ExcuseTeamRun(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
@@ -7808,7 +8809,7 @@ func (siw *ServerInterfaceWrapper) RateMemberApiV1TeamsTeamIdRunsRunIdRatingsPos
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.RateMemberApiV1TeamsTeamIdRunsRunIdRatingsPost(w, r, teamId, runId)
+		siw.Handler.ExcuseTeamRun(w, r, teamId, runId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -7818,8 +8819,43 @@ func (siw *ServerInterfaceWrapper) RateMemberApiV1TeamsTeamIdRunsRunIdRatingsPos
 	handler.ServeHTTP(w, r)
 }
 
-// TransferTeamApiV1TeamsTeamIdTransferPost operation middleware
-func (siw *ServerInterfaceWrapper) TransferTeamApiV1TeamsTeamIdTransferPost(w http.ResponseWriter, r *http.Request) {
+// RateTeamMember operation middleware
+func (siw *ServerInterfaceWrapper) RateTeamMember(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "team_id" -------------
+	var teamId int
+
+	err = runtime.BindStyledParameterWithOptions("simple", "team_id", chi.URLParam(r, "team_id"), &teamId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "team_id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "run_id" -------------
+	var runId int
+
+	err = runtime.BindStyledParameterWithOptions("simple", "run_id", chi.URLParam(r, "run_id"), &runId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "run_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RateTeamMember(w, r, teamId, runId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// TransferTeamOwnership operation middleware
+func (siw *ServerInterfaceWrapper) TransferTeamOwnership(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
@@ -7834,7 +8870,7 @@ func (siw *ServerInterfaceWrapper) TransferTeamApiV1TeamsTeamIdTransferPost(w ht
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.TransferTeamApiV1TeamsTeamIdTransferPost(w, r, teamId)
+		siw.Handler.TransferTeamOwnership(w, r, teamId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -7844,11 +8880,11 @@ func (siw *ServerInterfaceWrapper) TransferTeamApiV1TeamsTeamIdTransferPost(w ht
 	handler.ServeHTTP(w, r)
 }
 
-// UploadImageApiV1UploadsImagesPost operation middleware
-func (siw *ServerInterfaceWrapper) UploadImageApiV1UploadsImagesPost(w http.ResponseWriter, r *http.Request) {
+// UploadImage operation middleware
+func (siw *ServerInterfaceWrapper) UploadImage(w http.ResponseWriter, r *http.Request) {
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.UploadImageApiV1UploadsImagesPost(w, r)
+		siw.Handler.UploadImage(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -8000,79 +9036,79 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	}
 
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/api/v1/activities", wrapper.ListActivitiesApiV1ActivitiesGet)
+		r.Get(options.BaseURL+"/api/v1/activities", wrapper.ListActivities)
 	})
 	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/api/v1/activities", wrapper.CreateActivityApiV1ActivitiesPost)
+		r.Post(options.BaseURL+"/api/v1/activities", wrapper.CreateActivity)
 	})
 	r.Group(func(r chi.Router) {
-		r.Patch(options.BaseURL+"/api/v1/activities/{activity_id}", wrapper.UpdateActivityApiV1ActivitiesActivityIdPatch)
+		r.Patch(options.BaseURL+"/api/v1/activities/{activity_id}", wrapper.UpdateActivity)
 	})
 	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/api/v1/activities/{activity_id}/cancel", wrapper.CancelActivityApiV1ActivitiesActivityIdCancelPost)
+		r.Post(options.BaseURL+"/api/v1/activities/{activity_id}/cancel", wrapper.CancelActivity)
 	})
 	r.Group(func(r chi.Router) {
-		r.Delete(options.BaseURL+"/api/v1/activities/{activity_id}/membership", wrapper.LeaveActivityApiV1ActivitiesActivityIdMembershipDelete)
+		r.Delete(options.BaseURL+"/api/v1/activities/{activity_id}/membership", wrapper.LeaveActivity)
 	})
 	r.Group(func(r chi.Router) {
-		r.Put(options.BaseURL+"/api/v1/activities/{activity_id}/membership", wrapper.JoinActivityApiV1ActivitiesActivityIdMembershipPut)
+		r.Put(options.BaseURL+"/api/v1/activities/{activity_id}/membership", wrapper.JoinActivity)
 	})
 	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/api/v1/admin/announcements", wrapper.CreateAnnouncementApiV1AdminAnnouncementsPost)
+		r.Post(options.BaseURL+"/api/v1/admin/announcements", wrapper.CreateAnnouncement)
 	})
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/api/v1/admin/appeals", wrapper.ListAppealsApiV1AdminAppealsGet)
+		r.Get(options.BaseURL+"/api/v1/admin/appeals", wrapper.ListAdminAppeals)
 	})
 	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/api/v1/admin/appeals/{appeal_id}/decision", wrapper.DecideAppealApiV1AdminAppealsAppealIdDecisionPost)
+		r.Post(options.BaseURL+"/api/v1/admin/appeals/{appeal_id}/decision", wrapper.DecideAppeal)
 	})
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/api/v1/admin/audit-logs", wrapper.AuditLogsApiV1AdminAuditLogsGet)
+		r.Get(options.BaseURL+"/api/v1/admin/audit-logs", wrapper.ListAuditLogs)
 	})
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/api/v1/admin/backups", wrapper.ListBackupsApiV1AdminBackupsGet)
+		r.Get(options.BaseURL+"/api/v1/admin/backups", wrapper.ListBackups)
 	})
 	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/api/v1/admin/backups", wrapper.RequestBackupApiV1AdminBackupsPost)
+		r.Post(options.BaseURL+"/api/v1/admin/backups", wrapper.RequestBackup)
 	})
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/api/v1/admin/backups/{job_id}/download", wrapper.DownloadBackupApiV1AdminBackupsJobIdDownloadGet)
+		r.Get(options.BaseURL+"/api/v1/admin/backups/{job_id}/download", wrapper.DownloadBackup)
 	})
 	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/api/v1/admin/campus-services", wrapper.CreateCampusServiceApiV1AdminCampusServicesPost)
+		r.Post(options.BaseURL+"/api/v1/admin/campus-services", wrapper.CreateCampusService)
 	})
 	r.Group(func(r chi.Router) {
-		r.Patch(options.BaseURL+"/api/v1/admin/campus-services/{service_id}", wrapper.UpdateCampusServiceApiV1AdminCampusServicesServiceIdPatch)
+		r.Patch(options.BaseURL+"/api/v1/admin/campus-services/{service_id}", wrapper.UpdateCampusService)
 	})
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/api/v1/admin/credit-rules", wrapper.AdminCreditRulesApiV1AdminCreditRulesGet)
+		r.Get(options.BaseURL+"/api/v1/admin/credit-rules", wrapper.GetAdminCreditRules)
 	})
 	r.Group(func(r chi.Router) {
-		r.Patch(options.BaseURL+"/api/v1/admin/credit-rules", wrapper.UpdateCreditRulesApiV1AdminCreditRulesPatch)
+		r.Patch(options.BaseURL+"/api/v1/admin/credit-rules", wrapper.UpdateAdminCreditRules)
 	})
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/api/v1/admin/feedback", wrapper.FeedbackQueueApiV1AdminFeedbackGet)
+		r.Get(options.BaseURL+"/api/v1/admin/feedback", wrapper.ListFeedback)
 	})
 	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/api/v1/admin/feedback/{feedback_id}/decision", wrapper.DecideFeedbackApiV1AdminFeedbackFeedbackIdDecisionPost)
+		r.Post(options.BaseURL+"/api/v1/admin/feedback/{feedback_id}/decision", wrapper.DecideFeedback)
 	})
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/api/v1/admin/game-submissions", wrapper.ListGameSubmissionsApiV1AdminGameSubmissionsGet)
+		r.Get(options.BaseURL+"/api/v1/admin/game-submissions", wrapper.ListGameSubmissions)
 	})
 	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/api/v1/admin/game-submissions/{submission_id}/decision", wrapper.DecideGameSubmissionApiV1AdminGameSubmissionsSubmissionIdDecisionPost)
+		r.Post(options.BaseURL+"/api/v1/admin/game-submissions/{submission_id}/decision", wrapper.DecideGameSubmission)
 	})
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/api/v1/admin/market/categories", wrapper.ListMarketcategories)
+		r.Get(options.BaseURL+"/api/v1/admin/market/categories", wrapper.ListMarketCategories)
 	})
 	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/api/v1/admin/market/categories", wrapper.CreateMarketcategories)
+		r.Post(options.BaseURL+"/api/v1/admin/market/categories", wrapper.CreateMarketCategory)
 	})
 	r.Group(func(r chi.Router) {
-		r.Delete(options.BaseURL+"/api/v1/admin/market/categories/{option_id}", wrapper.DeleteMarketcategories)
+		r.Delete(options.BaseURL+"/api/v1/admin/market/categories/{option_id}", wrapper.DeleteMarketCategory)
 	})
 	r.Group(func(r chi.Router) {
-		r.Patch(options.BaseURL+"/api/v1/admin/market/categories/{option_id}", wrapper.UpdateMarketcategories)
+		r.Patch(options.BaseURL+"/api/v1/admin/market/categories/{option_id}", wrapper.UpdateMarketCategory)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/admin/market/disputes", wrapper.ListMarketDisputes)
@@ -8081,55 +9117,55 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Post(options.BaseURL+"/api/v1/admin/market/disputes/{dispute_id}/decision", wrapper.DecideMarketDispute)
 	})
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/api/v1/admin/market/locations", wrapper.ListMarketlocations)
+		r.Get(options.BaseURL+"/api/v1/admin/market/locations", wrapper.ListMarketLocations)
 	})
 	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/api/v1/admin/market/locations", wrapper.CreateMarketlocations)
+		r.Post(options.BaseURL+"/api/v1/admin/market/locations", wrapper.CreateMarketLocation)
 	})
 	r.Group(func(r chi.Router) {
-		r.Delete(options.BaseURL+"/api/v1/admin/market/locations/{option_id}", wrapper.DeleteMarketlocations)
+		r.Delete(options.BaseURL+"/api/v1/admin/market/locations/{option_id}", wrapper.DeleteMarketLocation)
 	})
 	r.Group(func(r chi.Router) {
-		r.Patch(options.BaseURL+"/api/v1/admin/market/locations/{option_id}", wrapper.UpdateMarketlocations)
+		r.Patch(options.BaseURL+"/api/v1/admin/market/locations/{option_id}", wrapper.UpdateMarketLocation)
 	})
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/api/v1/admin/moderation-cases", wrapper.ModerationCasesApiV1AdminModerationCasesGet)
+		r.Get(options.BaseURL+"/api/v1/admin/moderation-cases", wrapper.ListModerationCases)
 	})
 	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/api/v1/admin/moderation-cases/{case_id}/decision", wrapper.DecideModerationApiV1AdminModerationCasesCaseIdDecisionPost)
+		r.Post(options.BaseURL+"/api/v1/admin/moderation-cases/{case_id}/decision", wrapper.DecideModerationCase)
 	})
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/api/v1/admin/overview", wrapper.AdminOverviewApiV1AdminOverviewGet)
+		r.Get(options.BaseURL+"/api/v1/admin/overview", wrapper.GetAdminOverview)
 	})
 	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/api/v1/admin/penalties", wrapper.CreatePenaltyApiV1AdminPenaltiesPost)
+		r.Post(options.BaseURL+"/api/v1/admin/penalties", wrapper.CreatePenalty)
 	})
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/api/v1/admin/reports", wrapper.ReportQueueApiV1AdminReportsGet)
+		r.Get(options.BaseURL+"/api/v1/admin/reports", wrapper.ListAdminReports)
 	})
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/api/v1/admin/settings", wrapper.SettingsListApiV1AdminSettingsGet)
+		r.Get(options.BaseURL+"/api/v1/admin/settings", wrapper.GetAdminSettings)
 	})
 	r.Group(func(r chi.Router) {
-		r.Put(options.BaseURL+"/api/v1/admin/settings/{key}", wrapper.UpdateSettingApiV1AdminSettingsKeyPut)
+		r.Put(options.BaseURL+"/api/v1/admin/settings/{key}", wrapper.UpdateAdminSetting)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/admin/system-health", wrapper.GetAdminSystemHealth)
 	})
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/api/v1/admin/users", wrapper.AdminUsersApiV1AdminUsersGet)
+		r.Get(options.BaseURL+"/api/v1/admin/users", wrapper.ListAdminUsers)
 	})
 	r.Group(func(r chi.Router) {
-		r.Patch(options.BaseURL+"/api/v1/admin/users/{user_id}", wrapper.AdminUpdateUserApiV1AdminUsersUserIdPatch)
+		r.Patch(options.BaseURL+"/api/v1/admin/users/{user_id}", wrapper.UpdateAdminUser)
 	})
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/api/v1/announcements", wrapper.ListAnnouncementsApiV1AnnouncementsGet)
+		r.Get(options.BaseURL+"/api/v1/announcements", wrapper.ListAnnouncements)
 	})
 	r.Group(func(r chi.Router) {
-		r.Put(options.BaseURL+"/api/v1/announcements/{announcement_id}/read", wrapper.ReadAnnouncementApiV1AnnouncementsAnnouncementIdReadPut)
+		r.Put(options.BaseURL+"/api/v1/announcements/{announcement_id}/read", wrapper.ReadAnnouncement)
 	})
 	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/api/v1/answers/{answer_id}/accept", wrapper.AcceptAnswerApiV1AnswersAnswerIdAcceptPost)
+		r.Post(options.BaseURL+"/api/v1/answers/{answer_id}/accept", wrapper.AcceptAnswer)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/api/v1/auth/login", wrapper.LoginApiV1AuthLoginPost)
@@ -8144,7 +9180,7 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Post(options.BaseURL+"/api/v1/auth/register", wrapper.RegisterApiV1AuthRegisterPost)
 	})
 	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/api/v1/auth/request-code", wrapper.RequestCodeApiV1AuthRequestCodePost)
+		r.Post(options.BaseURL+"/api/v1/auth/request-code", wrapper.RequestVerificationCode)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/api/v1/auth/reset-password", wrapper.ResetPasswordApiV1AuthResetPasswordPost)
@@ -8156,58 +9192,58 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Put(options.BaseURL+"/api/v1/blocks/{blocked_id}", wrapper.BlockUserApiV1BlocksBlockedIdPut)
 	})
 	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/api/v1/campus-service-ratings/{rating_id}/response", wrapper.RespondToRatingApiV1CampusServiceRatingsRatingIdResponsePost)
+		r.Post(options.BaseURL+"/api/v1/campus-service-ratings/{rating_id}/response", wrapper.RespondToCampusServiceRating)
 	})
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/api/v1/campus-services", wrapper.ListCampusServicesApiV1CampusServicesGet)
+		r.Get(options.BaseURL+"/api/v1/campus-services", wrapper.ListCampusServices)
 	})
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/api/v1/campus-services/{service_id}", wrapper.GetCampusServiceApiV1CampusServicesServiceIdGet)
+		r.Get(options.BaseURL+"/api/v1/campus-services/{service_id}", wrapper.GetCampusService)
 	})
 	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/api/v1/campus-services/{service_id}/ratings", wrapper.RateCampusServiceApiV1CampusServicesServiceIdRatingsPost)
+		r.Post(options.BaseURL+"/api/v1/campus-services/{service_id}/ratings", wrapper.RateCampusService)
 	})
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/api/v1/conversations", wrapper.ListConversationsApiV1ConversationsGet)
+		r.Get(options.BaseURL+"/api/v1/conversations", wrapper.ListConversations)
 	})
 	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/api/v1/conversations", wrapper.CreateConversationApiV1ConversationsPost)
+		r.Post(options.BaseURL+"/api/v1/conversations", wrapper.CreateConversation)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/api/v1/conversations/read-all", wrapper.ReadAllMessages)
 	})
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/api/v1/conversations/{conversation_id}/messages", wrapper.ListMessagesApiV1ConversationsConversationIdMessagesGet)
+		r.Get(options.BaseURL+"/api/v1/conversations/{conversation_id}/messages", wrapper.ListConversationMessages)
 	})
 	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/api/v1/conversations/{conversation_id}/messages", wrapper.SendMessageApiV1ConversationsConversationIdMessagesPost)
+		r.Post(options.BaseURL+"/api/v1/conversations/{conversation_id}/messages", wrapper.SendConversationMessage)
 	})
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/api/v1/course-offerings", wrapper.ListOfferingsApiV1CourseOfferingsGet)
+		r.Get(options.BaseURL+"/api/v1/course-offerings", wrapper.ListCourseOfferings)
 	})
 	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/api/v1/course-offerings", wrapper.CreateOfferingApiV1CourseOfferingsPost)
+		r.Post(options.BaseURL+"/api/v1/course-offerings", wrapper.CreateCourseOffering)
 	})
 	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/api/v1/course-reviews", wrapper.CreateReviewApiV1CourseReviewsPost)
+		r.Post(options.BaseURL+"/api/v1/course-reviews", wrapper.CreateCourseReview)
 	})
 	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/api/v1/course-reviews/{review_id}/correction", wrapper.CorrectReviewApiV1CourseReviewsReviewIdCorrectionPost)
+		r.Post(options.BaseURL+"/api/v1/course-reviews/{review_id}/correction", wrapper.CorrectCourseReview)
 	})
 	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/api/v1/courses", wrapper.CreateCourseApiV1CoursesPost)
+		r.Post(options.BaseURL+"/api/v1/courses", wrapper.CreateCourse)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/credit-rules", wrapper.PublicCreditRulesApiV1CreditRulesGet)
 	})
 	r.Group(func(r chi.Router) {
-		r.Delete(options.BaseURL+"/api/v1/entities/{entity_id}", wrapper.DeleteEntityApiV1EntitiesEntityIdDelete)
+		r.Delete(options.BaseURL+"/api/v1/entities/{entity_id}", wrapper.DeleteEntity)
 	})
 	r.Group(func(r chi.Router) {
-		r.Delete(options.BaseURL+"/api/v1/entities/{entity_id}/favorite", wrapper.UnfavoriteApiV1EntitiesEntityIdFavoriteDelete)
+		r.Delete(options.BaseURL+"/api/v1/entities/{entity_id}/favorite", wrapper.UnfavoriteEntity)
 	})
 	r.Group(func(r chi.Router) {
-		r.Put(options.BaseURL+"/api/v1/entities/{entity_id}/favorite", wrapper.FavoriteApiV1EntitiesEntityIdFavoritePut)
+		r.Put(options.BaseURL+"/api/v1/entities/{entity_id}/favorite", wrapper.FavoriteEntity)
 	})
 	r.Group(func(r chi.Router) {
 		r.Delete(options.BaseURL+"/api/v1/entities/{entity_id}/reactions/{reaction_type}", wrapper.RemoveReactionApiV1EntitiesEntityIdReactionsReactionTypeDelete)
@@ -8237,25 +9273,25 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Post(options.BaseURL+"/api/v1/feedback", wrapper.CreateFeedbackApiV1FeedbackPost)
 	})
 	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/api/v1/game-submissions", wrapper.SubmitGameApiV1GameSubmissionsPost)
+		r.Post(options.BaseURL+"/api/v1/game-submissions", wrapper.SubmitGame)
 	})
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/api/v1/handbook", wrapper.ListHandbookApiV1HandbookGet)
+		r.Get(options.BaseURL+"/api/v1/handbook", wrapper.ListHandbookArticles)
 	})
 	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/api/v1/handbook", wrapper.CreateArticleApiV1HandbookPost)
+		r.Post(options.BaseURL+"/api/v1/handbook", wrapper.CreateHandbookArticle)
 	})
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/api/v1/handbook/{article_id}", wrapper.GetArticleApiV1HandbookArticleIdGet)
+		r.Get(options.BaseURL+"/api/v1/handbook/{article_id}", wrapper.GetHandbookArticle)
 	})
 	r.Group(func(r chi.Router) {
-		r.Patch(options.BaseURL+"/api/v1/handbook/{article_id}", wrapper.UpdateArticleApiV1HandbookArticleIdPatch)
+		r.Patch(options.BaseURL+"/api/v1/handbook/{article_id}", wrapper.UpdateHandbookArticle)
 	})
 	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/api/v1/handbook/{article_id}/feature", wrapper.FeatureArticleApiV1HandbookArticleIdFeaturePost)
+		r.Post(options.BaseURL+"/api/v1/handbook/{article_id}/feature", wrapper.FeatureHandbookArticle)
 	})
 	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/api/v1/handbook/{article_id}/publish", wrapper.PublishArticleApiV1HandbookArticleIdPublishPost)
+		r.Post(options.BaseURL+"/api/v1/handbook/{article_id}/publish", wrapper.PublishHandbookArticle)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/hot", wrapper.HotApiV1HotGet)
@@ -8282,22 +9318,22 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Post(options.BaseURL+"/api/v1/listings/{listing_id}/transactions", wrapper.RequestListingTransaction)
 	})
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/api/v1/lost-items", wrapper.ListLostItemsApiV1LostItemsGet)
+		r.Get(options.BaseURL+"/api/v1/lost-items", wrapper.ListLostItems)
 	})
 	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/api/v1/lost-items", wrapper.CreateLostItemApiV1LostItemsPost)
+		r.Post(options.BaseURL+"/api/v1/lost-items", wrapper.CreateLostItem)
 	})
 	r.Group(func(r chi.Router) {
-		r.Patch(options.BaseURL+"/api/v1/lost-items/{item_id}", wrapper.UpdateLostItemApiV1LostItemsItemIdPatch)
+		r.Patch(options.BaseURL+"/api/v1/lost-items/{item_id}", wrapper.UpdateLostItem)
 	})
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/api/v1/lost-items/{item_id}/claims", wrapper.ListClaimsApiV1LostItemsItemIdClaimsGet)
+		r.Get(options.BaseURL+"/api/v1/lost-items/{item_id}/claims", wrapper.ListLostClaims)
 	})
 	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/api/v1/lost-items/{item_id}/claims", wrapper.CreateClaimApiV1LostItemsItemIdClaimsPost)
+		r.Post(options.BaseURL+"/api/v1/lost-items/{item_id}/claims", wrapper.CreateLostClaim)
 	})
 	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/api/v1/lost-items/{item_id}/claims/{claim_id}/decision", wrapper.DecideClaimApiV1LostItemsItemIdClaimsClaimIdDecisionPost)
+		r.Post(options.BaseURL+"/api/v1/lost-items/{item_id}/claims/{claim_id}/decision", wrapper.DecideLostClaim)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/market-transactions/{transaction_id}", wrapper.GetMarketTransaction)
@@ -8324,67 +9360,73 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Get(options.BaseURL+"/api/v1/market/options", wrapper.GetMarketOptions)
 	})
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/api/v1/me", wrapper.MeApiV1MeGet)
+		r.Get(options.BaseURL+"/api/v1/me", wrapper.GetCurrentUser)
 	})
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/api/v1/me/appeals", wrapper.MyAppealsApiV1MeAppealsGet)
+		r.Get(options.BaseURL+"/api/v1/me/appeals", wrapper.ListMyAppeals)
 	})
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/api/v1/me/content", wrapper.MyContentApiV1MeContentGet)
+		r.Get(options.BaseURL+"/api/v1/me/content", wrapper.ListMyContent)
 	})
 	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/api/v1/me/deactivate", wrapper.DeactivateAccountApiV1MeDeactivatePost)
+		r.Post(options.BaseURL+"/api/v1/me/deactivate", wrapper.DeactivateAccount)
 	})
 	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/api/v1/me/email", wrapper.ChangeEmailApiV1MeEmailPost)
+		r.Post(options.BaseURL+"/api/v1/me/email", wrapper.ChangeEmail)
 	})
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/api/v1/me/favorites", wrapper.MyFavoritesApiV1MeFavoritesGet)
+		r.Get(options.BaseURL+"/api/v1/me/favorites", wrapper.ListMyFavorites)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/me/market-transactions", wrapper.ListMyMarketTransactions)
 	})
 	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/api/v1/me/password", wrapper.ChangePasswordApiV1MePasswordPost)
+		r.Post(options.BaseURL+"/api/v1/me/observe-unmask-agreement", wrapper.AcceptObserveAgreement)
 	})
 	r.Group(func(r chi.Router) {
-		r.Patch(options.BaseURL+"/api/v1/me/privacy", wrapper.UpdatePrivacyApiV1MePrivacyPatch)
+		r.Post(options.BaseURL+"/api/v1/me/password", wrapper.ChangePassword)
 	})
 	r.Group(func(r chi.Router) {
-		r.Patch(options.BaseURL+"/api/v1/me/profile", wrapper.UpdateProfileApiV1MeProfilePatch)
+		r.Patch(options.BaseURL+"/api/v1/me/privacy", wrapper.UpdatePrivacy)
 	})
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/api/v1/me/reports", wrapper.MyReportsApiV1MeReportsGet)
+		r.Patch(options.BaseURL+"/api/v1/me/profile", wrapper.UpdateProfile)
 	})
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/api/v1/me/sessions", wrapper.SessionsApiV1MeSessionsGet)
+		r.Get(options.BaseURL+"/api/v1/me/reports", wrapper.ListMyReports)
 	})
 	r.Group(func(r chi.Router) {
-		r.Delete(options.BaseURL+"/api/v1/me/sessions/{session_id}", wrapper.RevokeSessionApiV1MeSessionsSessionIdDelete)
+		r.Get(options.BaseURL+"/api/v1/me/sessions", wrapper.ListSessions)
 	})
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/api/v1/notifications", wrapper.ListNotificationsApiV1NotificationsGet)
+		r.Delete(options.BaseURL+"/api/v1/me/sessions/{session_id}", wrapper.RevokeSession)
 	})
 	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/api/v1/notifications/read-all", wrapper.ReadAllNotificationsApiV1NotificationsReadAllPost)
+		r.Get(options.BaseURL+"/api/v1/notifications", wrapper.ListNotifications)
 	})
 	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/api/v1/notifications/{notification_id}/read", wrapper.ReadNotificationApiV1NotificationsNotificationIdReadPost)
+		r.Post(options.BaseURL+"/api/v1/notifications/read-all", wrapper.ReadAllNotifications)
 	})
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/api/v1/observe-posts", wrapper.ListObserveApiV1ObservePostsGet)
+		r.Post(options.BaseURL+"/api/v1/notifications/{notification_id}/read", wrapper.ReadNotification)
 	})
 	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/api/v1/observe-posts", wrapper.CreateObserveApiV1ObservePostsPost)
+		r.Get(options.BaseURL+"/api/v1/observe-posts", wrapper.ListObservePosts)
 	})
 	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/api/v1/observe-posts/{observe_id}/response", wrapper.RespondObserveApiV1ObservePostsObserveIdResponsePost)
+		r.Post(options.BaseURL+"/api/v1/observe-posts", wrapper.CreateObservePost)
 	})
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/api/v1/penalties", wrapper.PenaltiesApiV1PenaltiesGet)
+		r.Post(options.BaseURL+"/api/v1/observe-posts/{observe_id}/response", wrapper.RespondToObservePost)
 	})
 	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/api/v1/penalties/{penalty_id}/appeals", wrapper.AppealPenaltyApiV1PenaltiesPenaltyIdAppealsPost)
+		r.Post(options.BaseURL+"/api/v1/observe-posts/{observe_id}/reveal", wrapper.RevealObservePost)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/v1/penalties", wrapper.ListPenalties)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/v1/penalties/{penalty_id}/appeals", wrapper.AppealPenalty)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/posts", wrapper.ListPostsApiV1PostsGet)
@@ -8399,79 +9441,79 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Patch(options.BaseURL+"/api/v1/posts/{post_id}", wrapper.UpdatePostApiV1PostsPostIdPatch)
 	})
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/api/v1/questions", wrapper.ListQuestionsApiV1QuestionsGet)
+		r.Get(options.BaseURL+"/api/v1/questions", wrapper.ListQuestions)
 	})
 	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/api/v1/questions", wrapper.CreateQuestionApiV1QuestionsPost)
+		r.Post(options.BaseURL+"/api/v1/questions", wrapper.CreateQuestion)
 	})
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/api/v1/questions/{question_id}", wrapper.GetQuestionApiV1QuestionsQuestionIdGet)
+		r.Get(options.BaseURL+"/api/v1/questions/{question_id}", wrapper.GetQuestion)
 	})
 	r.Group(func(r chi.Router) {
-		r.Patch(options.BaseURL+"/api/v1/questions/{question_id}", wrapper.UpdateQuestionApiV1QuestionsQuestionIdPatch)
+		r.Patch(options.BaseURL+"/api/v1/questions/{question_id}", wrapper.UpdateQuestion)
 	})
 	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/api/v1/questions/{question_id}/answers", wrapper.CreateAnswerApiV1QuestionsQuestionIdAnswersPost)
+		r.Post(options.BaseURL+"/api/v1/questions/{question_id}/answers", wrapper.CreateAnswer)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/search", wrapper.SearchApiV1SearchGet)
 	})
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/api/v1/team-games", wrapper.ListTeamGamesApiV1TeamGamesGet)
+		r.Get(options.BaseURL+"/api/v1/team-games", wrapper.ListTeamGames)
 	})
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/api/v1/teams", wrapper.ListTeamsApiV1TeamsGet)
+		r.Get(options.BaseURL+"/api/v1/teams", wrapper.ListTeams)
 	})
 	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/api/v1/teams", wrapper.CreateTeamApiV1TeamsPost)
+		r.Post(options.BaseURL+"/api/v1/teams", wrapper.CreateTeam)
 	})
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/api/v1/teams/{team_id}", wrapper.GetTeamApiV1TeamsTeamIdGet)
+		r.Get(options.BaseURL+"/api/v1/teams/{team_id}", wrapper.GetTeam)
 	})
 	r.Group(func(r chi.Router) {
-		r.Patch(options.BaseURL+"/api/v1/teams/{team_id}", wrapper.UpdateTeamApiV1TeamsTeamIdPatch)
+		r.Patch(options.BaseURL+"/api/v1/teams/{team_id}", wrapper.UpdateTeam)
 	})
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/api/v1/teams/{team_id}/calendar.ics", wrapper.TeamCalendarApiV1TeamsTeamIdCalendarIcsGet)
+		r.Get(options.BaseURL+"/api/v1/teams/{team_id}/calendar.ics", wrapper.DownloadTeamCalendar)
 	})
 	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/api/v1/teams/{team_id}/cancel", wrapper.CancelTeamApiV1TeamsTeamIdCancelPost)
+		r.Post(options.BaseURL+"/api/v1/teams/{team_id}/cancel", wrapper.CancelTeam)
 	})
 	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/api/v1/teams/{team_id}/join", wrapper.JoinTeamApiV1TeamsTeamIdJoinPost)
+		r.Post(options.BaseURL+"/api/v1/teams/{team_id}/join", wrapper.JoinTeam)
 	})
 	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/api/v1/teams/{team_id}/leave", wrapper.LeaveTeamApiV1TeamsTeamIdLeavePost)
+		r.Post(options.BaseURL+"/api/v1/teams/{team_id}/leave", wrapper.LeaveTeam)
 	})
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/api/v1/teams/{team_id}/members/history", wrapper.MemberHistoryApiV1TeamsTeamIdMembersHistoryGet)
+		r.Get(options.BaseURL+"/api/v1/teams/{team_id}/members/history", wrapper.ListTeamMemberHistory)
 	})
 	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/api/v1/teams/{team_id}/members/{member_id}/remove", wrapper.RemoveMemberApiV1TeamsTeamIdMembersMemberIdRemovePost)
+		r.Post(options.BaseURL+"/api/v1/teams/{team_id}/members/{member_id}/remove", wrapper.RemoveTeamMember)
 	})
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/api/v1/teams/{team_id}/runs", wrapper.ListTeamRunsApiV1TeamsTeamIdRunsGet)
+		r.Get(options.BaseURL+"/api/v1/teams/{team_id}/runs", wrapper.ListTeamRuns)
 	})
 	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/api/v1/teams/{team_id}/runs", wrapper.CreateTeamRunApiV1TeamsTeamIdRunsPost)
+		r.Post(options.BaseURL+"/api/v1/teams/{team_id}/runs", wrapper.CreateTeamRun)
 	})
 	r.Group(func(r chi.Router) {
-		r.Patch(options.BaseURL+"/api/v1/teams/{team_id}/runs/{run_id}", wrapper.UpdateTeamRunApiV1TeamsTeamIdRunsRunIdPatch)
+		r.Patch(options.BaseURL+"/api/v1/teams/{team_id}/runs/{run_id}", wrapper.UpdateTeamRun)
 	})
 	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/api/v1/teams/{team_id}/runs/{run_id}/check-in", wrapper.CheckInApiV1TeamsTeamIdRunsRunIdCheckInPost)
+		r.Post(options.BaseURL+"/api/v1/teams/{team_id}/runs/{run_id}/check-in", wrapper.CheckInTeamRun)
 	})
 	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/api/v1/teams/{team_id}/runs/{run_id}/excuse", wrapper.ExcuseApiV1TeamsTeamIdRunsRunIdExcusePost)
+		r.Post(options.BaseURL+"/api/v1/teams/{team_id}/runs/{run_id}/excuse", wrapper.ExcuseTeamRun)
 	})
 	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/api/v1/teams/{team_id}/runs/{run_id}/ratings", wrapper.RateMemberApiV1TeamsTeamIdRunsRunIdRatingsPost)
+		r.Post(options.BaseURL+"/api/v1/teams/{team_id}/runs/{run_id}/ratings", wrapper.RateTeamMember)
 	})
 	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/api/v1/teams/{team_id}/transfer", wrapper.TransferTeamApiV1TeamsTeamIdTransferPost)
+		r.Post(options.BaseURL+"/api/v1/teams/{team_id}/transfer", wrapper.TransferTeamOwnership)
 	})
 	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/api/v1/uploads/images", wrapper.UploadImageApiV1UploadsImagesPost)
+		r.Post(options.BaseURL+"/api/v1/uploads/images", wrapper.UploadImage)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/app-config.json", wrapper.GetAppConfig)
@@ -8488,207 +9530,264 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
+	"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",
+	"YttKkzP8vwAAAP//",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

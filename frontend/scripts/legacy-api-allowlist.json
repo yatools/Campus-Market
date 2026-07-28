@@ -1,0 +1,14 @@
+{
+  "src/App.vue": 3,
+  "src/components/AuthModal.vue": 3,
+  "src/components/CommentThread.vue": 4,
+  "src/stores/auth.ts": 5,
+  "src/views/AdminView.vue": 36,
+  "src/views/DashboardView.vue": 5,
+  "src/views/ExploreView.vue": 39,
+  "src/views/HomeView.vue": 8,
+  "src/views/MessagesView.vue": 6,
+  "src/views/MeView.vue": 17,
+  "src/views/SearchView.vue": 1,
+  "src/views/TeamsView.vue": 17
+}
