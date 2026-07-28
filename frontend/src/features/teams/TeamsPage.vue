@@ -161,8 +161,7 @@ async function openRuns(team: Team) {
   runManager.value = team
   runs.value = (await teamsApi.runs(team.id)).items
 }
-// Reject unparseable input up front: `new Date('明晚八点').toISOString()` throws a
-// RangeError before the request is even built, so the user saw nothing happen at all.
+// Only serializable timestamps may cross the API boundary.
 function parseRunTime(value: string | null): string | null {
   if (value === null) return null
   const date = new Date(value.trim())
@@ -202,8 +201,6 @@ async function rate(team: Team, run: TeamRun, member: { id: number; nickname: st
   const tags = raw.split(/[,，]/).map((x) => x.trim()).filter(Boolean)
   try {
     await teamsApi.rate(team.id, run.id, { target_user_id: member.id, tags })
-    // Success goes through the neutral notice channel; error.value renders as a red
-    // "notice danger" banner, so a successful rating used to look like a failure.
     teamActionFailed.value = false
     teamActionNotice.value = '评价已记录。'
   } catch (e) {

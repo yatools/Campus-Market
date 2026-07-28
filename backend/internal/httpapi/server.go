@@ -76,8 +76,7 @@ func New(cfg config.Config, db *pgxpool.Pool) http.Handler {
 		Team: teamapp.NewService(teamRepository),
 	}
 	r := chi.NewRouter()
-	// requestContext must run before recoverer so the panic handler can log and echo the
-	// request id, and so panics are still counted by the metrics defer it installs.
+	// Request identity and metrics must wrap panic recovery.
 	r.Use(s.requestContext, s.recoverer, s.securityHeaders, s.trustedHost, s.cors)
 	r.NotFound(func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, map[string]any{"code": "HTTP_ERROR", "message": "Not Found", "field_errors": map[string]string{}, "request_id": requestID(r.Context())})
@@ -125,9 +124,7 @@ func New(cfg config.Config, db *pgxpool.Pool) http.Handler {
 		panic(err)
 	}
 	r.Route(cfg.APIPrefix, func(api chi.Router) {
-		// Order matters. The contract validator buffers the whole request body to validate
-		// it, so the body cap has to come first, and the cheap CSRF check should reject
-		// before we spend CPU on schema validation.
+		// Cap bodies and reject CSRF before buffered contract validation.
 		api.Use(s.limitRequestBody)
 		api.Use(s.csrfProtection)
 		api.Use(contractValidator)
@@ -154,9 +151,7 @@ func (s *Server) healthReady(w http.ResponseWriter, r *http.Request) error {
 		return apiError(http.StatusServiceUnavailable, "NOT_READY", "服务尚未就绪")
 	}
 	var version int64
-	// Accept a database that is ahead of this binary: a rollback to the previous image
-	// leaves the schema at the newer version, and demanding exact equality would pin the
-	// service at NOT_READY with no way out but a manual migrate down.
+	// Forward-compatible schemas keep an older rollback image ready.
 	if err := s.DB.QueryRow(ctx, "SELECT COALESCE(max(version_id),0) FROM goose_db_version WHERE is_applied=true").Scan(&version); err != nil || version < database.LatestMigrationVersion {
 		slog.Warn("readiness_migration_failed", "version", version, "want_at_least", database.LatestMigrationVersion, "error", err, "request_id", requestID(r.Context()))
 		return apiError(http.StatusServiceUnavailable, "NOT_READY", "服务尚未就绪")
@@ -235,12 +230,9 @@ func (s *Server) requestContext(next http.Handler) http.Handler {
 		ctx := context.WithValue(r.Context(), requestIDKey, id)
 		ctx = context.WithValue(ctx, clientIPKey, s.resolveClientIP(r))
 		recorder := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
-		// Record in a defer so a panic unwinding through this middleware still lands in
-		// the metrics (the recoverer runs further out and turns it into a 500).
+		// Deferred observation includes panics converted to HTTP 500.
 		defer func() {
-			// Collapse unmatched requests to a single "unmatched" label instead of the raw
-			// URL path: raw paths are attacker-controlled and unbounded, which would both
-			// explode metric cardinality and (before escaping) corrupt the exposition.
+			// Unmatched paths share one bounded metrics label.
 			route := "unmatched"
 			if routeContext := chi.RouteContext(r.Context()); routeContext != nil && routeContext.RoutePattern() != "" {
 				route = routeContext.RoutePattern()
@@ -271,9 +263,7 @@ func (w *statusRecorder) Flush() {
 	}
 }
 
-// Unwrap lets http.ResponseController reach the underlying writer. Without it every
-// SetWriteDeadline/SetReadDeadline call made by a handler (notably the SSE stream, which
-// must clear the server's WriteTimeout) silently fails with http.ErrNotSupported.
+// Unwrap exposes deadline control required by SSE handlers.
 func (w *statusRecorder) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 
 func (s *Server) resolveClientIP(r *http.Request) string {
@@ -303,10 +293,7 @@ func requestID(ctx context.Context) string {
 	return value
 }
 
-// limitRequestBody caps the request body before anything else reads it. The OpenAPI
-// request validator buffers the entire body in memory to check it against the schema,
-// and that happens before authentication, so without a cap an anonymous client could
-// force arbitrary allocations with a single request.
+// limitRequestBody bounds memory before the OpenAPI validator buffers input.
 func (s *Server) limitRequestBody(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Body != nil && r.Method != http.MethodGet && r.Method != http.MethodHead {

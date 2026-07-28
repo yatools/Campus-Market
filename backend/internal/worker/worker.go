@@ -128,15 +128,7 @@ func runJob(ctx context.Context, pool *pgxpool.Pool, instanceID string, job work
 		}
 		_, _ = pool.Exec(context.Background(), `INSERT INTO worker_heartbeats(worker_name,instance_id,last_seen_at,last_success_at,last_error) VALUES($1,$2,now(),CASE WHEN $3='' THEN now() ELSE NULL END,$3) ON CONFLICT(worker_name,instance_id) DO UPDATE SET last_seen_at=now(),last_success_at=CASE WHEN $3='' THEN now() ELSE worker_heartbeats.last_success_at END,last_error=$3`, job.name, instanceID, message)
 	}()
-	// Contain a panic to the job that raised it: each job runs in its own goroutine, so an
-	// unrecovered panic in any one of them killed the whole worker process — email
-	// delivery, reservation expiry and cleanup all stopped because of, say, one malformed
-	// DATABASE_URL in the backup path.
-	//
-	// Registered LAST so that, defers being LIFO, it runs FIRST and populates jobErr before
-	// the metrics and heartbeat defers above read it. Registering it first would have made
-	// a panicking job report success and refresh its heartbeat — precisely the blind spot
-	// the new worker_heartbeat_* metrics exist to remove.
+	// Register recovery last so it records the panic before heartbeat and metric defers run.
 	defer func() {
 		if value := recover(); value != nil {
 			stack := debug.Stack()
@@ -368,8 +360,7 @@ func processTeamRuns(ctx context.Context, tx pgx.Tx) error {
 		}
 		runs = append(runs, r)
 	}
-	// A truncated cursor would otherwise silently skip runs and still report success, so
-	// reminders and departures for those runs would never fire and nothing would alert.
+	// Cursor errors invalidate the whole reminder batch.
 	if err := rows.Err(); err != nil {
 		rows.Close()
 		return err
@@ -485,10 +476,7 @@ func cleanup(ctx context.Context, tx pgx.Tx, orphans *[]storedObject) error {
 	if _, err := tx.Exec(ctx, `UPDATE content_entities e SET publication_status='expired',search_visible=false FROM posts p WHERE p.entity_id=e.id AND p.expires_at IS NOT NULL AND p.expires_at<=now() AND e.publication_status='published'`); err != nil {
 		return err
 	}
-	// Only release reservations that neither side has confirmed. A trade where one party
-	// already confirmed the hand-over must not silently become 'expired': that state allows
-	// no dispute, no review and no admin ruling, so the other party would have been left
-	// with no recourse while the listing went straight back on sale.
+	// A reservation with either confirmation enters dispute instead of expiring.
 	if _, err := tx.Exec(ctx, `UPDATE market_transactions SET status='disputed',updated_at=now()
 		WHERE status='reserved' AND reserved_until<=now()
 		  AND (buyer_confirmed_at IS NOT NULL OR seller_confirmed_at IS NOT NULL)`); err != nil {
@@ -554,9 +542,7 @@ func cleanup(ctx context.Context, tx pgx.Tx, orphans *[]storedObject) error {
 	}
 	rows.Close()
 	for _, f := range files {
-		// Delete the row under a status guard FIRST, and only schedule the objects for
-		// removal when a row was actually deleted. A snapshot taken before an attach
-		// committed must not lead us to erase an object now referenced by a dispute.
+		// Only a successfully deleted pending row can schedule object removal.
 		tag, err := tx.Exec(ctx, "DELETE FROM attachments WHERE id=$1 AND status='pending'", f.id)
 		if err != nil {
 			return err
@@ -564,10 +550,7 @@ func cleanup(ctx context.Context, tx pgx.Tx, orphans *[]storedObject) error {
 		if tag.RowsAffected() == 0 {
 			continue
 		}
-		// Deleting the object here would be irreversible while the DELETE is still only a
-		// transaction-local change: any later failure in this function rolls the row back
-		// to 'pending' and a waiting attach then binds it to a dispute whose evidence no
-		// longer exists in object storage. Collect and delete after the commit instead.
+		// Object deletion is irreversible and therefore runs only after database commit.
 		for _, relative := range []string{f.path, f.thumb} {
 			if relative != "" {
 				*orphans = append(*orphans, storedObject{scope: f.scope, path: relative})
@@ -630,10 +613,7 @@ func processBackup(ctx context.Context, cfg config.Config, conn *pgxpool.Conn) e
 	defer tx.Rollback(ctx)
 	var orphans []storedObject
 	var id int64
-	// Reclaim jobs whose lease has lapsed as well as fresh ones. Without the lease a worker
-	// killed mid-backup left the row stuck at 'running' forever: no later run would pick it
-	// up, and because the job itself kept returning "nothing to do" the heartbeat stayed
-	// green, so backups silently stopped being produced with no alert.
+	// A lapsed lease makes an interrupted backup job eligible for another worker.
 	err = tx.QueryRow(ctx, `SELECT id FROM backup_jobs
 		WHERE status='pending' OR (status='running' AND (lease_until IS NULL OR lease_until<=now()))
 		ORDER BY created_at LIMIT 1 FOR UPDATE SKIP LOCKED`).Scan(&id)
@@ -709,11 +689,7 @@ func createBackup(ctx context.Context, cfg config.Config, jobID int64, conn *pgx
 	}
 	defer os.RemoveAll(work)
 	dump := filepath.Join(work, "database.dump")
-	// Hand pg_dump the whole connection string rather than rebuilding it from parts. The
-	// manual host/port/user/dbname reconstruction dropped every query parameter, so a
-	// database configured with sslmode=verify-full was dumped over an unverified
-	// connection — and it dereferenced parsed.User, which is nil for a URL without
-	// credentials (a valid configuration), panicking the entire worker process.
+	// Pass the complete connection string so pg_dump preserves TLS and connection options.
 	if _, err := url.Parse(cfg.DatabaseURL); err != nil {
 		return "", fmt.Errorf("DATABASE_URL 无法解析: %w", err)
 	}
@@ -984,8 +960,6 @@ func truncate(value string, n int) string {
 	if len(value) <= n {
 		return value
 	}
-	// Cut on a valid UTF-8 boundary so a multibyte character (Chinese error text) is
-	// never split into invalid bytes — Postgres rejects invalid UTF-8 when storing
-	// last_error, which would otherwise fail the failure-recording write in a loop.
+	// Persisted error text must remain valid UTF-8.
 	return strings.ToValidUTF8(value[:n], "")
 }

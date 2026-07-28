@@ -417,10 +417,7 @@ func (s *Server) updateMarketListing(w http.ResponseWriter, r *http.Request) err
 	if !marketpolicy.ListingEditable(l.TradeStatus) {
 		return apiError(409, "LISTING_NOT_EDITABLE", "只有在售商品可以编辑")
 	}
-	// A listing keeps trade_status='available' while buyers' requests are outstanding, so
-	// the seller could raise the price after someone applied. Nothing recorded the agreed
-	// price — content_revisions only tracks title and description — leaving the buyer with
-	// no way to show what they signed up for. Block price changes while a request is live.
+	// Price is immutable while a request, reservation or dispute is active.
 	if body.PriceCents != nil && *body.PriceCents != l.PriceCents {
 		var pending bool
 		if err := tx.QueryRow(r.Context(), "SELECT EXISTS(SELECT 1 FROM market_transactions WHERE listing_id=$1 AND status IN ('requested','reserved','disputed'))", l.ID).Scan(&pending); err != nil {

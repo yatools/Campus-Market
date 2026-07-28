@@ -615,9 +615,7 @@ func (s *Server) adminModerationCases(w http.ResponseWriter, r *http.Request) er
 		return err
 	}
 	defer rows.Close()
-	// Drain the cursor before running the per-case follow-up queries. Issuing them while
-	// the outer result set is open holds an extra pooled connection for the whole page and
-	// would fail outright if this ever ran on a transaction instead of the pool.
+	// Drain the case cursor before issuing per-case detail queries.
 	type moderationRow struct {
 		caseID, entityID                int64
 		kind, source, status, caseNotes string

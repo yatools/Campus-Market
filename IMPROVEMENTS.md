@@ -1,134 +1,158 @@
-# 梧桐墙 Campus-Market — 第二轮全面审计与修复
+# 架构、安全边界与迁移状态
 
-> **验证边界**：改动在无网络的云端沙盒完成，Go 模块代理与 npm 源均被出网策略拦截，
-> **无法编译、无法跑测试**。所有 Go 改动经 `gofmt -e`、自建 AST 包级符号解析器、
-> 以及 SQL 列名与 migrations schema 交叉校验器（1055 条语句）验证；前端经 TS/Vue 语法
-> 与模板标签配对校验；shell 脚本经 `sh -n`（dash）验证。**类型正确性无法被静态工具完全
-> 覆盖**，请务必在可编译环境执行文末验证步骤。
+本文记录当前代码的工程边界和仍在进行的迁移，不复述审计过程或历史缺陷。实际行为以测试、OpenAPI 契约和当前实现为准。
 
-本次共修改 57 个文件（+2402 / −588）。完整的缺陷清单、成因分析与未处理项见随附的
-**《梧桐墙 Campus-Market 全面审计与修复报告》**。
+## 1. 系统边界
 
-## 审计方法
+### Web
 
-两轮。第一轮 7 个独立审计员分领域逐行读代码并交叉核对 migrations；第二轮在修复完成后，
-由 2 个独立复核员对全部改动做对抗性复查，专门找**修复本身引入的错误**——找出并修正了
-11 个真实问题，其中包括一处会让搜索接口全量 500 的 SQL 转义错误（Go 反引号字符串里的
-`ESCAPE '\\'` 会原样发给 PostgreSQL）、一处会让整个维护任务永久停摆的 NOT NULL 违反、
-以及一处让 panic 被记成成功的 defer 顺序错误。
+- Vue 3 路由页面只负责挂载页面 feature。
+- Explore、Admin、Me 和 Teams 的请求、状态编排、数据转换与业务动作位于 `frontend/src/features`。
+- 迁移 feature 通过 `frontend/src/generated/sdk` 访问 HTTP API，不手写 URL 或响应断言。
+- 外部数据在边界处按生成 DTO 或 `unknown` 处理，经解析后再进入页面 ViewModel。
 
-## 一、Critical
+### API
 
-1. **部署回滚会把服务打到不可恢复状态** — `deploy.sh` 回滚只换镜像不回滚迁移，而就绪检查
-   要求库版本与二进制严格相等，回滚后旧 API 永久 503；compose 健康检查用的是 `/health/live`，
-   容器仍判为健康，流量照进。此后每次部署都会失败并再次回滚，形成死循环。
-   → 就绪检查改为「版本不低于期望」；回滚时显式提示迁移未回滚。
-2. **私信「发起新会话」在第一条会话之后全站不可用** — `findConversation` 在游标未读完时用
-   同一 `pgx.Tx` 发起内层查询，`conn busy` → 500。现有测试只在空库上跑，走空循环分支。
-   → 改写为单条自连接 SQL，同时把 O(全站会话数) 的 N+1 降到 O(1)。
-3. **两条 worker 告警永远不会触发** — worker 不监听 HTTP，进程内计数器不在任何抓取目标上，
-   表达式恒为空向量。worker 崩溃、备份停产都不会告警。
-   → 由 API 从数据库导出 `worker_heartbeat_*`，告警改基于该指标并补 `absent()` 兜底。
+- `backend/internal/httpapi` 负责路由、认证上下文、请求解析、输入校验和 HTTP 错误映射。
+- `backend/internal/market` 负责市场交易、纠纷和评价状态。
+- `backend/internal/team` 负责车队成员、场次、请假、签到、转让、移除和互评状态。
+- `backend/internal/governance` 负责账号停用、管理员账号更新、处罚、申诉和内容审核状态。
+- 已迁移纵向切片的 service 控制事务；对应 SQL 只存在于 repository。
+- 尚未迁移的内容、消息、校园服务、通知和部分账号操作仍由 legacy HTTP handler 直接编排。
 
-## 二、High
+### Worker
 
-4. **车队签到可无限自刷信用分，全站门槛整体失效** — 奖励按 (run,user) 记账而新建场次会重置，
-   建场次与签到均不限流，两次请求换 2 分 → 任何账号可拉满 1000 分越过全部门槛。
-   → 改为发车后 30 分钟内 + 场次/车队活跃 + 本场 ≥2 人；建场次 8 次/天、奖励 4 次/天。
-5. **单方已确认的预留被超时静默作废且零救济** — `expired` 是绝对终态：不能纠纷、不能评价、
-   管理员也无法裁决，商品同时释放回在售。买家钱货两空。
-   → 只释放双方均未确认的预留；有单方确认的转 `disputed` 并自动建纠纷工单。
-6. **审核员可裁决自己参与的纠纷，裁决终局不可撤销** → 增加当事人回避检查。
-7. **长树洞帖必然写入失败** — `ix_posts_search` 是建在无上限 TEXT 上的 btree，约 900 汉字
-   以上必报索引行超限，发帖与编辑直接 500。该索引本身无用（搜索走 trgm）。
-   → 迁移 00005 删除，改建按 board 的窄索引。
-8. **编辑任何已有回答的问题都会 500** — `questionPayload` / `offeringPayload` 的嵌套游标查询。
-   → 先读完游标再做派生查询。
-9. **前端单测全线红、e2e 纠纷用例必挂** — 上一轮的 401 处理漏改 4 个测试 mock；证据输入框
-   按交易隔离后 e2e 仍用旧选择器。→ 补齐 mock 导出；加回按交易 id 的 `id` 并同步 e2e。
-10. **管理员取消「信用分变化」仍会开出处罚单** — `Number(null)===0`，后端接受 0。
-    → 判空返回 + 范围校验。同类「取消 prompt 仍提交」另修 4 处。
-11. **恢复流程的表计数校验只验了第一张表** — `docker compose exec -T` 吃掉了循环的 stdin。
-    这是恢复唯一的完整性闸门。CI 演练只写一行，恰好绕过。
-    → `</dev/null` 隔离；演练改写 3 行并断言「已校验 3 张表」。
-12. **CI 扫描的镜像与推送的镜像不是同一个** — 两个 job 各自 `docker build`，基础镜像是浮动 tag，
-    被部署的 digest 从未被扫描。→ `docker save`/`load` 传递扫描通过的镜像。
-13. **契约破坏性检查每个 PR 都会崩** — 用 `JSON.parse` 解析 YAML。
-    → 内置 YAML 子集解析器（含行尾注释与紧凑序列，已实测），并补齐 path 层参数、`$ref`
-    解引用、「新增必填 / 可选转必填」的反向检查。
-14. **TLS 证书 90 天后必然全站不可达** — `renew-tls.sh` 无任何调度，且 bootstrap 用 standalone
-    签发、renew 用 webroot，authenticator 不匹配；叠加一年期 HSTS 连绕过都点不了。
-    → bootstrap 后切到 webroot 并打印 crontab 行；renew 增加剩余有效期检查。
+- Worker 处理邮件 Outbox、内容与附件清理、交易超时、车队提醒、heartbeat 和备份。
+- Worker 与 API 通过数据库协调，不共享进程内状态。
+- 备份任务、邮件任务和租约状态可从数据库恢复；对象存储操作遵循提交后清理边界。
 
-## 三、Medium（择要）
+## 2. HTTP 契约
 
-**观察台去码**：门槛默认值等于新用户初始信用（800/800）且判定是 `<`，新账号签个协议就能读原文
-→ 提到 900 并补数据迁移（`ensureCreditRulesSQL` 是 DO NOTHING，只改代码对存量库无效）；
-审计日志改 fail-closed；端点 GET→POST（带副作用的 GET 免 CSRF，可跨站伪造他人去码记录）；
-补按用户限流（此前可脚本遍历全站原文）；协议签署改为版本感知；限权用户不再能去码。
+`backend/api/openapi.yaml` 是迁移范围内唯一 HTTP DTO 来源。
 
-**打码覆盖面**：此前只遮 6–18 位数字，姓名/邮箱/微信 QQ 字母 ID/带分隔符手机号全部漏网——
-而打码视图是**未登录公众可见**的，泄漏发生在门槛之前。→ 重写为多级遮蔽并验证误报。
+每个操作必须有唯一 `operationId`。标记为 `x-contract-status: typed` 的操作还要求：
 
-**Worker**：提交前删 S3 对象（回滚后附件行复活而对象已灭失 → 纠纷证据永久丢失）；备份任务
-无租约（崩溃后永久卡 running，而心跳一片绿）；panic 杀整个进程；三处游标缺 `rows.Err()`。
+- 请求参数和 JSON 请求体使用明确 schema。
+- 所有成功 JSON 响应使用明确 schema。
+- `400`、`401`、`403`、`404`、`409`、`422` 和 `500` 使用统一 `ErrorResponse`。
+- 成功响应不得以无字段对象或 `additionalProperties: true` 代替真实结构。
 
-**认证**：Argon2id 在事务内计算（约 20 并发登录占满连接池）；不存在账号跳过校验形成数量级
-时序差异；`requestCode` 可枚举邮箱、`change_email` 无需登录（邮件轰炸中继）；验证码猜错不
-计数不作废；`truncate` 按字节截断致长中文 UA 客户端**完全无法登录**；会话 Cookie 在提交前下发。
+前端 SDK 配置位于 `frontend/openapi-ts.config.ts`，使用：
 
-**其余**：附件永远无法解绑（删图功能实质不存在）；4 个 update handler 把编辑**后**内容写进版本
-历史（改了就洗白）；`publishHandbook` 命中风控词不建工单（草稿永久锁死）；过期树洞帖仍从信息流
-泄露全文；accept 加锁顺序成环；accept 不复核发布/审核状态；卖家可单方改价且无痕；取消车队漏
-重置 `team_run_members`；`removeTeamMember` 可向任意用户推送定制通知；metrics method 标签无界；
-`/metrics` 持锁写响应；`getPost` 每次浏览取行级排他锁；评论 N+1 与回复不分页；31 处
-`writeJSON` 后 `return rows.Err()` 导致响应体拼接两个 JSON。
+- `@hey-api/openapi-ts`
+- `@hey-api/typescript`
+- `@hey-api/client-fetch`
+- `@hey-api/sdk`
 
-**部署**：Zip Slip 绕不过符号链接；`trap` 绑 INT/TERM 却不退出（Ctrl-C 删完目录继续跑）；切换后
-30 秒内删原库（误恢复无法挽回，现默认保留）；生产库不可达时脚本第一步就退出；两次 rename 非
-原子；并发部署共享 candidate.env；readiness 不重试 connection refused；nginx keepalive 因缺
-`Connection ""` 从未生效；OCSP 因缺 resolver 静默失效；`noindex` 加在首页而树洞照常被收录；
-80 端口 `$host` 跳转构成开放重定向；开发 MinIO 弱口令监听 0.0.0.0；缺 `.dockerignore`。
+`frontend/scripts/check-contracts.mjs` 检查 operationId、迁移标记和响应 schema；CI 还会执行破坏性变更检查和生成文件 diff。
 
-## 四、必须由你完成
+## 3. 遗留 API 状态
 
-1. **契约同步**（`backend/api/openapi.yaml` 未随仓库重建，我无法核对）：
-   `GET /observe-posts/{observeID}/reveal` **已改为 POST**；新增 `POST /me/observe-unmask-agreement`；
-   observe 响应的 `can_unmask`；`/me` 的 `observe_unmask_agreed` / `observe_unmask_threshold`。
-   不同步会导致运行期契约校验与 `routes_test.go` 的契约路由测试失败。
-2. **重新生成生成物**：我按 sqlc 约定手工补了 `ObserveUnmaskAgreement`（00004 新增、上一轮未
-   同步，CI 的 `git diff --exit-code` 必然失败）与 `BackupJob.LeaseUntil`（00005 新增）。
-   请执行 `sqlc generate` 确认 diff 为空。
-3. **基础镜像按 digest 固定**：4 个 Dockerfile 基础镜像仍是浮动 tag。沙盒无法解析 digest
-   （写错会直接让构建失败），需要你在有网络的环境补上。
+`frontend/src/api.ts` 中的泛型 `api<T>()` 是遗留入口，不代表契约驱动调用。
 
-## 五、验证步骤
+允许的调用位置和数量记录在 `frontend/scripts/legacy-api-allowlist.json`。`npm run check:legacy-api` 禁止：
 
-```bash
-cd backend
-go generate ./...
-git diff --exit-code -- internal/dbgen internal/openapi
-gofmt -l cmd internal api        # 应无输出
-go vet ./...
-go build ./cmd/wutong
-go test -race ./...              # 集成测试需 TEST_DATABASE_URL / TEST_S3_ENDPOINT
-go run ./cmd/wutong migrate up && go run ./cmd/wutong migrate down && go run ./cmd/wutong migrate up
+- 在 allowlist 外新增遗留调用。
+- 在已有文件中增加遗留调用数量。
+- 在已迁移的 Explore、Admin、Me 和 Teams feature 中回退到遗留入口。
 
-cd ../frontend
-npm ci
-npm run generate:api             # 契约更新后
-npm run lint && npm run typecheck && npm run test:coverage && npm run build
-npx playwright test
+当前仍使用遗留入口的主要页面包括首页、Dashboard、消息和搜索。后续迁移应先补齐对应 OpenAPI schema，再改用生成 SDK，并同步减少 allowlist。
 
-cd ..
-sh deploy/test-deploy.sh
-sh deploy/test-restore.sh        # 需要 docker
+## 4. TypeScript 类型规则
+
+手写生产代码和测试统一启用：
+
+```text
+@typescript-eslint/no-explicit-any: error
 ```
 
-## 六、已定位但本次未处理
+允许例外：
 
-搜索最小长度仍为 2（2 字符中文用不上 trgm 索引，六表全表扫描；提到 3 会伤中文体验，正解是
-`pg_bigm`/全文索引，属产品决策）；纠纷仍只有发起方能举证（功能缺失，需新增端点与契约）；
-成交数与评分无女巫成本；`email_outbox` / `audit_logs` / `worker_heartbeats` / `moderation_cases`
-无清理策略；`TRUSTED_PROXY_CIDRS` 不校验前缀宽度；`resolveClientIP` 只读 `X-Real-IP`（换只设
-`X-Forwarded-For` 的入口会让全体用户共用一个限流桶）；对象存储不在备份包内（README 已补充说明）。
+- `frontend/src/generated`
+- 第三方声明
+
+`unknown` 只能出现在外部输入、浏览器存储或不可控 JSON 边界，并必须通过类型守卫或解析函数收窄。页面内部模型使用明确 ViewModel 和判别联合；例如 Explore 信息流的 `meta` 按内容类型建模。
+
+## 5. 后端纵向切片规则
+
+已迁移的后端域遵守以下约束：
+
+- application service 负责权限、所有权、状态迁移、冲突和多写事务。
+- repository 只暴露用例需要的操作，不提供通用 Repository、Manager 或 Helper。
+- repository 负责 SQL 和数据库错误归一化。
+- HTTP handler 不直接调用 `Begin`、`Query`、`QueryRow` 或 `Exec`。
+- 跨域依赖通过用例所需的最小数据结构表达。
+- 领域错误在 HTTP adapter 中映射到现有错误响应格式。
+
+静态边界测试：
+
+- `backend/internal/httpapi/market_boundaries_test.go`
+- `backend/internal/httpapi/team_boundaries_test.go`
+- `backend/internal/httpapi/governance_boundaries_test.go`
+
+Repository 集成测试使用 `TEST_DATABASE_URL` 创建临时数据库并执行真实 Goose 迁移。
+
+## 6. 安全边界
+
+### 认证和会话
+
+- 密码使用 Argon2id。
+- 会话 token 只以摘要形式存储。
+- 修改密码、停用账号和需要失效权限的管理员操作会撤销会话。
+- 非安全 HTTP 方法要求 CSRF token。
+- 验证码、登录、私信和敏感治理操作使用数据库支持的原子限流。
+
+### 代理和网络
+
+- 仅信任 `TRUSTED_PROXY_CIDRS` 中代理提供的客户端 IP。
+- Host、CORS、Cookie Secure 和 Public Origin 在生产配置中交叉校验。
+- `/metrics` 只用于内部监控网络。
+
+### 内容和对象存储
+
+- 富文本在输出前清洗。
+- public、private 和 backup bucket 分离。
+- 纠纷证据使用 private bucket 和短期签名 URL。
+- 图片类型、尺寸、解码结果和声明 MIME 需要一致。
+- 观察台原文需要信用门槛、协议确认、逐次审计和限流。
+
+### 治理与交易
+
+- 市场交易通过行锁和 service 状态机处理并发确认、取消与纠纷。
+- 车队容量、请假、签到奖励和所有权迁移在事务内完成。
+- 管理员不能通过账号更新接口限制自己的管理员账号。
+- 审核决定不会把已删除或过期内容重新发布。
+
+## 7. 数据与恢复
+
+- Goose 管理数据库版本。
+- CI 验证 `up → down → up` 和查询计划基线。
+- 备份包包含 PostgreSQL custom dump、关键表计数、对象清单和校验和。
+- 恢复先进入临时数据库，通过迁移版本、表计数、外键和对象清单校验后才切换。
+- 切换失败自动恢复原数据库；切换成功后原库默认保留为 rollback 数据库。
+- 对象本体不包含在数据库备份中，生产 bucket 仍需版本控制与跨故障域复制。
+
+## 8. CI 验收
+
+每个 Pull Request 必须通过：
+
+- Compose 配置、POSIX shell 语法、ShellCheck 和部署脚本测试。
+- Go 格式、vet、race、覆盖率、构建、迁移、staticcheck 和 govulncheck。
+- OpenAPI 破坏性检查及 Go/TypeScript 生成物无漂移。
+- 前端契约检查、legacy allowlist、ESLint、严格 typecheck、Vitest 和 Playwright。
+- npm 高危依赖审计。
+- PostgreSQL/MinIO 集成测试和恢复演练。
+- Trivy 文件系统与 API、Worker、Web 镜像扫描。
+
+`main` 的发布 job 直接加载安全扫描产出的镜像，不重新构建；发布物使用 commit SHA 标签，并产出 SBOM 与镜像 digest。
+
+## 9. 后续迁移
+
+后续工作应保持小步、串行和兼容：
+
+1. 为尚未迁移的 operation 补齐 typed OpenAPI schema。
+2. 将首页、Dashboard、消息和搜索迁移到生成 SDK，并减少 legacy allowlist。
+3. 把内容、消息、校园服务、通知和剩余账号写操作迁入对应纵向切片。
+4. 为新 service 增加真实数据库、并发冲突和事务回滚测试。
+
+迁移不得改变现有路由、JSON 字段、鉴权语义或数据库 schema；产品行为修正应使用独立变更和独立测试。

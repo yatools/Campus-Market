@@ -20,9 +20,7 @@ func (s *Server) registerGovernanceRoutes(r chi.Router) {
 	r.Get("/observe-posts", s.handle(s.listObserve))
 	r.Post("/observe-posts", s.handle(s.createObserve))
 	r.Post("/observe-posts/{observeID}/response", s.handle(s.respondObserve))
-	// POST, not GET: revealing writes an audit record, and a side-effecting GET is exempt
-	// from CSRF checks — a cross-site link could otherwise forge "user X unmasked post Y"
-	// entries in the very log the 不扩散 agreement relies on for accountability.
+	// Reveals are audited writes and therefore require CSRF protection.
 	r.Post("/observe-posts/{observeID}/reveal", s.handle(s.revealObserve))
 	r.Get("/penalties", s.handle(s.listPenalties))
 	r.Post("/penalties/{penaltyID}/appeals", s.handle(s.appealPenalty))
@@ -272,17 +270,13 @@ func (s *Server) listPenalties(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-// revealObserve returns an observe post's raw (un-masked) body to a viewer who is a
-// moderator/admin, or who meets the credit threshold AND has signed the
-// 《吃瓜不扩散协议》. Every reveal is written to the audit log so the "不扩散" promise
-// has an accountability trail. List/detail stay masked; this is the explicit opt-in.
+// revealObserve returns raw text only after authorization, throttling and audit succeed.
 func (s *Server) revealObserve(w http.ResponseWriter, r *http.Request) error {
 	id, err := pathID(r, "observeID")
 	if err != nil {
 		return err
 	}
-	// participatingUser, not currentUser: a user restricted for abusing this very feature
-	// would otherwise keep full access to it.
+	// Restricted accounts cannot reveal observe-post source text.
 	user, _, err := s.participatingUser(w, r)
 	if err != nil {
 		return err
@@ -310,9 +304,7 @@ func (s *Server) revealObserve(w http.ResponseWriter, r *http.Request) error {
 		if !agreed {
 			return apiError(403, "UNMASK_AGREEMENT_REQUIRED", "请先签署《吃瓜不扩散协议》")
 		}
-		// Per-viewer throttle. Without it a single qualifying account could walk the whole
-		// id range and export every observe post in minutes; the audit log would only record
-		// the exfiltration after the fact.
+		// Limits are charged per viewer across hourly and daily windows.
 		if err := s.rateLimit(r.Context(), "observe_unmask_hour", strconv.FormatInt(user.ID, 10), 10, 60); err != nil {
 			return err
 		}
@@ -320,8 +312,7 @@ func (s *Server) revealObserve(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 	}
-	// Fail closed: the audit entry is the entire accountability story behind 不扩散, so if
-	// it cannot be written the raw body is not handed out either.
+	// Audit failure is fail-closed.
 	tx, err := s.DB.Begin(r.Context())
 	if err != nil {
 		return err
@@ -339,9 +330,7 @@ func (s *Server) revealObserve(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-// observeUnmaskAgreed reports whether the user has accepted the *current* version of the
-// 《吃瓜不扩散协议》. Checking only for the row's existence made the version column
-// decorative: bumping the protocol text would not have forced anyone to re-consent.
+// observeUnmaskAgreed requires consent to the current agreement version.
 func (s *Server) observeUnmaskAgreed(ctx context.Context, userID int64) (bool, error) {
 	var agreed bool
 	err := s.DB.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM observe_unmask_agreements WHERE user_id=$1 AND agreed_version=$2)", userID, observeUnmaskAgreementVersion).Scan(&agreed)
@@ -362,13 +351,7 @@ func (s *Server) observePayload(ctx context.Context, q queryer, e Entity, o Obse
 	return map[string]any{"id": e.ID, "title": o.Title, "body": body, "status": e.Status, "response": o.Response, "admin_note": o.AdminNote, "mine": viewer != nil && viewer.ID == e.OwnerID, "respondent": viewer != nil && o.Respondent != nil && viewer.ID == *o.Respondent, "can_unmask": canUnmask, "created_at": e.CreatedAt, "updated_at": e.UpdatedAt, "attachments": files}, nil
 }
 
-// Masking patterns for observe posts. Order matters: the more specific patterns run first
-// so a phone number is not swallowed by the generic digit rule before it can be matched.
-//
-// The previous version only replaced runs of 6-18 digits, which meant a body like
-// "张伟，微信 zhangwei_1998，邮箱 a@stu.edu.cn，电话 138-1234-5678，QQ 12345" came through
-// entirely in the clear — and the masked body is what anonymous visitors see, so that leak
-// sat in front of the credit/agreement gate rather than behind it.
+// Specific observe-post identifiers must be masked before the generic digit pattern.
 var (
 	phoneMask = regexp.MustCompile(`1[3-9]\d[-\s]?\d{4}[-\s]?\d{4}`)
 	emailMask = regexp.MustCompile(`[\w.+-]+@[\w-]+(?:\.[\w-]+)+`)
@@ -735,12 +718,7 @@ func (s *Server) contextContactAllowed(ctx context.Context, q queryer, sender, r
 	return false, nil
 }
 
-// findConversation locates the existing two-party conversation between a and b, if any.
-//
-// This used to walk every conversation of the given kind and issue a follow-up query per
-// row. On a pgx.Tx that is a single connection, so the inner query ran while the outer
-// result set was still open and failed with "conn busy" — i.e. starting a second direct
-// conversation site-wide always returned 500. It was also O(all conversations) per call.
+// findConversation locates one exact two-party conversation without nested cursor queries.
 func findConversation(ctx context.Context, q queryer, a, b int64, kind string, contextID *int64) (int64, time.Time, error) {
 	var id int64
 	var created time.Time
@@ -859,13 +837,7 @@ func (s *Server) notificationStream(w http.ResponseWriter, r *http.Request) erro
 	if !ok {
 		return fmt.Errorf("streaming unsupported")
 	}
-	// Clear the server's 90s WriteTimeout for this long-lived stream. The absolute
-	// write deadline is not reset by the 30s heartbeat, so without this every SSE
-	// connection is severed ~90s after it opens, degrading realtime notifications to
-	// a reconnect-driven poll (and dropping events in each reconnect gap).
-	// Clear the server's WriteTimeout for this connection: an SSE stream is long-lived by
-	// design and would otherwise be cut every 90 seconds. Log on failure — a silently
-	// discarded error here is exactly how this fix went unnoticed the first time.
+	// SSE owns the connection beyond the server's normal write timeout.
 	if err := http.NewResponseController(w).SetWriteDeadline(time.Time{}); err != nil {
 		slog.Warn("sse_write_deadline_unsupported", "error", err, "request_id", requestID(r.Context()))
 	}
@@ -1147,10 +1119,7 @@ func (s *Server) rateCampusService(w http.ResponseWriter, r *http.Request) error
 		return err
 	}
 	defer tx.Rollback(r.Context())
-	// FOR UPDATE serialises concurrent ratings of the same service on the service row.
-	// campus_service_ratings has no uniqueness constraint (unlike every sibling rating
-	// table), so without it two simultaneous submissions both read "no previous rating"
-	// and both pass the 30-day cooldown.
+	// The service row serializes the 30-day rating cooldown check.
 	service, err := scanCampusService(tx.QueryRow(r.Context(), "SELECT id,name,category,manager_user_id,active,created_at,updated_at FROM campus_services WHERE id=$1 FOR UPDATE", id))
 	if err != nil || !service.Active {
 		return apiError(404, "CAMPUS_SERVICE_NOT_FOUND", "校园服务不存在")
@@ -1456,9 +1425,7 @@ func (s *Server) updateCreditRules(w http.ResponseWriter, r *http.Request) error
 	after := map[string]int{}
 	rules := make([]creditRuleUpdate, len(body.Rules))
 	copy(rules, body.Rules)
-	// Lock rows in a deterministic order. Two admins submitting overlapping key sets in
-	// different orders would otherwise take the same row locks in opposite order and
-	// deadlock, aborting one of them with a 500.
+	// Deterministic row-lock order prevents overlapping updates from deadlocking.
 	sort.Slice(rules, func(i, j int) bool { return rules[i].Key < rules[j].Key })
 	for _, item := range rules {
 		if seen[item.Key] {
@@ -1488,13 +1455,7 @@ func (s *Server) updateCreditRules(w http.ResponseWriter, r *http.Request) error
 		before[item.Key] = old
 		after[item.Key] = item.Value
 	}
-	// The unmask gate is only a gate if it sits strictly above the credit every new account
-	// starts with. Leaving them equal (both defaulted to 800) meant a freshly registered
-	// user could sign the agreement and read every observe post in the clear.
-	//
-	// Only enforced when this request actually touches one of the two keys: an existing
-	// deployment may still hold the old 800/800 pair, and rejecting every unrelated rule
-	// change until it is fixed would be a surprising way to find that out.
+	// Changes to either gate key must keep unmask credit above initial account credit.
 	if seen["baseline.initial_credit"] || seen["threshold.observe_unmask"] {
 		var initialCredit, unmaskThreshold int
 		if err := tx.QueryRow(r.Context(), "SELECT (SELECT value FROM credit_rules WHERE key='baseline.initial_credit'),(SELECT value FROM credit_rules WHERE key='threshold.observe_unmask')").Scan(&initialCredit, &unmaskThreshold); err != nil {
