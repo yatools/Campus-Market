@@ -138,9 +138,11 @@ func (s *Server) adminCreatePenalty(w http.ResponseWriter, r *http.Request) erro
 		return err
 	}
 	var body struct {
-		UserID                  int64 `json:"user_id"`
-		Violation, Result, Rule string
-		Delta                   int `json:"credit_delta"`
+		UserID    int64  `json:"user_id"`
+		Violation string `json:"violation_type"`
+		Result    string `json:"result"`
+		Rule      string `json:"rule"`
+		Delta     int    `json:"credit_delta"`
 	}
 	if err := decodeBody(r, &body); err != nil {
 		return err

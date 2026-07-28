@@ -307,7 +307,7 @@ func TestPostgresAuthAndTreeholeWorkflow(t *testing.T) {
 	assertOpenAPIResponse(t, updatedUser)
 	updatedUser.Body.Close()
 	penaltyResponse := requestJSON(t, adminClient, http.MethodPost, server.URL+"/api/v1/admin/penalties", map[string]any{
-		"user_id": memberID, "violation": "integration spam", "result": "warning",
+		"user_id": memberID, "violation_type": "integration spam", "result": "warning",
 		"rule": "integration governance rule", "credit_delta": -25,
 	}, adminCSRF)
 	if penaltyResponse.StatusCode != http.StatusCreated {
