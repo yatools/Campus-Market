@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"strconv"
 	"strings"
 	"time"
 
@@ -498,37 +497,6 @@ func (s *Server) simpleUserQueue(w http.ResponseWriter, r *http.Request, table, 
 	writeJSON(w, 200, pagePayload(items, page, size, total))
 	return nil
 }
-func (s *Server) deactivateAccount(w http.ResponseWriter, r *http.Request) error {
-	user, _, err := s.currentUser(w, r, true)
-	if err != nil {
-		return err
-	}
-	var body struct{ Password, Confirmation string }
-	if err := decodeBody(r, &body); err != nil {
-		return err
-	}
-	if body.Confirmation != "注销我的账号" {
-		return apiError(400, "CONFIRMATION_REQUIRED", "请输入“注销我的账号”确认")
-	}
-	if !security.VerifyPassword(body.Password, user.PasswordHash) {
-		return apiError(400, "PASSWORD_INVALID", "密码错误")
-	}
-	tx, err := s.DB.Begin(r.Context())
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(r.Context())
-	_, _ = tx.Exec(r.Context(), "UPDATE users SET status='disabled',deactivated_at=now(),updated_at=now() WHERE id=$1", user.ID)
-	_, _ = tx.Exec(r.Context(), "UPDATE sessions SET revoked_at=now() WHERE user_id=$1", user.ID)
-	actor := user.ID
-	_ = auditSQL(r.Context(), tx, &actor, "account.deactivate", "user", user.ID, "", nil, nil, requestID(r.Context()))
-	if err := tx.Commit(r.Context()); err != nil {
-		return err
-	}
-	s.clearSessionCookies(w)
-	writeJSON(w, 200, map[string]any{"ok": true, "anonymize_after_days": 30})
-	return nil
-}
 
 // Admin dashboard and governance.
 func (s *Server) adminOverview(w http.ResponseWriter, r *http.Request) error {
@@ -622,84 +590,6 @@ func (s *Server) adminUsers(w http.ResponseWriter, r *http.Request) error {
 	writeJSON(w, 200, pagePayload(items, page, size, total))
 	return nil
 }
-func (s *Server) adminUpdateUser(w http.ResponseWriter, r *http.Request) error {
-	admin, err := s.adminUser(w, r)
-	if err != nil {
-		return err
-	}
-	id, _ := pathID(r, "userID")
-	var raw map[string]json.RawMessage
-	if err := decodeBody(r, &raw); err != nil {
-		return err
-	}
-	var reason string
-	if value, ok := raw["reason"]; ok {
-		_ = json.Unmarshal(value, &reason)
-	}
-	if runeLen(strings.TrimSpace(reason)) < 2 || runeLen(strings.TrimSpace(reason)) > 1000 {
-		return validation("reason", "String should have at least 2 characters")
-	}
-	tx, err := s.DB.Begin(r.Context())
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(r.Context())
-	target, err := scanUser(tx.QueryRow(r.Context(), `SELECT id,email,password_hash,nickname,alias,campus_identity,role,status,credit,xp,avatar_path,dm_stranger_off,hide_online,verified_at,created_at FROM users WHERE id=$1 FOR UPDATE`, id))
-	if err != nil {
-		return apiError(404, "USER_NOT_FOUND", "用户不存在")
-	}
-	before := userPayload(target)
-	if value, ok := raw["role"]; ok {
-		var x string
-		_ = json.Unmarshal(value, &x)
-		if x != "user" && x != "moderator" && x != "admin" {
-			return validation("role", "Value error, 角色无效")
-		}
-		target.Role = x
-	}
-	if value, ok := raw["campus_identity"]; ok {
-		var x string
-		_ = json.Unmarshal(value, &x)
-		if x != "student" && x != "alumni" && x != "staff" {
-			return validation("campus_identity", "Value error, 校园身份无效")
-		}
-		target.CampusIdentity = x
-	}
-	if value, ok := raw["status"]; ok {
-		var x string
-		_ = json.Unmarshal(value, &x)
-		if x != "active" && x != "restricted" && x != "disabled" {
-			return validation("status", "Value error, 账号状态无效")
-		}
-		if target.ID == admin.ID && (x == "disabled" || x == "restricted") {
-			return apiError(400, "SELF_LOCKOUT", "不能限制自己的管理员账号")
-		}
-		target.Status = x
-	}
-	if value, ok := raw["credit"]; ok {
-		var x int
-		if json.Unmarshal(value, &x) != nil || x < 0 || x > 1000 {
-			return validation("credit", "Input should be between 0 and 1000")
-		}
-		target.Credit = x
-	}
-	_, err = tx.Exec(r.Context(), "UPDATE users SET role=$1,campus_identity=$2,status=$3,credit=$4,updated_at=now() WHERE id=$5", target.Role, target.CampusIdentity, target.Status, target.Credit, id)
-	if err != nil {
-		return err
-	}
-	if target.Status == "disabled" || target.Role != before["role"] {
-		_, _ = tx.Exec(r.Context(), "UPDATE sessions SET revoked_at=now() WHERE user_id=$1 AND revoked_at IS NULL", id)
-	}
-	actor := admin.ID
-	_ = auditSQL(r.Context(), tx, &actor, "admin.user_update", "user", id, strings.TrimSpace(reason), before, userPayload(target), requestID(r.Context()))
-	_ = notifySQL(r.Context(), tx, id, "账号状态已更新", strings.TrimSpace(reason), "/me", "system")
-	if err := tx.Commit(r.Context()); err != nil {
-		return err
-	}
-	writeJSON(w, 200, userPayload(target))
-	return nil
-}
-
 func (s *Server) adminModerationCases(w http.ResponseWriter, r *http.Request) error {
 	if _, err := s.moderatorUser(w, r); err != nil {
 		return err
@@ -822,159 +712,6 @@ func (s *Server) adminReports(w http.ResponseWriter, r *http.Request) error {
 	writeJSON(w, 200, pagePayload(items, page, size, total))
 	return nil
 }
-func (s *Server) adminDecideModeration(w http.ResponseWriter, r *http.Request) error {
-	moderator, err := s.moderatorUser(w, r)
-	if err != nil {
-		return err
-	}
-	id, _ := pathID(r, "caseID")
-	var body struct {
-		Decision, Note string
-		Respondent     *int64 `json:"respondent_id"`
-	}
-	if err := decodeBody(r, &body); err != nil {
-		return err
-	}
-	if body.Decision != "approve" && body.Decision != "reject" && body.Decision != "hide" {
-		return validation("decision", "Value error, 审核决定无效")
-	}
-	tx, err := s.DB.Begin(r.Context())
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(r.Context())
-	var entityID int64
-	var status string
-	if err := tx.QueryRow(r.Context(), "SELECT entity_id,status FROM moderation_cases WHERE id=$1 FOR UPDATE", id).Scan(&entityID, &status); err != nil {
-		return apiError(404, "CASE_NOT_FOUND", "审核案件不存在")
-	}
-	if status != "pending" {
-		var decision string
-		_ = tx.QueryRow(r.Context(), "SELECT decision FROM moderation_cases WHERE id=$1", id).Scan(&decision)
-		writeJSON(w, 200, map[string]any{"id": id, "status": status, "decision": decision})
-		return nil
-	}
-	e, err := getEntityForUpdate(r.Context(), tx, entityID)
-	if err != nil {
-		return err
-	}
-	entityStatus := "hidden"
-	moderationStatus := "rejected"
-	if body.Decision == "approve" {
-		entityStatus = "published"
-		moderationStatus = "approved"
-	}
-	_, err = tx.Exec(r.Context(), "UPDATE moderation_cases SET status='resolved',assignee_id=$1,decision=$2,notes=$3,decided_at=now() WHERE id=$4", moderator.ID, body.Decision, body.Note, id)
-	if err != nil {
-		return err
-	}
-	if e.Status == "published" || e.Status == "hidden" {
-		_, _ = tx.Exec(r.Context(), "UPDATE content_entities SET publication_status=$1,moderation_status=$2,updated_at=now() WHERE id=$3", entityStatus, moderationStatus, entityID)
-	} else {
-		// The entity was already deleted by its author or expired by the worker.
-		// Record the moderation decision but never resurrect publication_status
-		// back to 'published' — that would republish content against the author's
-		// deletion or past its expiry.
-		entityStatus = e.Status
-		_, _ = tx.Exec(r.Context(), "UPDATE content_entities SET moderation_status=$1,updated_at=now() WHERE id=$2", moderationStatus, entityID)
-	}
-	if body.Decision != "approve" {
-		var bounty int
-		if tx.QueryRow(r.Context(), `UPDATE questions SET bounty_settled=true WHERE entity_id=$1 AND bounty_settled=false AND accepted_answer_id IS NULL RETURNING bounty_xp`, entityID).Scan(&bounty) == nil {
-			_, _ = tx.Exec(r.Context(), "UPDATE users SET xp=xp+$1 WHERE id=$2", bounty, e.OwnerID)
-		}
-	}
-	var observeTitle string
-	if err := tx.QueryRow(r.Context(), "SELECT title FROM observe_posts WHERE entity_id=$1", entityID).Scan(&observeTitle); err == nil {
-		if body.Respondent != nil {
-			var active bool
-			_ = tx.QueryRow(r.Context(), "SELECT EXISTS(SELECT 1 FROM users WHERE id=$1 AND status='active')", *body.Respondent).Scan(&active)
-			if !active {
-				return apiError(404, "RESPONDENT_NOT_FOUND", "指定回应方不存在")
-			}
-			_, _ = tx.Exec(r.Context(), "UPDATE observe_posts SET respondent_id=$1 WHERE entity_id=$2", *body.Respondent, entityID)
-			_ = notifySQL(r.Context(), tx, *body.Respondent, "你被指定为观察帖回应方", observeTitle, fmt.Sprintf("/observe/%d", entityID), "system")
-		}
-		_, _ = tx.Exec(r.Context(), "UPDATE observe_posts SET admin_note=$1 WHERE entity_id=$2", body.Note, entityID)
-	}
-	_, _ = tx.Exec(r.Context(), "UPDATE reports SET status='resolved' WHERE entity_id=$1 AND status='pending'", entityID)
-	actor := moderator.ID
-	_ = auditSQL(r.Context(), tx, &actor, "moderation.decide", e.Type, e.ID, body.Note, map[string]any{"case_status": "pending", "entity_status": e.Status}, map[string]any{"case_status": "resolved", "entity_status": entityStatus, "decision": body.Decision}, requestID(r.Context()))
-	_ = notifySQL(r.Context(), tx, e.OwnerID, "内容审核结果", "审核结果："+body.Decision+"。"+body.Note, fmt.Sprintf("/content/%d", entityID), "system")
-	if err := tx.Commit(r.Context()); err != nil {
-		return err
-	}
-	writeJSON(w, 200, map[string]any{"id": id, "status": "resolved", "decision": body.Decision})
-	return nil
-}
-func (s *Server) adminCreatePenalty(w http.ResponseWriter, r *http.Request) error {
-	moderator, err := s.moderatorUser(w, r)
-	if err != nil {
-		return err
-	}
-	var body struct {
-		UserID                  int64 `json:"user_id"`
-		Violation, Result, Rule string
-		Delta                   int `json:"credit_delta"`
-	}
-	if err := decodeBody(r, &body); err != nil {
-		return err
-	}
-	if body.Delta > 0 || body.Delta < -1000 {
-		return validation("credit_delta", "Input should be between -1000 and 0")
-	}
-	// Bound the text fields to their column widths (violation_type VARCHAR(120),
-	// rule VARCHAR(160)); over-long input otherwise fails with 22001 and surfaces as a 500
-	// rather than a validation error.
-	body.Violation = strings.TrimSpace(body.Violation)
-	body.Result = strings.TrimSpace(body.Result)
-	body.Rule = strings.TrimSpace(body.Rule)
-	fields := map[string]string{}
-	if runeLen(body.Violation) < 2 || runeLen(body.Violation) > 120 {
-		fields["violation"] = "String should have at least 2 characters"
-	}
-	if runeLen(body.Result) < 2 || runeLen(body.Result) > 2000 {
-		fields["result"] = "String should have at least 2 characters"
-	}
-	if runeLen(body.Rule) < 2 || runeLen(body.Rule) > 160 {
-		fields["rule"] = "String should have at least 2 characters"
-	}
-	if len(fields) > 0 {
-		return validationFields(fields)
-	}
-	tx, err := s.DB.Begin(r.Context())
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(r.Context())
-	var before, after int
-	err = tx.QueryRow(r.Context(), "SELECT credit FROM users WHERE id=$1 FOR UPDATE", body.UserID).Scan(&before)
-	if err != nil {
-		return apiError(404, "USER_NOT_FOUND", "用户不存在")
-	}
-	if err = tx.QueryRow(r.Context(), "UPDATE users SET credit=GREATEST(0,LEAST(1000,credit+$1)),updated_at=now() WHERE id=$2 RETURNING credit", body.Delta, body.UserID).Scan(&after); err != nil {
-		return err
-	}
-	// Do NOT derive the public mask from alias: alias is the user's anonymous display
-	// name (2–20 chars) and lastRunes returned it in full when short, so the open
-	// penalties board linked a user's alias to their moderation record. Use a stable,
-	// non-reversible per-user code instead. 10 hex digits (40 bits) rather than 6: at 24
-	// bits two users share a code with better-than-even odds by ~5k accounts, which would
-	// merge unrelated people's records on the public board.
-	mask := "用户 " + strings.ToUpper(security.TokenHash(s.Config.SecretKey, "penalty-mask:"+strconv.FormatInt(body.UserID, 10))[:10])
-	var id int64
-	if err := tx.QueryRow(r.Context(), "INSERT INTO penalties(user_id,public_mask,violation_type,result,rule,created_at) VALUES($1,$2,$3,$4,$5,now()) RETURNING id", body.UserID, mask, body.Violation, body.Result, body.Rule).Scan(&id); err != nil {
-		return err
-	}
-	actor := moderator.ID
-	_ = auditSQL(r.Context(), tx, &actor, "penalty.create", "penalty", id, body.Rule, map[string]any{"user_id": body.UserID, "credit": before}, map[string]any{"user_id": body.UserID, "credit": after, "result": body.Result}, requestID(r.Context()))
-	_ = notifySQL(r.Context(), tx, body.UserID, "收到治理处理", body.Result, "/governance", "system")
-	if err := tx.Commit(r.Context()); err != nil {
-		return err
-	}
-	writeJSON(w, 201, map[string]any{"id": id, "credit": after})
-	return nil
-}
 func (s *Server) adminAppeals(w http.ResponseWriter, r *http.Request) error {
 	if _, err := s.moderatorUser(w, r); err != nil {
 		return err
@@ -1012,43 +749,6 @@ func (s *Server) adminAppeals(w http.ResponseWriter, r *http.Request) error {
 	writeJSON(w, 200, pagePayload(items, page, size, total))
 	return nil
 }
-func (s *Server) adminDecideAppeal(w http.ResponseWriter, r *http.Request) error {
-	moderator, err := s.moderatorUser(w, r)
-	if err != nil {
-		return err
-	}
-	id, _ := pathID(r, "appealID")
-	var body struct{ Status, Note string }
-	if err := decodeBody(r, &body); err != nil {
-		return err
-	}
-	if body.Status != "approved" && body.Status != "rejected" {
-		return validation("status", "Value error, 申诉决定无效")
-	}
-	tx, err := s.DB.Begin(r.Context())
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(r.Context())
-	var userID int64
-	var status string
-	if err := tx.QueryRow(r.Context(), "SELECT user_id,status FROM appeals WHERE id=$1 FOR UPDATE", id).Scan(&userID, &status); err != nil {
-		return apiError(404, "APPEAL_NOT_FOUND", "申诉不存在")
-	}
-	if status == "pending" {
-		_, _ = tx.Exec(r.Context(), "UPDATE appeals SET status=$1,admin_note=$2 WHERE id=$3", body.Status, body.Note, id)
-		actor := moderator.ID
-		_ = auditSQL(r.Context(), tx, &actor, "appeal.decide", "appeal", id, body.Note, map[string]any{"status": status}, map[string]any{"status": body.Status}, requestID(r.Context()))
-		_ = notifySQL(r.Context(), tx, userID, "申诉处理结果", body.Status+"："+body.Note, "/me", "system")
-		status = body.Status
-	}
-	if err := tx.Commit(r.Context()); err != nil {
-		return err
-	}
-	writeJSON(w, 200, map[string]any{"id": id, "status": status})
-	return nil
-}
-
 func (s *Server) adminCreateAnnouncement(w http.ResponseWriter, r *http.Request) error {
 	moderator, err := s.moderatorUser(w, r)
 	if err != nil {

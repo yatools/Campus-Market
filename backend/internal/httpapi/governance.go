@@ -271,55 +271,6 @@ func (s *Server) listPenalties(w http.ResponseWriter, r *http.Request) error {
 	writeJSON(w, 200, pagePayload(items, page, size, total))
 	return nil
 }
-func (s *Server) appealPenalty(w http.ResponseWriter, r *http.Request) error {
-	id, _ := pathID(r, "penaltyID")
-	user, _, err := s.currentUser(w, r, true)
-	if err != nil {
-		return err
-	}
-	var body struct {
-		Reason string `json:"reason"`
-	}
-	if err := decodeBody(r, &body); err != nil {
-		return err
-	}
-	if runeLen(strings.TrimSpace(body.Reason)) < 10 || runeLen(strings.TrimSpace(body.Reason)) > 5000 {
-		return validation("reason", "String should have at least 10 characters")
-	}
-	tx, err := s.DB.Begin(r.Context())
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(r.Context())
-	var owner int64
-	if err := tx.QueryRow(r.Context(), "SELECT user_id FROM penalties WHERE id=$1", id).Scan(&owner); err == pgx.ErrNoRows {
-		return apiError(404, "PENALTY_NOT_FOUND", "处罚记录不存在")
-	} else if err != nil {
-		return err
-	}
-	if owner != user.ID {
-		return apiError(403, "PENALTY_OWNER_REQUIRED", "只能申诉自己的处罚记录")
-	}
-	var appealID int64
-	var status string
-	// ON CONFLICT rather than check-then-insert: a double-clicked "submit appeal" used to
-	// have both transactions see no existing row and the loser hit uq_appeal, which
-	// surfaced as a 500 on what should be an idempotent action.
-	err = tx.QueryRow(r.Context(), `INSERT INTO appeals(penalty_id,user_id,reason,status,admin_note,created_at)
-		VALUES($1,$2,$3,'pending','',now())
-		ON CONFLICT(penalty_id,user_id) DO UPDATE SET penalty_id=EXCLUDED.penalty_id
-		RETURNING id,status`, id, user.ID, strings.TrimSpace(body.Reason)).Scan(&appealID, &status)
-	if err != nil {
-		return err
-	}
-	actor := user.ID
-	_ = auditSQL(r.Context(), tx, &actor, "appeal.create", "appeal", appealID, "", nil, nil, requestID(r.Context()))
-	if err := tx.Commit(r.Context()); err != nil {
-		return err
-	}
-	writeJSON(w, 201, map[string]any{"id": appealID, "status": status})
-	return nil
-}
 
 // revealObserve returns an observe post's raw (un-masked) body to a viewer who is a
 // moderator/admin, or who meets the credit threshold AND has signed the
