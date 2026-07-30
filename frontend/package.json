@@ -20,7 +20,7 @@
     "@tiptap/extension-image": "^3.27.4",
     "@tiptap/extension-link": "^3.27.4",
     "@tiptap/extension-placeholder": "^3.27.4",
-    "@tiptap/markdown": "^3.27.4",
+    "@tiptap/markdown": "^3.29.2",
     "@tiptap/starter-kit": "^3.27.4",
     "@tiptap/vue-3": "^3.27.4",
     "dompurify": "^3.2.6",
